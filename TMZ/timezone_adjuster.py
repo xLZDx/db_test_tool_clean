@@ -325,7 +325,7 @@ def main():
             return
 
     print("=" * 55)
-    print(f"  TimeZone Checker — {LOCATION}")
+    print(f"  TimeZone Checker -- {LOCATION}")
     print(f"  Expected: {EXPECTED_TZ_NAME} (ET)")
     print(f"  Auto-correction: ENABLED")
     print("=" * 55)

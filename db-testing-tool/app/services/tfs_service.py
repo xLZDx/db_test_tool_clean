@@ -125,7 +125,7 @@ async def create_work_item(db: AsyncSession, title: str, description: str,
             logger.exception("TFS integration error")
             wi.description += f"\n\n[TFS sync error: {e}]"
     else:
-        logger.info("TFS not configured – work item stored locally only.")
+        logger.info("TFS not configured - work item stored locally only.")
 
     db.add(wi)
     await db.commit()

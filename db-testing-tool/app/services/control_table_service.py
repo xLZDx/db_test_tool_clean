@@ -235,7 +235,7 @@ def load_target_table_definition(datasource_id: int, target_schema: str, target_
     raise ValueError(
         f"Table {wanted_schema}.{wanted_table} not found in saved PDM and could not be loaded "
         f"from the live database. Please generate/save the PDM for datasource {datasource_id} "
-        f"(Schema Browser → Generate PDM) or check the schema/table name."
+        f"(Schema Browser -> Generate PDM) or check the schema/table name."
     )
 
 
