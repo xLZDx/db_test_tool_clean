@@ -3,12 +3,13 @@ $ErrorActionPreference = 'Stop'
 $scriptPath = $MyInvocation.MyCommand.Path
 $appDir = Split-Path -Parent $scriptPath
 $repoRoot = Split-Path -Parent $appDir
-$venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
 $localVenvPython = Join-Path $appDir '.venv\Scripts\python.exe'
-$pyExe = if (Test-Path $venvPython) {
-    $venvPython
-} elseif (Test-Path $localVenvPython) {
+$venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
+# Prefer the app-local venv (db-testing-tool dedicated) over the repo-root one
+$pyExe = if (Test-Path $localVenvPython) {
     $localVenvPython
+} elseif (Test-Path $venvPython) {
+    $venvPython
 } else {
     'python'
 }
@@ -140,16 +141,14 @@ function Stop-ToolProcesses {
 }
 
 function Start-UvicornInstance([int]$port, [string]$label, [string]$stdoutLog, [string]$stderrLog, [bool]$useReload) {
-    $args = @('-u', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', [string]$port, '--log-level', 'debug', '--access-log', '--app-dir', $appDir)
+    $uvArgs = @('-u', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', [string]$port, '--log-level', 'debug', '--access-log')
     if ($useReload) {
-        # Avoid wildcard argument expansion issues on Windows when passing
-        # reload exclude patterns through python -m uvicorn.
-        $args += @('--reload', '--reload-dir', $reloadDir)
+        $uvArgs += @('--reload', '--reload-dir', $reloadDir)
     }
 
     Write-ActionCache "Starting $label server on port $port. Logs: $stdoutLog ; $stderrLog"
     Start-Process -FilePath $pyExe `
-        -ArgumentList $args `
+        -ArgumentList $uvArgs `
         -WorkingDirectory $appDir `
         -WindowStyle Minimized `
         -RedirectStandardOutput $stdoutLog `

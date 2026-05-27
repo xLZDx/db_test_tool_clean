@@ -343,17 +343,41 @@ def _value_match_tests(rule: MappingRule) -> List[TestCase]:
     return tests
 
 
-def _freshness_test(rule: MappingRule) -> TestCase:
-    """Generate freshness test on target table."""
+_FRESHNESS_CANDIDATES = [
+    "UPDATED_AT", "UPDATE_DT", "LAST_UPDATE_DATE", "LAST_UPDATED",
+    "MODIFIED_DATE", "MODIFIED_AT", "LAST_MOD_DT", "LOAD_DT",
+    "UPDATE_DATE", "LAST_CHANGE_DATE", "LAST_MODIFIED", "MODIFIED_TS",
+]
+
+
+def _freshness_test(rule: MappingRule, target_cols: list | None = None) -> TestCase | None:
+    """Generate freshness test on target table.
+
+    Searches ``target_cols`` for a known audit timestamp column.  Returns None
+    when no suitable column is found so callers can skip the test rather than
+    emitting a guaranteed ORA-00904.
+    """
     tgt_fq = f'"{rule.target_schema}"."{rule.target_table}"'
+
+    ts_col: str | None = None
+    if target_cols:
+        col_names_upper = {(c.get("name") or "").upper() for c in target_cols}
+        for candidate in _FRESHNESS_CANDIDATES:
+            if candidate in col_names_upper:
+                ts_col = candidate
+                break
+
+    if ts_col is None:
+        return None
+
     return TestCase(
         name=f"Freshness: {rule.target_table}",
         test_type="freshness",
         mapping_rule_id=rule.id,
         target_datasource_id=rule.target_datasource_id,
-        target_query=f"SELECT /*+ PARALLEL(8) */ MAX(updated_at) AS last_update FROM {tgt_fq}",
+        target_query=f"SELECT /*+ PARALLEL(8) */ MAX({ts_col}) AS last_update FROM {tgt_fq}",
         severity="medium",
-        description="Check target table freshness (assumes updated_at column).",
+        description=f"Check target table freshness via {ts_col}.",
     )
 
 
@@ -410,8 +434,10 @@ async def generate_tests_for_rule(db: AsyncSession, rule_id: int, connection_id:
     # 4. Value match (aggregate comparison)
     tests.extend(_value_match_tests(rule))
 
-    # 5. Freshness
-    tests.append(_freshness_test(rule))
+    # 5. Freshness (skipped when no suitable timestamp column is found)
+    freshness = _freshness_test(rule, target_cols)
+    if freshness is not None:
+        tests.append(freshness)
 
     # Persist
     for t in tests:
@@ -456,7 +482,9 @@ async def preview_tests_for_rule(db: AsyncSession, rule_id: int) -> List[dict]:
     if uk:
         tests.append(uk)
     tests.extend(_value_match_tests(rule))
-    tests.append(_freshness_test(rule))
+    freshness = _freshness_test(rule, target_cols)
+    if freshness is not None:
+        tests.append(freshness)
 
     return [
         {

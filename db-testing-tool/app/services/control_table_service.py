@@ -17,6 +17,7 @@ from app.services.drd_import_service import (
     _extract_case_expression,
     _extract_lookup_spec,
     _is_lookup_table_name,
+    _resolve_column_name,
     generate_drd_tests,
     parse_drd_file,
     validate_column_mappings_with_kb,
@@ -156,6 +157,7 @@ def analyze_control_table(
         target_table=target_table,
         target_definition=target_def,
         analysis_rows=analysis_rows,
+        source_schema_index=source_index,
     )
     comparison = compare_insert_variants(analysis_rows, insert_sql, manual_sql)
     suite_tests = build_control_table_test_defs(
@@ -235,7 +237,7 @@ def load_target_table_definition(datasource_id: int, target_schema: str, target_
     raise ValueError(
         f"Table {wanted_schema}.{wanted_table} not found in saved PDM and could not be loaded "
         f"from the live database. Please generate/save the PDM for datasource {datasource_id} "
-        f"(Schema Browser -> Generate PDM) or check the schema/table name."
+        f"(Schema Browser → Generate PDM) or check the schema/table name."
     )
 
 
@@ -368,6 +370,9 @@ def build_analysis_rows(
         drd_expr = expr_info.get("expression") or fallback_drd_expression(row, source_attr)
         lookup_join = expr_info.get("lookup_join") or ""
 
+        # Always compute bare source-table name for use in expression normalization.
+        _src_table_for_check = (row.get("source_table") or "").strip().upper().split(".")[-1]
+
         # If baseline did not preserve lookup metadata, derive it from DRD transformation text.
         if not lookup_join:
             lookup_join, derived_expr = derive_lookup_from_transformation(
@@ -377,7 +382,6 @@ def build_analysis_rows(
                 source_schema_index=source_schema_index,
                 source_block=expr_info.get("source_block") or fallback_source_block(row),
             )
-            _src_table_for_check = (row.get("source_table") or "").strip().upper().split(".")[-1]
             _plain_ref_forms = {normalize_sql_expr(f"S.{source_attr}")}
             if _src_table_for_check:
                 _plain_ref_forms.add(normalize_sql_expr(f"{_src_table_for_check}.{source_attr}"))
@@ -424,7 +428,9 @@ def fallback_drd_expression(row: Dict[str, Any], source_attr: str) -> str:
     if source_attr in {"NULL", "NONE", "N/A"}:
         return "NULL"
     src_table = (row.get("source_table") or "").strip()
-    src_prefix = f"{src_table}." if src_table else ""
+    # Use only the bare table name as alias prefix (last segment of FQ name)
+    src_table_bare = src_table.split(".")[-1] if src_table else ""
+    src_prefix = f"{src_table_bare}." if src_table_bare else ""
     transformation = (row.get("transformation") or "").strip()
     notes = (row.get("notes") or "").strip()
     if transformation:
@@ -489,64 +495,94 @@ def build_control_insert_sql(
     target_table: str,
     target_definition: Dict[str, Any],
     analysis_rows: List[Dict[str, Any]],
+    source_schema_index: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
 ) -> str:
     row_map = {row["column"]: row for row in analysis_rows}
-    source_blocks = [row.get("source_block", "") for row in analysis_rows if row.get("source_block")]
-    base_source = Counter(source_blocks).most_common(1)[0][0] if source_blocks else "FROM SOURCE_SCHEMA.SOURCE_TABLE"
 
-    # ── Detect source table alias from DRD expressions ────────────────────
-    # DRD expressions frequently reference e.g. OPN_TAX_LOTS_NONBKR_TGT.COLUMN
-    # where OPN_TAX_LOTS_NONBKR_TGT is the alias (or bare table name) used in the
-    # original ETL query.  We must detect and preserve this in the FROM clause.
-    _from_match = re.search(r'\bFROM\s+((?:[A-Z0-9_]+\.)?([A-Z0-9_]+))(?:\s+([A-Z][A-Z0-9_]*))?\s*$',
-                            base_source, flags=re.IGNORECASE)
-    _src_fq = _from_match.group(1).upper() if _from_match else "SOURCE_SCHEMA.SOURCE_TABLE"
-    _src_table_name = _from_match.group(2).upper() if _from_match else "SOURCE_TABLE"
-    _src_explicit_alias = (_from_match.group(3) or "").upper() if _from_match else ""
-
-    # Count which prefix is most used in DRD expressions to infer the real alias
-    _alias_freq: Dict[str, int] = {}
+    # ── Collect all unique non-lookup source tables from DRD rows ─────────
+    # Each DRD row may come from a different source table (multi-join fact tables).
+    # Build an ordered map of FQ_table -> bare_alias so the FROM clause lists all
+    # required tables.  First occurrence order is preserved.
+    _src_table_registry: Dict[str, str] = {}  # fq_upper -> bare_alias_upper
+    _src_table_counts: Dict[str, int] = defaultdict(int)
+    _src_schema_parts: set = set()
     for _row in analysis_rows:
-        expr = (_row.get("drd_expression") or "").upper()
-        for m in re.finditer(r'\b([A-Z][A-Z0-9_]*)\.[A-Z_][A-Z0-9_]*\b', expr):
-            prefix = m.group(1)
-            if prefix not in {"SYSDATE", "SYSTIMESTAMP", "DUAL", "NULL", "NVL", "CASE", "TO_CHAR", "TO_DATE", "TO_NUMBER"}:
-                _alias_freq[prefix] = _alias_freq.get(prefix, 0) + 1
-
-    # The most frequent non-lookup prefix that isn't the schema name is likely the source alias
-    _src_schema_parts = set()
-    for _r in analysis_rows:
-        _ss = (_r.get("source_schema") or "").upper()
+        # Clean source_table: take only first entry if cell has multiple (newline/comma separated)
+        _st_raw = (_row.get("source_table") or "").strip()
+        _st = _st_raw.split("\n")[0].split(",")[0].strip().upper()
+        _ss = (_row.get("source_schema") or "").strip().upper()
         if _ss:
             _src_schema_parts.add(_ss)
-    _inferred_alias = ""
-    if _alias_freq:
-        _sorted_aliases = sorted(_alias_freq.items(), key=lambda x: -x[1])
-        for _cand, _cnt in _sorted_aliases:
-            if _cand in _src_schema_parts:
-                continue
-            if _cand == _src_table_name:
-                # Expression uses bare table name — no alias needed
-                _inferred_alias = ""
-                break
-            if _cnt >= 3:
-                _inferred_alias = _cand
-                break
+        if not _st or _is_lookup_table_name(_st):
+            continue
+        _bare = _st.split(".")[-1]
+        if "." in _st:
+            _fq = _st
+        elif _ss:
+            _fq = f"{_ss}.{_bare}"
+        else:
+            _fq = _bare
+        _src_table_counts[_fq] += 1
+        if _fq not in _src_table_registry:
+            _src_table_registry[_fq] = _bare
 
-    # Determine the effective alias to use in FROM clause
-    _effective_alias = _src_explicit_alias or _inferred_alias
-    # Single-letter aliases like S, T are generally from ODI and not useful
-    if _effective_alias and len(_effective_alias) == 1:
-        _effective_alias = ""
+    _multi_source = len(_src_table_registry) > 1
 
-    # Rebuild base_source with alias if needed
-    if _effective_alias:
-        base_source = f"FROM {_src_fq} {_effective_alias}"
+    if _multi_source:
+        # Avoid comma-based multi-table FROM because it creates cartesian products
+        # when DRD rows span many lookup/dimension tables. Use the most frequent
+        # source table as the base and keep other tables reachable via explicit joins.
+        _order_index = {fq: i for i, fq in enumerate(_src_table_registry.keys())}
+        _src_fq = max(
+            _src_table_registry.keys(),
+            key=lambda fq: (_src_table_counts.get(fq, 0), -_order_index.get(fq, 0)),
+        )
+        _src_table_name = _src_table_registry[_src_fq]
+        _src_ref_name = _src_table_name
+        base_source = f"FROM {_src_fq} {_src_ref_name}"
     else:
-        base_source = f"FROM {_src_fq}"
+        # Single-source path (original logic) ─────────────────────────────
+        source_blocks = [row.get("source_block", "") for row in analysis_rows if row.get("source_block")]
+        base_source = Counter(source_blocks).most_common(1)[0][0] if source_blocks else "FROM SOURCE_SCHEMA.SOURCE_TABLE"
 
-    # The name expressions should use to reference source columns
-    _src_ref_name = _effective_alias or _src_table_name
+        _from_match = re.search(r'\bFROM\s+((?:[A-Z0-9_]+\.)?([A-Z0-9_]+))(?:\s+([A-Z][A-Z0-9_]*))?\s*$',
+                                base_source, flags=re.IGNORECASE)
+        _src_fq = _from_match.group(1).upper() if _from_match else "SOURCE_SCHEMA.SOURCE_TABLE"
+        _src_table_name = _from_match.group(2).upper() if _from_match else "SOURCE_TABLE"
+        _src_explicit_alias = (_from_match.group(3) or "").upper() if _from_match else ""
+
+        # Count which prefix is most used in DRD expressions to infer the real alias
+        _alias_freq: Dict[str, int] = {}
+        for _row in analysis_rows:
+            expr = (_row.get("drd_expression") or "").upper()
+            for m in re.finditer(r'\b([A-Z][A-Z0-9_]*)\.[A-Z_][A-Z0-9_]*\b', expr):
+                prefix = m.group(1)
+                if prefix not in {"SYSDATE", "SYSTIMESTAMP", "DUAL", "NULL", "NVL", "CASE", "TO_CHAR", "TO_DATE", "TO_NUMBER"}:
+                    _alias_freq[prefix] = _alias_freq.get(prefix, 0) + 1
+
+        _inferred_alias = ""
+        if _alias_freq:
+            _sorted_aliases = sorted(_alias_freq.items(), key=lambda x: -x[1])
+            for _cand, _cnt in _sorted_aliases:
+                if _cand in _src_schema_parts:
+                    continue
+                if _cand == _src_table_name:
+                    _inferred_alias = ""
+                    break
+                if _cnt >= 3:
+                    _inferred_alias = _cand
+                    break
+
+        _effective_alias = _src_explicit_alias or _inferred_alias
+        if _effective_alias and len(_effective_alias) == 1:
+            _effective_alias = ""
+
+        if _effective_alias:
+            base_source = f"FROM {_src_fq} {_effective_alias}"
+        else:
+            base_source = f"FROM {_src_fq}"
+
+        _src_ref_name = _effective_alias or _src_table_name
 
     # Build source-staging attribute set (non-lookup tables only) for alias validation.
     source_attr_set: set = set()
@@ -572,6 +608,8 @@ def build_control_insert_sql(
     joins = []
     join_alias_map: Dict[str, Tuple[str, str]] = {}
     lk_table_alias_counts: Dict[str, int] = {}  # Track per-table numbering
+    pdm_missing_old_aliases: set = set()
+    pdm_missing_lookup_bases: set = set()
 
     # Collect unique raw joins with row context first, then collapse low-quality duplicates.
     raw_join_seen: set[str] = set()
@@ -581,21 +619,45 @@ def build_control_insert_sql(
         if not lookup_join or lookup_join in raw_join_seen:
             continue
         raw_join_seen.add(lookup_join)
-        old_alias = extract_join_alias(lookup_join)
         _lk_tbl_match = re.search(r'\bJOIN\s+([A-Z0-9_\.\"\$#]+)\b', lookup_join, flags=re.IGNORECASE)
         _lk_fq = (_lk_tbl_match.group(1).replace('"', '').upper() if _lk_tbl_match else "LOOKUP")
         _lk_bare = _lk_fq.split(".")[-1]
+
+        # Extract alias including $ for Oracle dollar-sign tables like J$TXN.
+        _alias_m = re.search(r'\bJOIN\s+[\w\.\$#]+\s+([A-Z_][A-Z0-9_\$#]*)\b', lookup_join, flags=re.IGNORECASE)
+        old_alias = _alias_m.group(1) if _alias_m else extract_join_alias(lookup_join)
 
         _on_match = re.search(r'\bON\b\s+([\s\S]*)$', lookup_join, flags=re.IGNORECASE)
         _on_text = (_on_match.group(1) if _on_match else "").upper()
 
         # Source-side key used by this join (if present).
+        # First try: look for explicit source/main table reference.
         _src_key_match = re.search(
             rf"\b(?:{re.escape(_src_ref_name)}|{re.escape(_src_table_name)}|S)\.([A-Z0-9_#\$]+)\b",
             _on_text,
             flags=re.IGNORECASE,
         )
         _src_key = (_src_key_match.group(1).upper() if _src_key_match else "")
+        # If no explicit source match, look for any non-lookup-alias.col reference on the
+        # right side of = that isn't the lookup table alias itself.
+        if not _src_key and old_alias:
+            _lhs_ref = re.search(
+                r'(?:(?:NVL\(\s*TO_CHAR\(\s*)?([A-Z_][A-Z0-9_\$#]*)\.'
+                r'([A-Z0-9_#\$]+))\s*=+',
+                _on_text,
+                flags=re.IGNORECASE,
+            )
+            if _lhs_ref and _lhs_ref.group(1).upper() != old_alias.upper():
+                _src_key = _lhs_ref.group(2).upper()
+        if not _src_key and old_alias:
+            _rhs_ref = re.search(
+                r'=\s*(?:NVL\(\s*TO_CHAR\(\s*)?([A-Z_][A-Z0-9_\$#]*)\.'
+                r'([A-Z0-9_#\$]+)',
+                _on_text,
+                flags=re.IGNORECASE,
+            )
+            if _rhs_ref and _rhs_ref.group(1).upper() != old_alias.upper():
+                _src_key = _rhs_ref.group(2).upper()
         _row_src_attr = (row.get("source_attribute") or "").strip().upper()
 
         # Quality scoring for duplicate collapse.
@@ -652,9 +714,20 @@ def build_control_insert_sql(
         lookup_join = cand["lookup_join"]
         old_alias = cand.get("old_alias") or ""
         _lk_bare = cand.get("lookup_bare") or "LOOKUP"
+        _lk_fq = cand.get("lookup_fq") or ""
 
         lk_table_alias_counts[_lk_bare] = lk_table_alias_counts.get(_lk_bare, 0) + 1
         new_alias = f"{_lk_bare}_{lk_table_alias_counts[_lk_bare]}"
+
+        # If lookup table is not present in current source schema KB index,
+        # skip JOIN emission and force dependent expressions to NULL marker later.
+        _lk_schema, _lk_name = split_fq_table(_lk_fq)
+        if source_schema_index is not None and not find_table(source_schema_index, _lk_schema, _lk_name):
+            if old_alias:
+                pdm_missing_old_aliases.add(old_alias.upper())
+            pdm_missing_lookup_bases.add(_lk_bare.upper())
+            continue
+
         join_sql_renamed = replace_join_alias(lookup_join, old_alias, new_alias) if old_alias else lookup_join
         # Normalize S. references in JOIN ON clause to use source ref name
         join_sql_renamed = re.sub(r'\bS\.([A-Z0-9_#\$]+)\b', f'{_src_ref_name}.\\1', join_sql_renamed, flags=re.IGNORECASE)
@@ -700,9 +773,14 @@ def build_control_insert_sql(
                 )
             else:
                 # If we cannot determine a safe source key, neutralize the join.
+                logger.warning(
+                    "build_control_insert_sql: self-join detected for %s but no source key available — "
+                    "neutralizing ON clause to 1=0; all joined columns will be NULL",
+                    lookup_join,
+                )
                 join_sql_renamed = re.sub(
                     r"\bON\b[\s\S]*$",
-                    "ON 1 = 0",
+                    "ON 1 = 0 /* WARNING: self-join key unresolved — joined cols will be NULL */",
                     join_sql_renamed,
                     flags=re.IGNORECASE,
                 )
@@ -724,7 +802,18 @@ def build_control_insert_sql(
 
     # All valid aliases that can appear in generated expressions.
     # Source table name (or alias) + all lookup aliases + fully-qualified schema.table parts
-    all_valid_aliases: set = {_src_table_name, _src_ref_name} | set(na for (_, na) in join_alias_map.values())
+    _joined_aliases = set(na for (_, na) in join_alias_map.values())
+    all_valid_aliases: set = {_src_table_name, _src_ref_name} | _joined_aliases
+    alias_by_base: Dict[str, List[str]] = defaultdict(list)
+    for _alias in sorted(_joined_aliases):
+        _base = re.sub(r"_\d+$", "", _alias.upper())
+        alias_by_base[_base].append(_alias)
+    # Only allow all DRD source-table aliases when we are truly in single-source mode.
+    # In multi-source mode, base FROM is anchored to one table and other raw aliases must
+    # be resolved via explicit joins (otherwise they are unsafe/unjoined references).
+    if not _multi_source:
+        for _fq, _bare in _src_table_registry.items():
+            all_valid_aliases.add(_bare)
     # Also allow schema prefixes from FQ references (e.g. TAXLOT_STG_OWNER, COMMON_OWNER)
     for _row in analysis_rows:
         _ss = (_row.get("source_schema") or "").upper()
@@ -733,6 +822,14 @@ def build_control_insert_sql(
     # Add bare lookup table names (they may appear in expressions before aliasing)
     for _lk_alias, _lk_fq in lk_table_map.items():
         all_valid_aliases.add(_lk_fq.split(".")[-1].upper())
+    # In single-source mode, tolerate raw source-table prefixes seen in DRD expressions.
+    # In multi-source mode we intentionally anchor FROM to one primary table, so keeping
+    # all raw source-table aliases would allow invalid, unjoined references to leak through.
+    if not _multi_source:
+        for _row in analysis_rows:
+            _st = (_row.get("source_table") or "").strip().upper().split("\n")[0].split(",")[0].strip().split(".")[-1]
+            if _st:
+                all_valid_aliases.add(_st)
 
     select_lines = []
     insert_cols = []
@@ -753,8 +850,10 @@ def build_control_insert_sql(
             if re.search(r'\b' + re.escape(_old_a_u) + r'\.[A-Z_]', expr, flags=re.IGNORECASE):
                 expr = replace_alias_token(expr, _old_a_u, _new_a)
 
-        # Normalize S. references to use source table ref name (alias or bare table)
-        expr = re.sub(r'\bS\.([A-Z0-9_#\$]+)\b', f'{_src_ref_name}.\\1', expr, flags=re.IGNORECASE)
+        # Normalize S. references: use the row's own source table bare name (multi-table aware)
+        _row_src_bare = (row.get("source_table") or "").strip().split("\n")[0].split(",")[0].strip().upper().split(".")[-1]
+        _row_ref = _row_src_bare or _src_ref_name
+        expr = re.sub(r'\bS\.([A-Z0-9_#\$]+)\b', f'{_row_ref}.\\1', expr, flags=re.IGNORECASE)
 
         expr = sanitize_generated_expression(
             expr,
@@ -782,7 +881,7 @@ def build_control_insert_sql(
         _expr_for_check = expr
         _undef_aliases = [
             m.group(1).upper()
-            for m in re.finditer(r'\b([A-Z_][A-Z0-9_]*)\.[A-Z_][A-Z0-9_#\$]*\b', _expr_for_check, flags=re.IGNORECASE)
+            for m in re.finditer(r'\b([A-Z_][A-Z0-9_\$#]*)\.[A-Z_][A-Z0-9_#\$]*\b', _expr_for_check, flags=re.IGNORECASE)
             if m.group(1).upper() not in all_valid_aliases
             and m.group(1).upper() not in {"SYSDATE", "SYSTIMESTAMP", "DUAL"}
         ]
@@ -792,15 +891,34 @@ def build_control_insert_sql(
             for _undef_a in _undef_aliases:
                 if _undef_a in combined_alias_rename:
                     expr = replace_alias_token(expr, _undef_a, combined_alias_rename[_undef_a])
+                    continue
+                # Handle numbered alias drift (e.g. CL_VAL_20 -> CL_VAL_1) by base alias.
+                _undef_base = re.sub(r"_\d+$", "", _undef_a)
+                _cands = alias_by_base.get(_undef_base, [])
+                if not _cands:
+                    # Fuzzy fallback for small naming drifts:
+                    # FA_NUMBER -> FA_NUMBER_V_1, SRC_TAX_CODE -> SRC_TAX_CODE_LKUP_1, etc.
+                    for _base, _base_cands in alias_by_base.items():
+                        if _base.startswith(_undef_base) or _undef_base.startswith(_base):
+                            _cands.extend(_base_cands)
+                if _cands:
+                    expr = replace_alias_token(expr, _undef_a, _cands[0])
             # Recheck after targeted renames
             _still_undef = any(
                 m.group(1).upper() not in all_valid_aliases
                 and m.group(1).upper() not in {"SYSDATE", "SYSTIMESTAMP", "DUAL"}
-                for m in re.finditer(r'\b([A-Z_][A-Z0-9_]*)\.[A-Z_][A-Z0-9_#\$]*\b', expr, flags=re.IGNORECASE)
+                for m in re.finditer(r'\b([A-Z_][A-Z0-9_\$#]*)\.[A-Z_][A-Z0-9_#\$]*\b', expr, flags=re.IGNORECASE)
             )
             if _still_undef:
                 _col_def = col_map_def.get(col_name, {})
-                if not _col_def.get("nullable", True):
+                _hits_pdm_miss = any(
+                    (_undef_a in pdm_missing_old_aliases)
+                    or (re.sub(r"_\d+$", "", _undef_a) in pdm_missing_lookup_bases)
+                    for _undef_a in _undef_aliases
+                )
+                if _hits_pdm_miss:
+                    expr = "NULL /* PDM_MISS */"
+                elif not _col_def.get("nullable", True):
                     _is_pk = col_name in pk_cols or bool(_col_def.get("is_pk"))
                     expr = fallback_non_nullable_expression(col_name, (_col_def.get("data_type") or "").upper(), is_pk=_is_pk)
                 else:
@@ -1001,6 +1119,11 @@ def compare_insert_variants(
     manual_sql: str,
     compare_mode: str = "all",
 ) -> Dict[str, Any]:
+    """Compare INSERT variants (DRD vs generated vs manual) and filter false positives.
+    
+    Real differences (shown): expressions differ in all 3 sources or partial matches with real variance.
+    False positives (hidden): fields missing in all sources or identical across all 3.
+    """
     expected_columns = {row.get("column", "").upper() for row in analysis_rows if row.get("column")}
     generated_map = extract_sql_expression_map(generated_sql, expected_aliases=expected_columns)
     manual_supplied = bool(manual_sql.strip())
@@ -1008,17 +1131,28 @@ def compare_insert_variants(
     rows = []
     for row in analysis_rows:
         col = row["column"]
-        drd_expr = row.get("drd_expression") or ""
-        generated_expr = generated_map.get(col, "")
-        manual_expr = manual_map.get(col, "")
+        drd_expr = (row.get("drd_expression") or "").strip()
+        generated_expr = generated_map.get(col, "").strip()
+        manual_expr = manual_map.get(col, "").strip()
         status = compare_column_status(
             drd_expr,
             generated_expr,
             manual_expr,
             manual_supplied=manual_supplied,
             compare_mode=compare_mode,
+            target_column=col,
+            source_attribute=(row.get("source_attribute") or "").strip().upper(),
         )
         recommended = recommend_source(drd_expr, generated_expr, manual_expr, compare_mode=compare_mode)
+        
+        # Detect real difference: false positive if all 3 sources identical OR all missing
+        _drd_present = bool(drd_expr)
+        _gen_present = bool(generated_expr)
+        _man_present = bool(manual_expr)
+        _all_missing = not (_drd_present or _gen_present or _man_present)
+        _all_identical = (drd_expr == generated_expr == manual_expr) if _drd_present else False
+        _real_difference = not (_all_missing or _all_identical) and status != "match_all"
+        
         rows.append(
             {
                 "column": col,
@@ -1028,12 +1162,14 @@ def compare_insert_variants(
                 "manual_expression": manual_expr,
                 "status": status,
                 "recommended_source": recommended,
-                "generated_present": bool(generated_expr.strip()),
-                "manual_present": bool(manual_expr.strip()),
+                "generated_present": _gen_present,
+                "manual_present": _man_present,
+                "is_real_difference": _real_difference,  # UI filter: hide if False
             }
         )
-    mismatch_count = sum(1 for row in rows if row["status"] != "match_all")
-    return {"rows": rows, "mismatch_count": mismatch_count}
+    # Count only real differences for mismatch summary
+    mismatch_count = sum(1 for row in rows if row.get("is_real_difference", False))
+    return {"rows": rows, "mismatch_count": mismatch_count, "total_rows": len(rows)}
 
 
 def compare_column_status(
@@ -1043,6 +1179,9 @@ def compare_column_status(
     *,
     manual_supplied: bool = False,
     compare_mode: str = "all",
+    target_column: str = "",
+    source_attribute: str = "",
+    saved_rules: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     drd_norm = normalize_sql_expr(drd_expr)
     gen_norm = normalize_sql_expr(generated_expr)
@@ -1062,13 +1201,69 @@ def compare_column_status(
         if drd_norm == gen_norm == man_norm:
             return "match_all"
         if drd_norm == gen_norm and drd_norm != man_norm:
+            # Before returning manual_mismatch, try canonical lineage resolution
+            canonical_status = _try_canonical_resolution(
+                target_column, source_attribute or drd_expr,
+                generated_expr, manual_expr, saved_rules,
+            )
+            if canonical_status:
+                return canonical_status
             return "manual_mismatch"
         if drd_norm == man_norm and drd_norm != gen_norm:
             return "generated_mismatch"
         if gen_norm == man_norm and drd_norm != gen_norm:
             return "both_match_each_other_not_drd"
+        # All different - try canonical resolution before giving up
+        canonical_status = _try_canonical_resolution(
+            target_column, source_attribute or drd_expr,
+            generated_expr, manual_expr, saved_rules,
+        )
+        if canonical_status:
+            return canonical_status
         return "all_different"
     return "match_all" if drd_norm == gen_norm else "generated_mismatch"
+
+
+def _try_canonical_resolution(
+    target_column: str,
+    drd_source_attribute: str,
+    generated_expr: str,
+    manual_expr: str,
+    saved_rules: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Attempt canonical lineage + semantic resolution before declaring mismatch.
+
+    Returns a match_all-compatible status if canonical mapping resolves the
+    apparent mismatch, or None if it's a real mismatch.
+    """
+    if not target_column:
+        return None
+    try:
+        from app.services.canonical_mapping_service import build_canonical_mapping
+        canonical = build_canonical_mapping(
+            target_column=target_column,
+            drd_source_attribute=drd_source_attribute,
+            generated_expression=generated_expr,
+            manual_or_xml_expression=manual_expr,
+            saved_rules=saved_rules,
+        )
+        status = canonical.get("match_status", "")
+        # If canonical says it's a semantic match, return match_all
+        # so the UI treats it as resolved
+        if status in (
+            "EXACT_EXPRESSION_MATCH",
+            "MATCH_BY_OUTPUT_ALIAS",
+            "MATCH_BY_STAGE_PROJECTION",
+            "MATCH_BY_ROOT_SOURCE_LINEAGE",
+            "MATCH_BY_ROLE_BASED_DIMENSION_KEY",
+            "MATCH_BY_DRD_SOURCE_ATTRIBUTE",
+            "MATCH_BY_PDM_PREDICTION",
+            "MATCH_BY_SAVED_RULE",
+        ):
+            return "match_all"
+    except Exception:
+        pass
+    return None
 
 
 def recommend_source(drd_expr: str, generated_expr: str, manual_expr: str, compare_mode: str = "all") -> str:
@@ -1103,7 +1298,7 @@ def apply_compare_decisions(base_sql: str, decisions: List[Dict[str, str]]) -> s
         select_parts[idx] = f"{expr} AS {column}"
     result_sql = rebuild_sql_with_select_parts(base_sql, parsed, select_parts)
     # Also apply column-reference corrections to JOIN ON clauses so that
-    # rules that fix a column name (e.g. ACG_TP_CODE → AC_TP_CODE) propagate
+    # rules that fix a column name (e.g. ACG_TP_CODE -> AC_TP_CODE) propagate
     # into the JOIN conditions, not just the SELECT list.
     result_sql = apply_rule_corrections_to_joins(result_sql, decisions)
     return ensure_parallel_hints(result_sql)
@@ -1112,11 +1307,9 @@ def apply_compare_decisions(base_sql: str, decisions: List[Dict[str, str]]) -> s
 def apply_rule_corrections_to_joins(sql_text: str, decisions: List[Dict[str, str]]) -> str:
     """Fix JOIN ON clauses based on rule decisions.
 
-    When a rule replaces an expression for a column, the old *source_attribute*
+    When a rule replaces an expression for a column, the old source_attribute
     referenced in JOIN ON conditions may also be wrong (e.g. the DRD says
-    ``ACG_TP_CODE`` but the real source column is ``AC_TP_CODE``).  This
-    function extracts the column references from both old and new expressions
-    and rewrites JOIN ON clauses accordingly.
+    ACG_TP_CODE but the real source column is AC_TP_CODE).
     """
     if not decisions or not sql_text:
         return sql_text
@@ -1687,7 +1880,7 @@ def _logical_to_physical(logical_name: str) -> str:
 
 
 def extract_join_alias(join_sql: str) -> str:
-    m = re.search(r"\bJOIN\s+[A-Z0-9_\.\(\)\" ]+\s+([A-Z0-9_]+)\s*\nON\b", join_sql, flags=re.IGNORECASE)
+    m = re.search(r"\bJOIN\s+[A-Z0-9_\.\(\)\"\$# ]+\s+([A-Z0-9_\$#]+)\s*\nON\b", join_sql, flags=re.IGNORECASE)
     return (m.group(1) if m else "").upper()
 
 
@@ -1702,7 +1895,7 @@ def replace_join_alias(sql: str, old_alias: str, new_alias: str) -> str:
     if not old_alias or not new_alias or old_alias.upper() == new_alias.upper():
         return sql
     out = re.sub(
-        rf"(\bJOIN\s+[A-Z0-9_\.\(\)\" ]+\s+){re.escape(old_alias)}(\b)",
+        rf"(\bJOIN\s+[A-Z0-9_\.\(\)\"\$# ]+\s+){re.escape(old_alias)}(\b)",
         rf"\1{new_alias}\2",
         sql,
         flags=re.IGNORECASE,
@@ -1807,6 +2000,34 @@ def validate_insert_join_aliases(sql_text: str) -> List[Dict[str, str]]:
             seen_issues.add(key)
             issues.append({"alias": alias, "column": col})
     return issues
+
+
+def select_expr_for_column(
+    col_name: str,
+    row: dict,
+    baseline: dict,
+    col_def: dict,
+    drd_candidate: str | None = None,
+) -> tuple:
+    """Return (expression, provenance) for a target column.
+
+    Priority: DRD expression > baseline expression > fallback.
+    Provenance is one of: 'DRD', 'BASELINE', 'FALLBACK'.
+    """
+    _null_markers = {"", "null", "none"}
+
+    drd_expr = drd_candidate if drd_candidate is not None else (row.get("drd_expression") or "")
+    if str(drd_expr).strip().lower() not in _null_markers:
+        return drd_expr, "DRD"
+
+    base_expr = baseline.get(col_name.upper()) or baseline.get(col_name) or ""
+    if str(base_expr).strip().lower() not in _null_markers:
+        return base_expr, "BASELINE"
+
+    data_type = (col_def.get("data_type") or "").upper()
+    is_pk = bool(col_def.get("is_pk"))
+    fb = fallback_non_nullable_expression(col_name, data_type, is_pk=is_pk)
+    return fb, "FALLBACK"
 
 
 def fallback_non_nullable_expression(col_name: str, data_type: str, is_pk: bool = False) -> str:
@@ -2013,16 +2234,8 @@ def normalize_source_expression_aliases(expr: str, *, source_schema: str = "", s
     if table_u:
         text = re.sub(r"\bS\.", f"{table_u}.", text, flags=re.IGNORECASE)
 
-    # If a single unknown alias remains, replace it with table name.
-    lk_pattern = re.compile(r'^(?:LK\d*|[A-Z_]+_\d+)$')
-    aliases = {
-        a.upper()
-        for a in re.findall(r"\b([A-Z_][A-Z0-9_]*)\.", text, flags=re.IGNORECASE)
-        if a and a.upper() != table_u and not lk_pattern.match(a.upper())
-    }
-    if len(aliases) == 1 and table_u:
-        only_alias = next(iter(aliases))
-        text = re.sub(rf"\b{re.escape(only_alias)}\.", f"{table_u}.", text, flags=re.IGNORECASE)
+    # Do not coerce arbitrary aliases to source table names. That heuristic can
+    # corrupt valid lookup expressions such as AR_DIM.COL or FA_NUMBER.COL.
     return text
 
 
@@ -2148,6 +2361,11 @@ def derive_lookup_from_transformation(
         lookup_table = f"{src_schema.upper()}.{lookup_table}"
 
     lookup_schema, lookup_name = split_fq_table(lookup_table)
+    
+    # Global schema mapping: CCAL_OWNER → CCAL_REPL_OWNER (use replica for all lookups)
+    if lookup_schema and lookup_schema.upper() == "CCAL_OWNER":
+        lookup_schema = "CCAL_REPL_OWNER"
+        lookup_table = f"{lookup_schema}.{lookup_name}"
     lookup_entry = find_table(source_schema_index, lookup_schema, lookup_name)
     if lookup_entry:
         lookup_table = f"{lookup_entry['schema']}.{lookup_entry['table']}"
@@ -2173,6 +2391,7 @@ def derive_lookup_from_transformation(
     src_lookup_col = (spec.get("source_lookup_col") or source_attr or "").strip().upper().split(".")[-1]
     src_lookup_literal = (spec.get("source_lookup_literal") or "").strip()
     extra_filter = (spec.get("extra_filter") or "").strip()
+    explicit_on_clause = bool(spec.get("explicit_on_clause"))
 
     if lookup_name == "CL_VAL" and (src_lookup_col in {"CL_VAL", "CL_VAL_NM", "CL_VAL_CD"} or src_lookup_col == source_attr):
         inferred_src = infer_lookup_source_key_from_text(transformation, source_attr)
@@ -2192,7 +2411,7 @@ def derive_lookup_from_transformation(
             elif lookup_cols:
                 val_col = sorted(lookup_cols)[0]
 
-    if source_entry:
+    if source_entry and not explicit_on_clause:
         source_cols = set((source_entry.get("columns") or {}).keys())
         if src_lookup_col and src_lookup_col not in source_cols:
             inferred_src = infer_lookup_source_key_from_text(transformation, source_attr)
@@ -2201,14 +2420,44 @@ def derive_lookup_from_transformation(
             else:
                 src_lookup_col = source_attr if source_attr in source_cols else ""
 
+    # Determine the correct source reference for the ON clause.
+    # If source_table bare name matches lookup bare name (e.g., both are CL_VAL),
+    # use the main FROM anchor table or the DRD-specified source alias instead to
+    # avoid self-referencing joins.
+    _lk_bare_name = lookup_table.split(".")[-1].upper() if lookup_table else ""
+    _src_bare_name = src_table.split(".")[-1].upper() if src_table else ""
+    _source_alias_hint = (spec.get("source_alias_hint") or "").strip().upper()
+
+    if _src_bare_name and _src_bare_name == _lk_bare_name:
+        # Source table IS the lookup table — use the main FROM anchor or DRD alias hint
+        _block_schema, _block_table = parse_source_table_from_block(source_block)
+        if _block_table and _block_table.upper() != _lk_bare_name:
+            _effective_src = _block_table.upper()
+        elif _source_alias_hint and _source_alias_hint != _lk_bare_name:
+            _effective_src = _source_alias_hint
+        else:
+            logger.warning("derive_lookup_from_transformation: falling back to S for self-referencing lookup %s", lookup_table)
+            _effective_src = "S"
+    elif _source_alias_hint and _source_alias_hint not in {"S", _src_bare_name, _lk_bare_name}:
+        # DRD referenced an intermediate table alias (e.g., AP for APA)
+        _effective_src = _source_alias_hint
+    else:
+        _effective_src = src_table if src_table else "S"
+
     if src_lookup_literal:
         source_expr = src_lookup_literal if re.fullmatch(r"-?\d+(?:\.\d+)?", src_lookup_literal) else f"'{src_lookup_literal}'"
         on_sql = f"LK.{join_col} = {source_expr}"
     elif not src_lookup_col:
         # If we cannot resolve a valid source lookup key, keep the join non-matching but executable.
-        on_sql = "1 = 0"
+        logger.warning(
+            "derive_lookup_from_transformation: src_lookup_col unresolved for lookup_table=%s join_col=%s "
+            "— ON clause set to 1=0; all joined columns will be NULL",
+            lookup_table,
+            join_col,
+        )
+        on_sql = "1 = 0 /* WARNING: lookup key unresolved — joined cols will be NULL */"
     else:
-        _src_ref = f"{src_table}.{src_lookup_col}" if src_table else f"S.{src_lookup_col}"
+        _src_ref = f"{_effective_src}.{src_lookup_col}"
         on_sql = f"NVL(TO_CHAR(LK.{join_col}), '{NVL_NULL_SENTINEL}') = NVL(TO_CHAR({_src_ref}), '{NVL_NULL_SENTINEL}')"
 
     if extra_filter:
@@ -2316,6 +2565,10 @@ def _validate_control_table_requirements(
         src_attr = (row.get("source_attribute") or "").strip().upper()
         if not src_table:
             continue
+        # Strip DRD annotations like "(FROM T2)", "(FROM TX)", etc.
+        src_attr = re.sub(r"\s*\(FROM\s+\w+\)\s*$", "", src_attr, flags=re.IGNORECASE).strip()
+        if not src_attr:
+            continue
         # Skip lookup / dimension tables in source column validation —
         # they are referenced for JOIN output only, not as staging input.
         if _is_lookup_table_name(src_table):
@@ -2328,8 +2581,11 @@ def _validate_control_table_requirements(
                 continue
 
         src_entry = find_table(source_index, src_schema, src_table)
-        if src_entry and src_attr and src_attr not in {"NULL", "NONE", "N/A"} and src_attr not in src_entry.get("columns", {}):
-            missing_source_columns.append(f"{src_schema}.{src_table}.{src_attr}" if src_schema else f"{src_table}.{src_attr}")
+        if src_entry and src_attr and src_attr not in {"NULL", "NONE", "N/A"}:
+            col_map = src_entry.get("columns", {})
+            # Try exact match first, then fuzzy match via PDM column resolver
+            if src_attr not in col_map and not _resolve_column_name(col_map, src_attr):
+                missing_source_columns.append(f"{src_schema}.{src_table}.{src_attr}" if src_schema else f"{src_table}.{src_attr}")
 
     if missing_source_tables:
         # Don't hard-block: source tables may live in schemas not yet in the PDM.

@@ -1,10 +1,13 @@
 """Local schema KB and PDM/LDM extraction utilities."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import json
+
+logger = logging.getLogger(__name__)
 
 from app.config import BASE_DIR
 from app.models.datasource import DataSource
@@ -412,7 +415,12 @@ def _table_details(connector, db_type: str, schema: str, table: str, object_type
     }
 
 
-def build_pdm_catalog(ds: DataSource, selected_schemas: Optional[List[str]] = None, operation_id: Optional[str] = None) -> Dict[str, Any]:
+def build_pdm_catalog(
+    ds: DataSource,
+    selected_schemas: Optional[List[str]] = None,
+    operation_id: Optional[str] = None,
+    skip_existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     connector = get_connector_from_model(ds)
     db_type = (ds.db_type or "").lower().strip()
 
@@ -431,7 +439,13 @@ def build_pdm_catalog(ds: DataSource, selected_schemas: Optional[List[str]] = No
             ensure_not_stopped(operation_id)
             tables = connector.get_tables(schema)
             schema_tables[schema] = tables
-            total_units += len(tables)
+            # Only count tables not already in the existing KB towards the progress total
+            schema_existing_set = (skip_existing or {}).get(schema.upper(), set())
+            new_count = sum(
+                1 for t in tables
+                if not (schema_existing_set and t.table_name.upper() in schema_existing_set)
+            )
+            total_units += new_count
         set_total(operation_id, total_units)
 
         for schema in chosen:
@@ -441,6 +455,10 @@ def build_pdm_catalog(ds: DataSource, selected_schemas: Optional[List[str]] = No
             table_payload = []
             for t in tables:
                 ensure_not_stopped(operation_id)
+                # Skip tables already in the KB — saves all the DB metadata queries
+                schema_existing_set = (skip_existing or {}).get(schema.upper(), set())
+                if schema_existing_set and t.table_name.upper() in schema_existing_set:
+                    continue
                 detail = _table_details(connector, db_type, schema, t.table_name, t.table_type)
                 table_payload.append(detail)
                 for fk in detail.get("foreign_keys", []):
@@ -661,8 +679,12 @@ def save_schema_kb(datasource_id: int, pdm: Dict[str, Any], ldm: Dict[str, Any])
         _hint_index_path(datasource_id).write_text(
             json.dumps(tables, separators=(",", ":")), encoding="utf-8"
         )
-    except Exception:
-        pass
+    except Exception as _hint_err:
+        logger.warning(
+            "save_schema_kb: hint_index rebuild failed for datasource %s — %s",
+            datasource_id,
+            _hint_err,
+        )
 
     return {"json_path": str(json_path), "markdown_path": str(md_path)}
 
@@ -671,7 +693,7 @@ def build_and_save_schema_kb(ds: DataSource, selected_schemas: Optional[List[str
     existing_payload = _load_existing_payload(ds.id)
     existing_pdm = existing_payload.get("pdm", {}) if isinstance(existing_payload, dict) else {}
     existing_index = _existing_table_index(existing_pdm)
-    pdm_new = build_pdm_catalog(ds, selected_schemas, operation_id)
+    pdm_new = build_pdm_catalog(ds, selected_schemas, operation_id, skip_existing=existing_index)
 
     filtered_schemas = []
     skipped_tables = 0
