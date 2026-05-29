@@ -561,6 +561,50 @@ def test_etl_block_body_flows_into_drd_logic_for_drift_detection():
     assert "regexp_like" in r.drd_logic
 
 
+def test_where_filter_in_residual_still_flags_drift():
+    """Operator-locked: a WHERE filter in the DRD transformation IS a real
+    value-changing operation (filters source rows).  Must NOT be lifted to
+    MATCHED even when column names align."""
+    bindings = [_make_binding("BASE", "OWNER", "BASE_TBL")]
+    cm = ColumnMapping("MY_COL", _make_resolved("BASE", "COL_X", "OWNER", "BASE_TBL"))
+    model = _make_model_with_step1([cm], bindings)
+    drd = DrdClaim.from_dict({
+        "physical_name": "MY_COL",
+        "source_schema": "OWNER",
+        "source_table": "BASE_TBL",
+        "source_attribute": "COL_X",
+        "transformation": (
+            "owner.base_tbl b\nwhere\nb.flag = 'Y' and b.code like 'ABC%'"
+        ),
+    })
+    r = compare_drd_odi(drd, model)
+    assert r.verdict == ComparisonVerdict.REAL_MISMATCH, (
+        f"WHERE filter must NOT be lifted to MATCHED; got {r.verdict}"
+    )
+    assert r.mismatch_kind == MismatchKind.TRANSFORMATION_DRIFT
+
+
+def test_residual_changes_value_helper_strict_kw_list():
+    """The stricter residual-only complexity check excludes vague intent
+    words and only flags genuine value-changing operations."""
+    from app.sql_model.comparator import _residual_changes_value
+    # Vague intent words -> NOT value-changing
+    assert _residual_changes_value("Derive based on field") is False
+    assert _residual_changes_value("Lookup the value") is False
+    assert _residual_changes_value("Compute it somehow") is False
+    assert _residual_changes_value("select fa.X from y t") is False
+    # Real value-changing operations -> TRUE
+    assert _residual_changes_value("Parse first 3 chars") is True
+    assert _residual_changes_value("SUBSTR(x, 1, 3)") is True
+    assert _residual_changes_value("regexp_like(cv.code, '...')") is True
+    assert _residual_changes_value("CASE WHEN x THEN y END") is True
+    assert _residual_changes_value("where flag = 'Y'") is True
+    assert _residual_changes_value("code like 'X%'") is True
+    assert _residual_changes_value("If only one record") is True
+    assert _residual_changes_value("") is False
+    assert _residual_changes_value(None) is False  # type: ignore[arg-type]
+
+
 def test_applicable_filter_drift_shared_with_emitter():
     """Same rule engine that the EMITTER uses to wrap projections in
     CASE WHEN must also let the COMPARATOR flag APPLICABLE_FILTER_DRIFT when

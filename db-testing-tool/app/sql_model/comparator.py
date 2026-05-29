@@ -92,6 +92,35 @@ _LITERAL_OR_CONST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Stricter residual-only complexity check (post-JOIN-strip).  Excludes vague
+# intent words like "derive" / "compute" / "calculate" / "concatenate" -- in
+# practice these are operator-prose for "obtain via JOIN" and don't change
+# values.  Also excludes JOIN keywords (already handled).  Keeps value-
+# changing operations: parse/substr/regexp/case-when/decode/arithmetic
+# rounding/etc.  Also keeps WHERE-clause indicators (where/and ... like)
+# because those filter the source rows and DO change projected results.
+_RESIDUAL_VALUE_CHANGING_RE = re.compile(
+    r"(?:"
+    r"\bparse\b|\bcase\s+when\b|\bdecode\b|regexp|\bextract\b|"
+    r"\bsubstr|\bto_date\b|\bto_number\b|\bto_char\b|\bnullif\b|"
+    r"\bmultiply\b|\bdivide\b|\bround\b|\bfloor\b|\bceil\b|"
+    r"\bif\b|\bwhen\b|\bthen\b|\belse\b|"
+    r"\bwhere\b|\blike\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _residual_changes_value(residual: str) -> bool:
+    """True if the post-JOIN-strip residual contains a value-changing
+    operation (parse/substr/regexp/case/where-filter).  Vague intent words
+    like 'derive' / 'lookup' / 'compute' are EXCLUDED -- they're operator
+    prose for 'obtain via JOIN', not actual value transformation."""
+    if not residual:
+        return False
+    return bool(_RESIDUAL_VALUE_CHANGING_RE.search(residual))
+
+
 # "None" / "-" / blank cells in DRD col AD that mean "no rule documented".
 _TRIVIAL_RULE_TOKENS = {"", "none", "n/a", "na", "-", "--", "tbd", "?"}
 
@@ -834,7 +863,48 @@ def compare_drd_odi(
                         odi_logic=ts_expr,
                     )
             odi_is_simple = _odi_expr_is_simple(ts_expr)
-            if drd.has_source and _drd_is_complex and odi_is_simple:
+            # Operator-locked guard (2026-05-29): when DRD complexity is
+            # JOIN-only (the join PROSE is just documenting how to reach
+            # the source column, not a value-changing derivation) AND ODI
+            # projects the SAME bare column the DRD names as its source
+            # attribute, the result is MATCHED -- not TRANSFORMATION_DRIFT.
+            # When DRD complexity includes PARSE / LOOKUP / CASE / etc.,
+            # the column-name match is NOT enough -- the values differ.
+            # Effective-rule selection (same logic as resolved-path branch):
+            # if transformation is self-contained (joins to the DRD source
+            # table), block body is documentation; otherwise it IS the rule.
+            _ts_trans_ad = parse_drd_ad(drd.transformation or "")
+            _ts_trans_reaches_source = bool(drd.source_table) and any(
+                j.fq_table.upper().split(".")[-1] == drd.source_table.upper()
+                for j in _ts_trans_ad.joins
+            )
+            _ts_basis = (
+                (drd.transformation or "")
+                if _ts_trans_reaches_source
+                else (_drd_effective_rule or "")
+            )
+            _ts_drd_ad = _ts_trans_ad if _ts_trans_reaches_source else parse_drd_ad(_drd_effective_rule or "")
+            _ts_residual = _ts_basis
+            for _j in _ts_drd_ad.joins:
+                _ts_residual = _ts_residual.replace(_j.raw, " ")
+            for _lp in _ts_drd_ad.lookup_pairs:
+                _ts_residual = _ts_residual.replace(_lp.raw, " ")
+            # Normalize whitespace + drop trailing ; so the multi-line
+            # check (in _drd_rule_is_complex) doesn't fire on leftover
+            # newlines that bracketed the stripped JOIN clause.
+            _ts_residual = re.sub(r"\s+", " ", _ts_residual).strip().rstrip(";").strip()
+            drd_is_join_only_complex = (
+                _drd_is_complex and not _residual_changes_value(_ts_residual)
+            )
+            drd_col_matches_odi_text = bool(drd.source_attr) and _odi_expr_references_column(
+                ts_expr, drd.source_attr,
+            )
+            if (
+                drd.has_source
+                and _drd_is_complex
+                and odi_is_simple
+                and not (drd_is_join_only_complex and drd_col_matches_odi_text)
+            ):
                 # Generic TRANSFORMATION_DRIFT: DRD requires derivation,
                 # ODI does pass-through.
                 return ComparisonResult(
@@ -853,6 +923,35 @@ def compare_drd_odi(
                         "but ODI projects a simple pass-through"
                     ),
                     mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+                    drd_logic=_drd_logic_raw,
+                    odi_logic=ts_expr,
+                )
+            # When the column matches AND DRD complexity is JOIN-only,
+            # treat as MATCHED so the comparison grid + GUI show a green
+            # verdict.  This is the operator-friendly form of the
+            # join-documentation-is-not-derivation rule.
+            if (
+                drd_col_matches_odi_text
+                and drd.has_source
+                and (not _drd_is_complex or drd_is_join_only_complex)
+            ):
+                return ComparisonResult(
+                    verdict=ComparisonVerdict.MATCHED,
+                    target_col=col,
+                    drd_schema=drd.source_schema,
+                    drd_table=drd.source_table,
+                    drd_attr=drd.source_attr,
+                    odi_schema="",
+                    odi_table="",
+                    odi_col=drd.source_attr,
+                    odi_expr_sql=ts_expr,
+                    odi_step=ts_step_id,
+                    explanation=(
+                        "MATCHED via column-name: ODI projection references "
+                        f"the same source column ({drd.source_attr}) the DRD "
+                        "stated; JOIN/derivation prose is documentation"
+                    ),
+                    mismatch_kind=MismatchKind.NONE,
                     drd_logic=_drd_logic_raw,
                     odi_logic=ts_expr,
                 )
@@ -1217,19 +1316,50 @@ def compare_drd_odi(
     # rule and ODI implements it correctly.  We re-evaluate "complex" on the
     # remainder of the rule text after stripping JOIN fragments.
     _drd_is_complex_after_joins = _drd_is_complex
-    if _drd_joins_all_satisfied and _drd_is_complex:
-        # Re-evaluate complexity on the residual rule text with JOIN clauses
-        # masked out.  If nothing complex remains, the join WAS the rule.
-        residual = drd.transformation or ""
-        for j in _drd_ad_rule.joins:
+    # ALWAYS attempt the residual check (operator-locked 2026-05-29) -- the
+    # "join-as-documentation" exception should fire even when ODI does NOT
+    # implement the join's ON predicate (the JOIN prose is still just
+    # describing the path to the source column).
+    #
+    # Effective-rule selection: if the transformation is self-contained
+    # (already JOINs to the DRD-stated source_table), the ETL block body
+    # is ancillary documentation -- exclude it.  Otherwise the transformation
+    # is a trivial pointer ("Use X from ETL Notes tab") and the block body
+    # IS the rule -- include it.
+    _trans_ad = parse_drd_ad(drd.transformation or "")
+    _trans_reaches_source = bool(drd.source_table) and any(
+        j.fq_table.upper().split(".")[-1] == drd.source_table.upper()
+        for j in _trans_ad.joins
+    )
+    _residual_basis = (
+        (drd.transformation or "")
+        if _trans_reaches_source
+        else (_drd_effective_rule or "")
+    )
+    _residual_ad = _trans_ad if _trans_reaches_source else _drd_ad_rule
+    if _drd_is_complex:
+        residual = _residual_basis
+        for j in _residual_ad.joins:
             residual = residual.replace(j.raw, " ")
-        for lp in _drd_ad_rule.lookup_pairs:
+        for lp in _residual_ad.lookup_pairs:
             residual = residual.replace(lp.raw, " ")
-        if not _drd_rule_is_complex(residual):
+        residual = re.sub(r"\s+", " ", residual).strip().rstrip(";").strip()
+        # Use the STRICTER residual-only check so vague intent words like
+        # "derive" / "compute" don't false-trigger drift.  Only true value-
+        # changing operations (parse/case/where-filter/etc.) count here.
+        if not _residual_changes_value(residual):
             _drd_is_complex_after_joins = False
 
     _odi_is_simple = _odi_expr_is_simple(_odi_logic_raw) or (
         src.ref is not None and src.provenance != Provenance.LITERAL
+    )
+    # Column-name guard: when DRD complexity is now down to JOIN-only AND
+    # ODI projects the SAME bare column the DRD names as its source attr,
+    # the result is MATCHED -- the join prose was documenting how to reach
+    # the column, not a value-changing derivation.
+    _drd_col_matches_odi_resolved = bool(drd.source_attr) and (
+        _odi_expr_references_column(_odi_logic_raw, drd.source_attr)
+        or (src.column and _columns_equivalent_modulo_prefix(src.column, drd.source_attr))
     )
     if drd.has_source and _drd_is_complex_after_joins and _odi_is_simple:
         return ComparisonResult(
@@ -1248,6 +1378,35 @@ def compare_drd_odi(
                 "but ODI projects a simple pass-through"
             ),
             mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+            drd_logic=_drd_logic_raw,
+            odi_logic=_odi_logic_raw,
+        )
+    # When DRD complexity has reduced to JOIN-only AND ODI projects the same
+    # column, lift to MATCHED so the comparison grid + GUI show a green
+    # verdict.  Without this, the comparator falls through to UNRESOLVABLE
+    # or COLUMN_MISMATCH on a perfectly-aligned column pair.
+    if (
+        drd.has_source
+        and not _drd_is_complex_after_joins
+        and _drd_is_complex
+        and _drd_col_matches_odi_resolved
+    ):
+        return ComparisonResult(
+            verdict=ComparisonVerdict.MATCHED,
+            target_col=col,
+            drd_schema=drd.source_schema,
+            drd_table=drd.source_table,
+            drd_attr=drd.source_attr,
+            odi_schema=src.ref.schema if src.ref else "",
+            odi_table=src.ref.table if src.ref else "",
+            odi_col=src.column or drd.source_attr,
+            odi_expr_sql=_odi_logic_raw,
+            odi_step=step_id,
+            explanation=(
+                f"MATCHED via column-name: ODI projects {drd.source_attr}; "
+                f"DRD JOIN prose is documentation, not a value-changing rule"
+            ),
+            mismatch_kind=MismatchKind.NONE,
             drd_logic=_drd_logic_raw,
             odi_logic=_odi_logic_raw,
         )
