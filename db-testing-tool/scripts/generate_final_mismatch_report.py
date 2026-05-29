@@ -60,6 +60,66 @@ _CAT_MISSING_IN_ODI = "MISSING_IN_ODI"
 # ODI_EXTRA categories (columns ODI projects but DRD does not list)
 _CAT_ODI_EXTRA = "ODI_EXTRA"
 
+# CHAIN_WARNING categories (operator Q1+Q3 2026-05-29)
+# Scan EVERY column's full ODI step chain (even MATCHED ones) for
+# safety-relevant inconsistencies the comparator's verdict alone
+# would otherwise hide.  Operator: "always check the entire ODI chain,
+# all steps, even if not needed, just as a safety check".
+_CAT_NULL_INJECTED_THEN_OVERWRITTEN = "NULL_INJECTED_THEN_OVERWRITTEN"
+
+
+def _scan_chain_for_warnings(target_col: str, chain: list) -> list:
+    """Return a list of warning dicts for safety-relevant chain issues.
+
+    Operator-locked patterns (2026-05-29):
+
+    1. NULL_INJECTED_THEN_OVERWRITTEN -- a non-MERGE STEP writes literal
+       NULL while a LATER non-MERGE STEP writes a real source (column
+       ref / function / case_when / agg / subquery).  The final value
+       is correct (last writer wins) but the early NULL is suspicious:
+       (a) obscures intent, (b) at risk if the later step is removed
+       or its join fails, (c) wastes a write.  Surface for operator.
+    """
+    warnings: list = []
+    if not chain:
+        return warnings
+    null_steps = [
+        d for d in chain
+        if d.expr_kind == "literal"
+        and re.search(r"\bnull\b", (d.expr_sql or ""), re.I)
+        and d.step_label not in ("MERGE", "MERGE_USING")
+    ]
+    real_steps = [
+        d for d in chain
+        if d.expr_kind not in ("passthrough", "literal")
+        and d.step_label not in ("MERGE", "MERGE_USING")
+    ]
+    if null_steps and real_steps:
+        # Verify the NULL is BEFORE the real (by step_id).
+        earliest_null = min(null_steps, key=lambda d: d.step_id)
+        later_reals = [d for d in real_steps if d.step_id > earliest_null.step_id]
+        if later_reals:
+            warnings.append({
+                "kind": _CAT_NULL_INJECTED_THEN_OVERWRITTEN,
+                "null_step": earliest_null.step_label,
+                "real_step": later_reals[0].step_label,
+                "real_expr": (later_reals[0].expr_sql or "").strip(),
+                "recommendation": (
+                    f"NULL_INJECTED_THEN_OVERWRITTEN -- "
+                    f"{earliest_null.step_label} explicitly writes NULL "
+                    f"for '{target_col}', then {later_reals[0].step_label} "
+                    f"overwrites with real source "
+                    f"'{(later_reals[0].expr_sql or '').strip()[:80]}'.  "
+                    f"Final value is correct but the NULL injection is "
+                    f"suspicious -- if {later_reals[0].step_label}'s "
+                    f"derivation is removed or its join fails, the "
+                    f"column will leak NULL.  Recommend removing the "
+                    f"NULL placeholder in {earliest_null.step_label} or "
+                    f"moving the real derivation forward."
+                ),
+            })
+    return warnings
+
 # Audit-column names to SKIP entirely per operator (2026-05-29):
 # Audit / session-tracking columns where ODI uses defaults the comparator
 # cannot evaluate (sysdate, sess_name, hard-coded sess_no).  Operator
@@ -445,6 +505,47 @@ def main() -> int:
             f"operator rule: {', '.join(skipped_audit)}"
         )
 
+    # ── CHAIN_WARNING safety scan (Q1+Q3 operator 2026-05-29) ──
+    # Scan every ODI-projected column (including MATCHED ones) for
+    # chain inconsistencies the comparator's verdict alone would hide.
+    # Caught case: TXN_CCY explicit STEP3 NULL + STEP5 CCY.CCY_NM
+    # overwrite (final MATCHED but suspicious).
+    chain_warning_count = 0
+    for tgt, chain in model.column_derivations.items():
+        tgt_up = tgt.upper()
+        if tgt_up in _SKIP_AUDIT_COLS:
+            continue  # audit / sysdate columns are intentional
+        # Skip if already in a non-MATCHED bucket (already in the report).
+        if any(r["target_col"] == tgt_up for r in out_rows):
+            continue
+        chain_warnings = _scan_chain_for_warnings(tgt_up, chain)
+        for w in chain_warnings:
+            chain_warning_count += 1
+            drd_row = drd_by_col.get(tgt_up, {})
+            drd_src = (
+                f"{drd_row.get('source_schema','')}."
+                f"{drd_row.get('source_table','')}."
+                f"{drd_row.get('source_attribute','')}"
+            ).strip(".") or "(no DRD source)"
+            drd_full = drd_full_map.get(
+                tgt_up, drd_row.get("transformation") or "",
+            )
+            out_rows.append({
+                "verdict": "CHAIN_WARNING",
+                "target_col": tgt_up,
+                "mismatch_kind": w["kind"],
+                "drd_source": drd_src,
+                "drd_rule_full": drd_full,
+                "odi_authoritative_step": (
+                    f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
+                ),
+                "odi_authoritative_expr": w["real_expr"],
+                "odi_full_chain": _compact_chain(chain),
+                "category": w["kind"],
+                "recommendation": w["recommendation"],
+            })
+    print(f"CHAIN_WARNING rows:   {chain_warning_count}")
+
     # Operator-locked rule (2026-05-29): EVERY .md report MUST be
     # accompanied by a CSV of identical content (Excel-friendly).
     # `_write_csv` falls back to a timestamped sibling if Excel holds
@@ -492,6 +593,7 @@ def main() -> int:
         "UNRESOLVABLE": [r for r in out_rows if r["verdict"] == "UNRESOLVABLE"],
         "SOURCE_MISSING": [r for r in out_rows if r["verdict"] == "SOURCE_MISSING"],
         "ODI_EXTRA": [r for r in out_rows if r["verdict"] == "ODI_EXTRA"],
+        "CHAIN_WARNING": [r for r in out_rows if r["verdict"] == "CHAIN_WARNING"],
     }
     md_lines: list = []
     md_lines.append(
@@ -499,7 +601,8 @@ def main() -> int:
         f"(REAL_MISMATCH={len(by_verdict['REAL_MISMATCH'])}, "
         f"UNRESOLVABLE={len(by_verdict['UNRESOLVABLE'])}, "
         f"SOURCE_MISSING={len(by_verdict['SOURCE_MISSING'])}, "
-        f"ODI_EXTRA={len(by_verdict['ODI_EXTRA'])})"
+        f"ODI_EXTRA={len(by_verdict['ODI_EXTRA'])}, "
+        f"CHAIN_WARNING={len(by_verdict['CHAIN_WARNING'])})"
     )
     if skipped_audit:
         md_lines.append("")
@@ -543,11 +646,20 @@ def main() -> int:
                 "any STEP, not in MERGE.  Either ODI is incomplete or "
                 "target is deprecated."
             )
-        else:  # ODI_EXTRA
+        elif verdict_name == "ODI_EXTRA":
             md_lines.append(
                 "ODI projects these columns into the final INSERT but the "
                 "DRD has NO rule for them.  Operator must add a DRD rule, "
                 "remove from ODI, or accept as known extra."
+            )
+        else:  # CHAIN_WARNING
+            md_lines.append(
+                "Final verdict is MATCHED but the ODI step chain has a "
+                "safety-relevant inconsistency: an early STEP explicitly "
+                "writes NULL (or a hardcoded literal) and a LATER STEP "
+                "overwrites with the real source.  If the later STEP is "
+                "removed or its join fails, the column will leak the "
+                "NULL/literal value."
             )
         md_lines.append("")
         md_lines.append("| Target | Kind | DRD attr | ODI projection | Category |")
@@ -571,7 +683,7 @@ def main() -> int:
     print(f"Wrote {ROOT / 'data' / 'MISMATCH_FINAL.md'} ({len(md_lines)} lines)")
 
     # ── Per-column expanded view ──
-    _verdict_order = {"REAL_MISMATCH": 0, "UNRESOLVABLE": 1, "SOURCE_MISSING": 2, "ODI_EXTRA": 3}
+    _verdict_order = {"REAL_MISMATCH": 0, "UNRESOLVABLE": 1, "SOURCE_MISSING": 2, "ODI_EXTRA": 3, "CHAIN_WARNING": 4}
     det: list = []
     det.append(
         f"# Non-MATCHED columns ({len(out_rows)}) -- detailed"
