@@ -120,25 +120,45 @@ def _scan_chain_for_warnings(target_col: str, chain: list) -> list:
             })
     return warnings
 
-# Audit-column names to SKIP entirely per operator (2026-05-29):
-# Audit / session-tracking columns where ODI uses defaults the comparator
-# cannot evaluate (sysdate, sess_name, hard-coded sess_no).  Operator
-# does not want these reported -- they are intentional ODI overrides.
-_SKIP_AUDIT_COLS = frozenset({
-    "LAST_UDT_DTM",
-    "LAST_UDT_USR_NM",
-    "SESS_NO",
-    "FRST_INS_DTM",
-    "FRST_INS_USR_NM",
-})
+# Project-specific knobs live in data/comparator_config.json so the
+# generator stays generic.  See _load_config() below.
 
-# Operator-confirmed PDM abbreviation pairs (from this session).
-_CONFIRMED_NAME_PAIRS = (
-    ("YIELD", "YLD"),
-    ("YIELD_TO_WORST", "YTW"),
-    ("YIELD_TO_WORST_CD", "YTW_CD"),
-    ("DISCRETION", "DSCTN"),
+def _load_config() -> dict:
+    """Load project-tuneable settings from data/comparator_config.json.
+    Robust to missing/malformed JSON: returns sensible defaults so the
+    script still runs against an unfamiliar DRD/ODI pair."""
+    import json as _json
+    cfg_path = ROOT / "data" / "comparator_config.json"
+    defaults = {
+        "audit_column_skip_list": [],
+        "confirmed_name_pairs": [],
+        "lookup_table_markers": ["LOOKUP"],
+        "target_schema": "TARGET_SCHEMA",
+        "target_table": "TARGET_TABLE",
+        "drd_filename": "DRD.xlsx",
+        "odi_filename": "ODI.xml",
+    }
+    if not cfg_path.exists():
+        return defaults
+    try:
+        loaded = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        for k, v in defaults.items():
+            loaded.setdefault(k, v)
+        return loaded
+    except Exception as e:
+        print(f"WARN: comparator_config.json malformed ({e}); using defaults")
+        return defaults
+
+
+_CFG = _load_config()
+_SKIP_AUDIT_COLS = frozenset(s.upper() for s in _CFG["audit_column_skip_list"])
+_CONFIRMED_NAME_PAIRS = tuple(
+    (a.upper(), b.upper())
+    for pair in _CFG["confirmed_name_pairs"]
+    if isinstance(pair, (list, tuple)) and len(pair) == 2
+    for a, b in [pair]
 )
+_LOOKUP_MARKERS = tuple(m.upper() for m in _CFG["lookup_table_markers"])
 
 
 def _classify_honest(
@@ -177,34 +197,20 @@ def _classify_honest(
             f"different role prefix than DRD spec.  Verify against PDM.",
         )
 
-    # 3. Lookup denormalisation: DRD spec sources from CL_VAL (a lookup
-    #    table); ODI projects the pre-resolved value from an aggregated
-    #    alias like APA_CASH / APA_SECURITY.
-    if "CL_VAL" in (drd_table or "").upper() and odi_up != drd_up:
+    # 3. Lookup denormalisation: DRD spec sources from a lookup table
+    #    (e.g. CL_VAL); ODI projects the pre-resolved value from an
+    #    aggregated alias.  Lookup markers loaded from config.
+    drd_table_up = (drd_table or "").upper()
+    if any(m in drd_table_up for m in _LOOKUP_MARKERS) and odi_up != drd_up:
         return (
             _CAT_DENORMALIZED_LOOKUP,
-            f"DENORMALIZED_LOOKUP -- DRD wants JOIN to CL_VAL lookup "
-            f"({drd_up}); ODI denormalises and stores the pre-resolved "
-            f"value directly in {alias_up}.{odi_up}.  Different physical "
-            f"columns; VALUES are likely equivalent (the denormalised "
-            f"code/name should match the lookup result).  Operator must "
-            f"confirm against PDM + sample data.",
+            f"DENORMALIZED_LOOKUP -- DRD wants JOIN to lookup table "
+            f"'{drd_table_up}' ({drd_up}); ODI denormalises and stores "
+            f"the pre-resolved value directly in {alias_up}.{odi_up}.  "
+            f"Different physical columns; VALUES are likely equivalent "
+            f"(the denormalised code/name should match the lookup "
+            f"result).  Operator must confirm against PDM + sample data.",
         )
-
-    # 4. Suffix-change cases (TRAILER_1, TRAILER_2, etc.) -- ODI projects
-    #    a column whose name is NOT the DRD source attribute even modulo
-    #    role prefix.  These are honestly different columns.
-    suffix_pairs = (("APA_DSC", "DSC_TRAILER_1"), ("ALT_DSC", "ALT_DSC_TRAILER_2"))
-    for left, right in suffix_pairs:
-        if drd_up == left and odi_up == right:
-            return (
-                _CAT_DIFFERENT_COLUMN,
-                f"DIFFERENT_COLUMN -- DRD spec column '{left}' and ODI "
-                f"projected column '{right}' are DIFFERENT physical "
-                f"columns.  The '{right}' name implies a trailer / "
-                f"variant of the description; verify against PDM whether "
-                f"this is the intended column.",
-            )
 
     # 5. Probable abbreviation (one column name is a contraction of the
     #    other).  Likely but not confirmed -- operator review needed.
@@ -282,7 +288,7 @@ def _classify_source_missing(
     """Categorise a SOURCE_MISSING row honestly."""
     drd_table_up = (drd_table or "").upper()
     tgt_up = (target_col or "").upper()
-    is_lookup = "CL_VAL" in drd_table_up or "LOOKUP" in drd_table_up
+    is_lookup = any(m in drd_table_up for m in _LOOKUP_MARKERS)
     if is_lookup:
         return (
             _CAT_MISSING_IN_ODI,
@@ -321,15 +327,34 @@ def _md_cell(s: str) -> str:
 
 
 def main() -> int:
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Generate honest mismatch report from DRD + ODI pair.",
+    )
+    ap.add_argument("--drd", default=str(ROOT / _CFG["drd_filename"]),
+                    help="Path to DRD .xlsx file (default from config)")
+    ap.add_argument("--odi", default=str(ROOT / _CFG["odi_filename"]),
+                    help="Path to ODI .xml file (default from config)")
+    ap.add_argument("--schema", default=_CFG["target_schema"],
+                    help="Target schema name (default from config)")
+    ap.add_argument("--table", default=_CFG["target_table"],
+                    help="Target table name (default from config)")
+    args = ap.parse_args()
     print("Loading inputs ...")
-    drd_path = ROOT / "DRD_Activity_Fact.xlsx"
-    odi_path = ROOT / "1_SCEN_LH_AVY_PKG_LOAD_AVY_FACT_SIDE_V1_RT_ST_Version_001.xml"
+    drd_path = pathlib.Path(args.drd)
+    odi_path = pathlib.Path(args.odi)
+    if not drd_path.exists():
+        print(f"ERROR: DRD not found at {drd_path}")
+        return 2
+    if not odi_path.exists():
+        print(f"ERROR: ODI not found at {odi_path}")
+        return 2
     result = generate_v9(
         drd_bytes=drd_path.read_bytes(),
         drd_filename=drd_path.name,
         odi_xml_bytes=odi_path.read_bytes(),
-        target_schema="IKOROSTELEV",
-        target_table="AVY_FACT_SIDE",
+        target_schema=args.schema,
+        target_table=args.table,
     )
     model = OdiXmlParser().parse_bytes(odi_path.read_bytes())
 

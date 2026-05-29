@@ -1,0 +1,20 @@
+
+venv/
+__pycache__/
+*.db
+.pytest_cache/
+certs/
+redshift-jdbc42-2.1.0.32/
+*.har
+Aira/
+Unsorted/
+training_packs/
+
+# Phase 7 (2026-05-29): generated reports and timestamped artefacts
+data/MISMATCH_FINAL_2*.csv
+data/MISMATCH_FINAL_DETAIL_2*.csv
+data/MISMATCH_TABLE_*_enriched_*.csv
+data/MISMATCH_TABLE_*Copy*.csv
+data/api_runs/
+.tmp_pytest/
+*.pyc

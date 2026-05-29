@@ -243,16 +243,38 @@ def _extract_column_refs(expr: str) -> List[Tuple[str, str]]:
     return out
 
 
-# Operator-locked role-prefix equivalences (2026-05-29).  Each entry is a
-# frozenset of two short prefixes that mean the same role in this schema
-# convention.  Adding to this set is a deliberate operator decision -- it
-# tells the comparator "X_<suffix> and Y_<suffix> name the same data".
-# Today's only entry: SCR / SEC, both meaning "Security" -- DRD spec
-# writes SCR_X for columns living directly in APA; ODI projects SEC_X
-# from the APA_SECURITY alias.
-_ROLE_PREFIX_EQUIVALENCES = (
-    frozenset(("SCR", "SEC")),
-)
+# Role-prefix equivalences.  Loaded from `data/comparator_config.json` so
+# the comparator stays generic -- no project-specific prefixes hardcoded
+# in code.  Operator-locked rule (2026-05-29 Phase 7.1).  An entry is a
+# frozenset of two short prefixes that mean the same role in the schema
+# convention being compared.  Empty list = no equivalences.
+def _load_role_prefix_equivalences() -> tuple:
+    """Read role-prefix pairs from data/comparator_config.json.
+
+    Returns a tuple of frozensets so the data structure is hashable and
+    static-typed compatible.  Robust to missing / malformed config: in
+    those cases returns an empty tuple (comparator falls back to strict
+    name equality).
+    """
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        cfg_path = _Path(__file__).resolve().parent.parent.parent / "data" / "comparator_config.json"
+        if not cfg_path.exists():
+            return ()
+        cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        pairs = cfg.get("role_prefix_equivalences") or []
+        out = []
+        for p in pairs:
+            if isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(x, str) for x in p):
+                out.append(frozenset((p[0].upper(), p[1].upper())))
+        return tuple(out)
+    except Exception:
+        # Fail-safe: comparator works without role-prefix equivalences.
+        return ()
+
+
+_ROLE_PREFIX_EQUIVALENCES = _load_role_prefix_equivalences()
 
 
 def _columns_equivalent_via_role_prefix(a: str, b: str) -> bool:
@@ -965,70 +987,6 @@ def _check_walker_match(
     # No chain entry references the DRD source attribute -- leave the
     # verdict to the legacy paths.  This is the case where ODI genuinely
     # projects a different column (real COLUMN_MISMATCH or ODI gap).
-    return None
-    # ── Legacy authoritative-only path (now dead, kept commented) ─────────
-    # Find the single authoritative entry (first non-passthrough; or earliest
-    # if every entry is passthrough).
-    auth = next((d for d in chain if d.is_authoritative), None)
-    if auth is None:
-        return None
-    # If the authoritative kind is pass-through, there's no real derivation
-    # in any step -- leave it to legacy logic to flag the ODI gap.
-    if auth.expr_kind == "passthrough":
-        return None
-    # column_ref: ODI projects a bare <alias>.<col>; match if source_col
-    # equals DRD attr (modulo a single role-prefix segment).
-    if auth.expr_kind == "column_ref":
-        if auth.source_col and _columns_equivalent_modulo_prefix(
-            auth.source_col, drd_attr_up,
-        ):
-            return ComparisonResult(
-                verdict=ComparisonVerdict.MATCHED,
-                target_col=col,
-                drd_schema=drd.source_schema,
-                drd_table=drd.source_table,
-                drd_attr=drd.source_attr,
-                odi_schema="",
-                odi_table=auth.source_alias,
-                odi_col=auth.source_col,
-                odi_expr_sql=auth.expr_sql,
-                odi_step=auth.step_id,
-                explanation=(
-                    f"MATCHED via deep walker: ODI step {auth.step_label} "
-                    f"projects {auth.source_alias}.{auth.source_col}; "
-                    f"DRD source_attribute matches modulo prefix"
-                ),
-                mismatch_kind=MismatchKind.NONE,
-                drd_logic=drd.transformation or drd.source_attr,
-                odi_logic=auth.expr_sql,
-            )
-        return None
-    # function / case_when / agg / subquery: ODI wraps the column ref; match
-    # if the DRD source_attr appears as a column ref anywhere inside.
-    if auth.expr_kind in ("function", "case_when", "agg", "subquery"):
-        if _odi_expr_references_column(auth.expr_sql, drd_attr_up):
-            return ComparisonResult(
-                verdict=ComparisonVerdict.MATCHED,
-                target_col=col,
-                drd_schema=drd.source_schema,
-                drd_table=drd.source_table,
-                drd_attr=drd.source_attr,
-                odi_schema="",
-                odi_table="",
-                odi_col=drd_attr_up,
-                odi_expr_sql=auth.expr_sql,
-                odi_step=auth.step_id,
-                explanation=(
-                    f"MATCHED via deep walker: ODI step {auth.step_label} "
-                    f"wraps {drd.source_attr} in a {auth.expr_kind} "
-                    f"expression (filter / case / aggregate)"
-                ),
-                mismatch_kind=MismatchKind.NONE,
-                drd_logic=drd.transformation or drd.source_attr,
-                odi_logic=auth.expr_sql,
-            )
-        return None
-    # literal / unknown / parse_failed: leave legacy logic in control.
     return None
 
 
