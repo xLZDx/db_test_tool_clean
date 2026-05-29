@@ -996,6 +996,16 @@ async def compare_odi_vs_drd(
         "sql": v9.insert_sql,
         "provenance": v9.provenance,
         "validation": v9.oracle_validation,
+        "dry_run": v9.insert_dry_run,
+    }
+    # Phase 7.5 (operator-locked 2026-05-30): the comparator-driven
+    # INSERT, built by REUSING the comparator's per-column verdict +
+    # ODI USING(...) inner SELECT.  This is the operator's preferred
+    # output -- no PROVENANCE_FALLBACK hacks, JOIN graph honoured by
+    # construction.
+    base_response["comparator_driven_insert"] = {
+        "sql": v9.insert_sql_comparator_driven,
+        "stats": v9.insert_comparator_driven_stats,
     }
     return base_response
 

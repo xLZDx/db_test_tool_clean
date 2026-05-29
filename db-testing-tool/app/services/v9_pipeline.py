@@ -19,6 +19,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+# Top-level imports (review NIT 2026-05-30): hoist out of generate_v9
+# body so static analysis sees the dependency.
+from app.sql_model.comparator_driven_emitter import emit_insert_comparator_driven
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +40,13 @@ class V9Result:
     drd_parse_errors: List[Any] = field(default_factory=list)
     augmented_drd_rows: List[Dict[str, Any]] = field(default_factory=list)
     insert_dry_run: Dict[str, Any] = field(default_factory=dict)
+    # Phase 7.5 (operator-locked 2026-05-30): the comparator-driven
+    # INSERT.  This is the operator's preferred emitter -- it REUSES
+    # the comparator's per-column verdict and projects from ODI's
+    # USING() inner SELECT, so the JOIN graph is honoured by
+    # construction (no PROVENANCE_FALLBACK path).
+    insert_sql_comparator_driven: str = ""
+    insert_comparator_driven_stats: Dict[str, Any] = field(default_factory=dict)
 
 
 def generate_v9(
@@ -181,6 +192,24 @@ def generate_v9(
     )
     val = validate_oracle_sql(gen.sql, run_live=False)
 
+    # 7b) Comparator-driven emitter (Phase 7.5 -- operator-locked
+    # 2026-05-30).  Reuses the comparator's per-column verdict and
+    # projects from ODI's USING(...) inner SELECT.  No fallback paths.
+    cd_gen = emit_insert_comparator_driven(
+        target_schema=target_schema,
+        target_table=target_table,
+        drd_rows=aug,
+        comparison_results=cmp_results,
+        odi_model=model,
+        target_definition=tdef,
+    )
+    if cd_gen.extraction_failed:
+        # Surface loudly -- the operator must NOT trust empty SQL.
+        logging.getLogger(__name__).warning(
+            "v9_pipeline: comparator_driven_emitter failed extraction: %s",
+            cd_gen.extraction_failure_reason,
+        )
+
     # 8) Pre-insert dry-run validation (operator-locked 2026-05-29
     # Phase 7.4 Issue 3): inspect the emitted INSERT for known smell
     # patterns that indicate operator should NOT trust the artefact
@@ -220,31 +249,106 @@ def generate_v9(
             drd_parse_errors=drd_errors,
             augmented_drd_rows=aug,
             insert_dry_run=insert_dry_run,
+            insert_sql_comparator_driven=cd_gen.sql,
+            insert_comparator_driven_stats={
+                "column_count": cd_gen.column_count,
+                "matched_count": cd_gen.matched_count,
+                "real_mismatch_cols": cd_gen.real_mismatch_cols,
+                "unresolvable_cols": cd_gen.unresolvable_cols,
+                "source_missing_cols": cd_gen.source_missing_cols,
+                "null_substitutions": cd_gen.null_substitutions,
+                "null_in_not_null_risk_cols": cd_gen.null_in_not_null_risk_cols,
+                "extraction_failed": cd_gen.extraction_failed,
+                "extraction_failure_reason": cd_gen.extraction_failure_reason,
+                "notes": cd_gen.notes,
+            },
         )
-    null_substituted: List[str] = []
+    # Build a DRD-rule lookup by target column so we can decide whether
+    # a NULL in the INSERT is VALID (DRD itself specifies NULL / audit /
+    # literal) or INVALID (DRD says real source but emitter dropped to NULL).
+    # Operator-locked clarification (2026-05-30): "NULL may be valid per
+    # DRD -- always cross-check".
+    _NULL_VALID_MARKERS = (
+        "NULL", "N/A", "NONE",
+    )
+    _DRD_LOGIC_NULL_RE = re.compile(
+        r"\b(?:DEFAULT\s+NULL|=\s*NULL|RETURN\s+NULL|SET\s+TO\s+NULL|"
+        r"AUDIT\s+COLUMN|DEFAULT\s+SYSDATE|DEFAULT\s+USER|DEFAULT\s+'[^']*')",
+        re.IGNORECASE,
+    )
+
+    def _drd_says_null_is_valid(col_name: str) -> bool:
+        """True iff the DRD rule for `col_name` explicitly says the
+        target should be NULL (or a non-source-derived default).  Used
+        to skip false-positive NULL_SUBSTITUTION flags."""
+        col_u = col_name.upper()
+        for r in aug:
+            if (r.get("physical_name") or r.get("column") or "").strip().upper() != col_u:
+                continue
+            src_attr = (r.get("source_attribute") or "").strip().upper()
+            transformation = (r.get("transformation") or "")
+            # (a) DRD explicitly names NULL/N/A in source_attribute
+            if src_attr in _NULL_VALID_MARKERS:
+                return True
+            # (b) DRD logic text says "DEFAULT NULL" / "AUDIT COLUMN" /
+            #     "DEFAULT sysdate" / "DEFAULT 'X'" -- these are
+            #     emitter-supplied values, not DRD column projections
+            if _DRD_LOGIC_NULL_RE.search(transformation):
+                return True
+            # (c) No source_table AND no source_attribute -> DRD itself
+            #     doesn't specify a source -> NULL is the operator's
+            #     intent
+            if not src_attr and not (r.get("source_table") or "").strip():
+                return True
+            return False
+        # Column not in DRD at all -> NULL is the only sane choice,
+        # don't flag.
+        return True
+
+    null_unwanted: List[str] = []
+    null_drd_validated: List[str] = []
     fallback_substituted: List[str] = []
     # Patterns operator-locked Phase 7.4: cover the two known emitter
     # comment styles (`NULL /* PDM_MISS ... */ AS COL` AND
-    # `NULL AS COL  -- PDM_MISS ...`).
+    # `NULL AS COL  -- PDM_MISS ...`).  AND also a plain `NULL AS COL`
+    # so we cross-check those against DRD too (2026-05-30 op clarif).
     _PDM_MISS_INLINE = re.compile(r"NULL\s*/\*\s*PDM_MISS:?[^*]*\*/\s*AS\s+([A-Z0-9_]+)", re.IGNORECASE)
     _PDM_MISS_TRAILING = re.compile(r"NULL\s+AS\s+([A-Z0-9_]+)\s*,?\s*--.*PDM_MISS", re.IGNORECASE)
+    _PLAIN_NULL_AS = re.compile(r"^\s*NULL\s+AS\s+([A-Z0-9_]+)\b", re.IGNORECASE)
     _PROV_FALLBACK = re.compile(r"\bAS\s+([A-Z0-9_]+),?\s*--.*DRD_PHYSICAL_FALLBACK", re.IGNORECASE)
     for line in insert_sql.splitlines():
+        # PDM_MISS markers: unconditional flag (emitter explicitly says
+        # it could not resolve; DRD validity is moot).
         m = _PDM_MISS_INLINE.search(line) or _PDM_MISS_TRAILING.search(line)
         if m:
-            null_substituted.append(m.group(1).upper())
+            col = m.group(1).upper()
+            if _drd_says_null_is_valid(col):
+                # Even PDM_MISS lands on a DRD-NULL column => operator's
+                # intent met by accident; track for transparency.
+                null_drd_validated.append(col)
+            else:
+                null_unwanted.append(col)
+            continue
+        # Plain `NULL AS COL` (no marker): cross-check against DRD.
+        m_plain = _PLAIN_NULL_AS.search(line)
+        if m_plain:
+            col = m_plain.group(1).upper()
+            if _drd_says_null_is_valid(col):
+                null_drd_validated.append(col)
+            else:
+                null_unwanted.append(col)
+            continue
         m_fb = _PROV_FALLBACK.search(line)
         if m_fb:
             fallback_substituted.append(m_fb.group(1).upper())
     drd_declared = len([r for r in aug if (r.get("physical_name") or r.get("column"))])
     issues: List[str] = []
-    if null_substituted:
+    if null_unwanted:
         issues.append(
-            f"NULL_SUBSTITUTION: {len(null_substituted)} column(s) "
-            f"replaced with NULL/PDM_MISS marker (first 5: "
-            f"{', '.join(null_substituted[:5])}). The emitter could not "
-            f"resolve the DRD source for these columns. Operator MUST "
-            f"investigate before trusting the INSERT."
+            f"NULL_SUBSTITUTION: {len(null_unwanted)} column(s) emit NULL "
+            f"but DRD specifies a real source (first 5: "
+            f"{', '.join(null_unwanted[:5])}). Operator MUST investigate "
+            f"-- DRD says these should NOT be NULL."
         )
     if fallback_substituted:
         issues.append(
@@ -264,8 +368,14 @@ def generate_v9(
     insert_dry_run = {
         "passed": len(issues) == 0,
         "issues": issues,
-        "null_substituted_count": len(null_substituted),
-        "null_substituted_examples": null_substituted[:10],
+        # Operator-clarified split (2026-05-30):
+        # - null_substituted_count: NULL where DRD says real source (BAD).
+        # - null_drd_validated_count: NULL where DRD itself says NULL or
+        #   the column is an audit / DEFAULT / no-source field (OK).
+        "null_substituted_count": len(null_unwanted),
+        "null_substituted_examples": null_unwanted[:10],
+        "null_drd_validated_count": len(null_drd_validated),
+        "null_drd_validated_examples": null_drd_validated[:10],
         "fallback_substituted_count": len(fallback_substituted),
         "fallback_substituted_examples": fallback_substituted[:10],
         "drd_declared_columns": drd_declared,
@@ -285,4 +395,17 @@ def generate_v9(
         drd_parse_errors=drd_errors,
         augmented_drd_rows=aug,
         insert_dry_run=insert_dry_run,
+        insert_sql_comparator_driven=cd_gen.sql,
+        insert_comparator_driven_stats={
+            "column_count": cd_gen.column_count,
+            "matched_count": cd_gen.matched_count,
+            "real_mismatch_cols": cd_gen.real_mismatch_cols,
+            "unresolvable_cols": cd_gen.unresolvable_cols,
+            "source_missing_cols": cd_gen.source_missing_cols,
+            "null_substitutions": cd_gen.null_substitutions,
+            "null_in_not_null_risk_cols": cd_gen.null_in_not_null_risk_cols,
+            "extraction_failed": cd_gen.extraction_failed,
+            "extraction_failure_reason": cd_gen.extraction_failure_reason,
+            "notes": cd_gen.notes,
+        },
     )
