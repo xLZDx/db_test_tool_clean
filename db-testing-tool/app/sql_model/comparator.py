@@ -754,6 +754,90 @@ def _check_walker_match(
     chain = derivations.get(col.upper())
     if not chain:
         return None
+    # Multi-line source_attr (e.g. "BKR_AR_ID\nAR_ID") -> try each candidate.
+    # Newline separation is the DRD convention for "either of these source
+    # columns is acceptable" (operator-locked 2026-05-29).
+    drd_attr_candidates = [
+        ln.strip().upper() for ln in drd.source_attr.replace("\r", "\n").split("\n")
+        if ln.strip()
+    ]
+    if not drd_attr_candidates:
+        return None
+    drd_attr_up = drd_attr_candidates[0]
+    # ── Source-attribute-first match (operator-locked 2026-05-29) ─────────
+    # Scan EVERY entry in the chain (not just the authoritative) for any
+    # column-reference whose bare column name equals the DRD's source
+    # attribute modulo role-prefix.  This catches the cases where the
+    # authoritative step is a passthrough but a deeper step references the
+    # DRD's stated source column directly.
+    for entry in chain:
+        # 1. Direct source_col match for column_ref / passthrough entries.
+        matched_drd_attr = next(
+            (cand for cand in drd_attr_candidates
+             if entry.source_col and _columns_equivalent_modulo_prefix(
+                 entry.source_col, cand)),
+            None,
+        )
+        if matched_drd_attr:
+            drd_attr_up = matched_drd_attr
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table=entry.source_alias,
+                odi_col=entry.source_col,
+                odi_expr_sql=entry.expr_sql,
+                odi_step=entry.step_id,
+                explanation=(
+                    f"MATCHED via deep walker: ODI step {entry.step_label} "
+                    f"projects {entry.source_alias}.{entry.source_col}; "
+                    f"matches DRD source_attribute modulo prefix"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=drd.transformation or drd.source_attr,
+                odi_logic=entry.expr_sql,
+            )
+        # 2. For wrapped expressions (function / case_when / agg / subquery),
+        #    scan the expression text for any column ref whose bare column
+        #    name matches ANY of the DRD source attribute candidates.
+        wrapped_match = (
+            entry.expr_kind in ("function", "case_when", "agg", "subquery")
+            and next(
+                (cand for cand in drd_attr_candidates
+                 if _odi_expr_references_column(entry.expr_sql, cand)),
+                None,
+            )
+        )
+        if wrapped_match:
+            drd_attr_up = wrapped_match
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table="",
+                odi_col=drd_attr_up,
+                odi_expr_sql=entry.expr_sql,
+                odi_step=entry.step_id,
+                explanation=(
+                    f"MATCHED via deep walker: ODI step {entry.step_label} "
+                    f"wraps {drd.source_attr} in a {entry.expr_kind} "
+                    f"expression (filter / case / aggregate)"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=drd.transformation or drd.source_attr,
+                odi_logic=entry.expr_sql,
+            )
+    # No chain entry references the DRD source attribute -- leave the
+    # verdict to the legacy paths.  This is the case where ODI genuinely
+    # projects a different column (real COLUMN_MISMATCH or ODI gap).
+    return None
+    # ── Legacy authoritative-only path (now dead, kept commented) ─────────
     # Find the single authoritative entry (first non-passthrough; or earliest
     # if every entry is passthrough).
     auth = next((d for d in chain if d.is_authoritative), None)
@@ -762,9 +846,6 @@ def _check_walker_match(
     # If the authoritative kind is pass-through, there's no real derivation
     # in any step -- leave it to legacy logic to flag the ODI gap.
     if auth.expr_kind == "passthrough":
-        return None
-    drd_attr_up = drd.source_attr.strip().upper()
-    if not drd_attr_up:
         return None
     # column_ref: ODI projects a bare <alias>.<col>; match if source_col
     # equals DRD attr (modulo a single role-prefix segment).

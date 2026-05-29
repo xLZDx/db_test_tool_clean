@@ -335,9 +335,22 @@ def main() -> None:
     try:
         csv_path.write_text("\n".join(csv_rows), encoding="utf-8")
         print(f"Wrote {csv_path}  ({len(csv_rows)} rows incl header)")
-    except PermissionError as e:
-        # File likely open in Excel; non-fatal -- markdown copies are enough.
-        print(f"CSV write skipped (file in use): {e}")
+    except PermissionError:
+        # Primary CSV locked (Excel?).  Write to a sibling path so the
+        # latest data is always available; the operator can re-open and
+        # the script never silently drops data.
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+        alt = ROOT / "data" / f"MISMATCH_TABLE_{ts}.csv"
+        try:
+            alt.write_text("\n".join(csv_rows), encoding="utf-8")
+            print(
+                f"Primary CSV locked; wrote fresh copy to {alt} "
+                f"({len(csv_rows)} rows incl header).  Close Excel + re-run "
+                f"to overwrite the main MISMATCH_TABLE.csv."
+            )
+        except Exception as e2:  # noqa: BLE001
+            print(f"CSV write failed entirely: {e2}")
 
 
 if __name__ == "__main__":

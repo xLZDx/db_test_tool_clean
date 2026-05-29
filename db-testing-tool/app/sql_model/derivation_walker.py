@@ -344,6 +344,19 @@ def _build_using_step_derivations(
             select_exprs = list(inner.expressions)
     elif isinstance(using_node, exp.Select):
         select_exprs = list(using_node.expressions)
+    # CRITICAL (2026-05-29): when the USING SELECT's FROM clause is itself a
+    # subquery (i.e. ``FROM ( SELECT X.col AS col, ... FROM staging X )``),
+    # the OUTER USING just emits bare column refs that lose the alias prefix
+    # we need for pass-through detection.  Drill into the inner subquery's
+    # SELECT list so MERGE-only columns surface their real source.
+    if select_exprs and all(isinstance(e, (exp.Column, exp.Alias)) for e in select_exprs):
+        sel_for_from = inner if isinstance(using_node, exp.Subquery) else using_node
+        from_node = sel_for_from.args.get("from") if hasattr(sel_for_from, "args") else None
+        from_src = from_node.this if from_node is not None else None
+        if isinstance(from_src, exp.Subquery):
+            inner_sel = from_src.this
+            if isinstance(inner_sel, exp.Select) and len(inner_sel.expressions) >= len(select_exprs):
+                select_exprs = list(inner_sel.expressions)
     target_cols, _values = _extract_merge_insert_target_and_exprs(ast)
     if not target_cols or not select_exprs:
         return {}
