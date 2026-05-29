@@ -586,6 +586,62 @@ def test_applicable_filter_drift_shared_with_emitter():
     assert r.odi_logic == "SRC.AMT"
 
 
+def test_columns_equivalent_modulo_prefix_generic():
+    """Operator-locked semantic match: ODI subset-CTE prefixes are stripped.
+    Uses arbitrary names to prove genericness."""
+    from app.sql_model.comparator import _columns_equivalent_modulo_prefix
+    # Exact match
+    assert _columns_equivalent_modulo_prefix("X", "X") is True
+    # Prefix on ODI side (OFST_AR_DIM_ID vs AR_DIM_ID -- but with arbitrary names)
+    assert _columns_equivalent_modulo_prefix("FOO_BAR_BAZ", "BAR_BAZ") is True
+    # Prefix on DRD side
+    assert _columns_equivalent_modulo_prefix("BAR_BAZ", "ROLE_BAR_BAZ") is True
+    # Multi-segment prefix
+    assert _columns_equivalent_modulo_prefix("WIDGET_INV_ID", "INV_ID") is True
+    # No match
+    assert _columns_equivalent_modulo_prefix("X", "Y") is False
+    assert _columns_equivalent_modulo_prefix("FOO_BAZ", "BAR_BAZ") is False
+    # Edge cases
+    assert _columns_equivalent_modulo_prefix("", "X") is False
+    assert _columns_equivalent_modulo_prefix("X", "") is False
+
+
+def test_odi_expr_semantic_match_with_prefix():
+    """Subset-CTE refs that prefix the column name are semantic matches."""
+    from app.sql_model.comparator import _odi_expr_references_column
+    # NVL with prefix
+    assert _odi_expr_references_column("(NVL(SUBSET_CTE.ROLE_TARGET_COL,0))", "TARGET_COL") is True
+    # Bare ref with prefix
+    assert _odi_expr_references_column("CTE_X.PREFIX_FOO_BAR", "FOO_BAR") is True
+    # Negative
+    assert _odi_expr_references_column("CTE_X.UNRELATED", "FOO_BAR") is False
+
+
+def test_exists_to_max_case_semantic_match():
+    """DRD EXISTS-derived flag + ODI MAX(CASE) projection = MATCHED.
+    Generic identifiers, no business-domain names."""
+    # ODI does MAX(CASE WHEN <cond> THEN '<V>' ELSE NULL END)
+    bindings = [_make_binding("SRC", "OWNER", "T")]
+    cm = ColumnMapping("FLAG_F", _make_complex(
+        "(MAX((CASE WHEN OWNER.LINK.COND_COL = 1 AND OWNER.LINK.OTHER <> 0 THEN 'Y' END)))"
+    ))
+    model = _make_model_with_step1([cm], bindings)
+    drd = DrdClaim.from_dict({
+        "physical_name": "FLAG_F",
+        "source_schema": "OWNER",
+        "source_table": "T",
+        "source_attribute": "FLAG_F",
+        "transformation": (
+            "If there is a record in OWNER.LINK table with "
+            "FLAG_F.COND_COL = 1 and OWNER.LINK.OTHER <> 0 "
+            "then set to 'Y' for both."
+        ),
+    })
+    r = compare_drd_odi(drd, model)
+    assert r.verdict == ComparisonVerdict.MATCHED
+    assert "MAX" in r.explanation or "EXISTS" in r.explanation
+
+
 def test_extract_column_refs_strips_sql_keywords():
     """Generic: keywords like NVL/COALESCE/CASE never appear as 'aliases'."""
     from app.sql_model.comparator import _extract_column_refs

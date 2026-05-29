@@ -28,6 +28,7 @@ from app.sql_model.drd_ad_parser import (
 )
 from app.sql_model.drd_rules import (
     extract_applicable_only_code,
+    extract_exists_derived_flag,
     find_discriminator_for_code,
 )
 from app.sql_model.types import (
@@ -211,16 +212,45 @@ def _extract_column_refs(expr: str) -> List[Tuple[str, str]]:
     return out
 
 
+def _columns_equivalent_modulo_prefix(odi_col: str, drd_col: str) -> bool:
+    """True if ``odi_col`` and ``drd_col`` refer to the same underlying column
+    modulo a single prefix segment.
+
+    Use case: ODI subset-CTEs rename pre-joined columns by prepending a role
+    prefix (``OFST_<X>``, ``SEC_<X>``, ``CASH_<X>``, ``BKR_<X>``, ``SBC_<X>``,
+    ``OWN_<X>``, ...).  Generic: ANY single prefix segment ending in ``_``
+    counts; we do not hardcode the list.
+
+    Examples (generic, no business-domain names):
+      * OFST_AR_DIM_ID  vs  AR_DIM_ID    -> True
+      * SEC_ORIG_QTY    vs  ORIG_QTY     -> True
+      * FOO_BAR_BAZ     vs  BAR_BAZ      -> True  (FOO_ prefix)
+      * XYZ             vs  ABC           -> False
+    """
+    if not odi_col or not drd_col:
+        return False
+    o = odi_col.strip().upper()
+    d = drd_col.strip().upper()
+    if o == d:
+        return True
+    if o.endswith("_" + d):
+        return True
+    if d.endswith("_" + o):
+        return True
+    return False
+
+
 def _odi_expr_references_column(odi_expr: str, drd_col: str) -> bool:
     """True if any leaf ref in ``odi_expr`` projects from the same bare column
-    name as ``drd_col``.  This is the semantic-equivalence rule:
+    name as ``drd_col`` (modulo a single role-prefix segment).  Generic --
+    works for any column / alias names.
 
-      * ``NVL(X.Y, 0)``                       -> Y matches drd_col "Y"  -> True
-      * ``coalesce(A.X, B.X)``               -> X matches drd_col "X"  -> True
-      * ``CASE WHEN cond THEN A.X ELSE B.X END`` -> X matches "X"      -> True
-      * ``A.Z``                              -> Z != "X"               -> False
-
-    Generic -- works for any column / alias names.
+    Examples (no business-domain names):
+      * ``NVL(X.Y, 0)``                  vs "Y"        -> True
+      * ``coalesce(A.X, B.X)``           vs "X"        -> True
+      * ``CASE WHEN c THEN A.X ELSE B.X END`` vs "X"   -> True
+      * ``APA_CASH.OFST_AR_DIM_ID``      vs "AR_DIM_ID" -> True (prefix)
+      * ``A.Z``                          vs "X"        -> False
     """
     if not odi_expr or not drd_col:
         return False
@@ -228,7 +258,7 @@ def _odi_expr_references_column(odi_expr: str, drd_col: str) -> bool:
     if not drd_up:
         return False
     refs = _extract_column_refs(odi_expr)
-    return any(col.upper() == drd_up for _alias, col in refs)
+    return any(_columns_equivalent_modulo_prefix(col, drd_up) for _alias, col in refs)
 
 
 def _normalize_case_when_redundant(expr: str) -> str:
@@ -715,6 +745,34 @@ def compare_drd_odi(
         if text_found is not None:
             ts_step_id, ts_expr = text_found
             ts_expr_upper = ts_expr.upper()
+
+            # Shared rule engine: EXISTS-derived flag MATCH via MAX(CASE).
+            _exists_spec_ts = extract_exists_derived_flag(drd.transformation)
+            if _exists_spec_ts is not None:
+                _has_max_case_ts = "MAX" in ts_expr_upper and "CASE" in ts_expr_upper
+                _set_val_up = _exists_spec_ts["set_value"].upper()
+                _has_set_val_ts = f"'{_set_val_up}'" in ts_expr_upper
+                if _has_max_case_ts and _has_set_val_ts:
+                    return ComparisonResult(
+                        verdict=ComparisonVerdict.MATCHED,
+                        target_col=col,
+                        drd_schema=drd.source_schema,
+                        drd_table=drd.source_table,
+                        drd_attr=drd.source_attr,
+                        odi_schema="",
+                        odi_table="",
+                        odi_col="",
+                        odi_expr_sql=ts_expr,
+                        odi_step=ts_step_id,
+                        explanation=(
+                            f"MATCHED via EXISTS<->MAX(CASE): both DRD and ODI flag "
+                            f"existence in {_exists_spec_ts['table']} -> '{_exists_spec_ts['set_value']}'"
+                        ),
+                        mismatch_kind=MismatchKind.NONE,
+                        drd_logic=_drd_effective_rule or drd.transformation,
+                        odi_logic=ts_expr,
+                    )
+
             # Shared rule engine: when DRD says "Applicable only for <CODE>",
             # check whether ODI's projection text reflects the same filter.
             _ap_code = extract_applicable_only_code(drd.transformation)
@@ -980,6 +1038,37 @@ def compare_drd_odi(
                         step_id = ts_id
                     except Exception:
                         pass
+
+    # ── Shared rule engine: EXISTS-derived flag MATCH ───────────────────────
+    # When DRD says ``If there is a record in T with <preds> then set to '<V>'``
+    # and ODI projects ``(MAX((CASE WHEN <similar_preds> THEN '<V>' ...)))``,
+    # the two are semantically the same boolean flag.  Generic: no specific
+    # table / column / value hard-coded.
+    _exists_spec = extract_exists_derived_flag(drd.transformation)
+    if _exists_spec is not None and _odi_logic_raw:
+        _odi_text_up = _odi_logic_raw.upper()
+        _has_max_case = "MAX" in _odi_text_up and "CASE" in _odi_text_up
+        _has_set_value = f"'{_exists_spec['set_value'].upper()}'" in _odi_text_up
+        if _has_max_case and _has_set_value:
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema=src.ref.schema if src.ref else "",
+                odi_table=src.ref.table if src.ref else "",
+                odi_col=src.column,
+                odi_expr_sql=_odi_logic_raw,
+                odi_step=step_id,
+                explanation=(
+                    f"MATCHED via EXISTS<->MAX(CASE) equivalence: both flag "
+                    f"existence of record in {_exists_spec['table']} -> '{_exists_spec['set_value']}'"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=_drd_effective_rule or drd.transformation or drd.source_attr,
+                odi_logic=_odi_logic_raw,
+            )
 
     # ── Shared rule engine: APPLICABLE-filter MATCH / DRIFT ─────────────────
     # When DRD says "Applicable only for <CODE>" AND ODI's expression text

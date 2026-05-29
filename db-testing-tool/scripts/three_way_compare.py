@@ -142,7 +142,12 @@ def classify_row(
     markdown table.
     """
     transformation = (drd_row.get("transformation") or "")
-    drd_source_attr = (drd_row.get("source_attribute") or "").strip().upper()
+    raw_source_attr = (drd_row.get("source_attribute") or "").strip()
+    # Apply the same PAREN-NOTE strip the comparator uses (drops "(FROM T2)",
+    # "(FROM T)" alias-hint annotations) so the classifier sees the same bare
+    # column the comparator does.
+    import re as _re
+    drd_source_attr = _re.sub(r"\s+\([A-Z0-9_ ]+\)\s*$", "", raw_source_attr).upper()
     drd_source_table = (drd_row.get("source_table") or "").strip().upper().split("\n")[0]
     drd_source_schema = (drd_row.get("source_schema") or "").strip().upper()
     etl_ref = (drd_row.get("etl_block_ref") or "").strip().upper()
@@ -211,13 +216,31 @@ def classify_row(
 
     # Does ODI implement the DRD intent?
     odi_has_case = "CASE" in odi_top_up
+    odi_has_max_case = "MAX" in odi_top_up and "CASE" in odi_top_up
     odi_has_exists = "EXISTS" in odi_top_up
     odi_has_code = bool(ap_code) and (f"'{ap_code}'" in odi_top_up)
+    # Shared subset-CTE prefix detector: ODI subset-CTEs (e.g. APA_CASH,
+    # APA_SECURITY) rename columns with role prefixes (SEC_, CASH_, OFST_,
+    # ...).  Use the comparator's _odi_expr_references_column helper which
+    # already implements the generic prefix-modulo match.
+    from app.sql_model.comparator import _odi_expr_references_column as _ref
+    drd_attr_for_check = drd_source_attr or target
+    odi_semantic_match = bool(odi_top) and _ref(odi_top, drd_attr_for_check)
     drd_odi_agree: str
     if drd_intent == "EXISTS_DERIVED_FLAG":
-        drd_odi_agree = "YES" if odi_has_exists else "NO_ODI_PASS_THROUGH"
+        # MAX(CASE WHEN <cond> THEN '<V>') is the aggregate-equivalent of
+        # EXISTS(SELECT 1 ... WHERE <cond>) THEN '<V>'.  Treat as match.
+        drd_odi_agree = "YES" if (odi_has_exists or odi_has_max_case) else "NO_ODI_PASS_THROUGH"
     elif drd_intent == "APPLICABLE_FILTER":
-        drd_odi_agree = "YES" if (odi_has_case and odi_has_code) else "NO_ODI_UNFILTERED"
+        # Either ODI does the CASE itself OR uses a subset-CTE that's
+        # pre-filtered by the same code (detected via prefix-modulo match
+        # because the subset rename uses role prefixes).
+        if odi_has_case and odi_has_code:
+            drd_odi_agree = "YES"
+        elif odi_semantic_match:
+            drd_odi_agree = "SUBSET_CTE_MATCH"
+        else:
+            drd_odi_agree = "NO_ODI_UNFILTERED"
     elif drd_intent == "PHYSICAL":
         bare_drd_tbl = drd_source_table.split(".")[-1]
         odi_tbl_bare = odi_resolved_table.split(".")[-1]
@@ -297,7 +320,7 @@ def classify_row(
         # Gen system-manages an audit/ETL column. Whatever DRD says, this is
         # intentional. The operator can override etl_column_defaults if not.
         verdict = "ETL_DEFAULT_OK"
-    elif drd_odi_agree in ("YES", "SEMANTIC_MATCH") and drd_gen_agree == "YES":
+    elif drd_odi_agree in ("YES", "SEMANTIC_MATCH", "SUBSET_CTE_MATCH") and drd_gen_agree == "YES":
         verdict = "ALL_AGREE"
     elif drd_odi_agree == "ODI_UNDERSPECIFIED" and drd_gen_agree == "YES":
         verdict = "GEN_RESOLVES_ODI_UNDERSPEC"  # ODI gap, Gen fills it from DRD
