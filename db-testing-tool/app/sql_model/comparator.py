@@ -891,6 +891,77 @@ def _check_walker_match(
                 drd_logic=drd.transformation or drd.source_attr,
                 odi_logic=entry.expr_sql,
             )
+    # ── Staging-alias drill-through (operator-locked 2026-05-29) ─────────
+    # Some chain entries reference a STAGING TABLE via an alias (e.g.
+    # STEP3 reads APA_CASH.ALT_DSC_TRAILER_2 where APA_CASH points to
+    # SSDS_AVY_FACT_STEP1_STG).  STEP1's column_mappings show that this
+    # column was created from APA.ALT_DSC -- which IS the DRD source
+    # attribute.  The standard chain-scan loop above misses this because
+    # the chain entry only records `source_alias=APA_CASH source_col=
+    # ALT_DSC_TRAILER_2`; the ultimate APA.ALT_DSC source is one level
+    # deeper.  Drill through: for each chain entry whose source_alias
+    # resolves to a staging table, look up the column in that step's
+    # column_mappings and compare the ultimate source against DRD.
+    by_step = {s.step_id: s for s in model.staging_steps}
+    by_name = {norm(s.name): s for s in model.staging_steps if s.name}
+    for entry in chain:
+        if not entry.source_alias or not entry.source_col:
+            continue
+        host_step = by_step.get(entry.step_id)
+        if host_step is None:
+            continue
+        bind = next(
+            (b for b in host_step.source_bindings
+             if norm(b.alias) == norm(entry.source_alias)),
+            None,
+        )
+        if bind is None or bind.ref is None:
+            continue
+        prev = by_name.get(norm(bind.ref.table))
+        if prev is None:
+            continue  # alias points to a real source table, not staging
+        prev_cm = next(
+            (c for c in prev.column_mappings
+             if norm(c.target_col) == norm(entry.source_col)),
+            None,
+        )
+        if prev_cm is None or not isinstance(prev_cm.source, ResolvedColumn):
+            continue
+        underlying_col = (prev_cm.source.column or "").upper()
+        if not underlying_col:
+            continue
+        matched = next(
+            (cand for cand in drd_attr_candidates
+             if _columns_equivalent_modulo_prefix(underlying_col, cand)
+             or _columns_equivalent_via_role_prefix(underlying_col, cand)),
+            None,
+        )
+        if matched:
+            ult_alias = prev_cm.source.ref.table if prev_cm.source.ref else ""
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table=ult_alias or entry.source_alias,
+                odi_col=underlying_col,
+                odi_expr_sql=prev_cm.source.expr_sql or entry.expr_sql,
+                odi_step=prev.step_id,
+                explanation=(
+                    f"MATCHED via staging-alias drill-through: "
+                    f"{entry.step_label} reads "
+                    f"{entry.source_alias}.{entry.source_col}, "
+                    f"which is defined in STEP{prev.step_id} as "
+                    f"{ult_alias}.{underlying_col}; matches DRD "
+                    f"source_attribute"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=drd.transformation or drd.source_attr,
+                odi_logic=prev_cm.source.expr_sql or entry.expr_sql,
+            )
+
     # No chain entry references the DRD source attribute -- leave the
     # verdict to the legacy paths.  This is the case where ODI genuinely
     # projects a different column (real COLUMN_MISMATCH or ODI gap).

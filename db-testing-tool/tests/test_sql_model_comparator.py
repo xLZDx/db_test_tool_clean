@@ -927,3 +927,148 @@ def test_role_prefix_equivalence_handles_empty():
     assert _columns_equivalent_via_role_prefix("", "X") is False
     assert _columns_equivalent_via_role_prefix("X", "") is False
     assert _columns_equivalent_via_role_prefix("", "") is False
+
+
+# ── Staging-alias drill-through (operator 2026-05-29 Q1) ─────────────────────
+
+def test_walker_drills_through_staging_alias_to_step1_source():
+    """STEP3 reads via alias APA_CASH (-> STEP1 staging table).  Walker must
+    drill through and recognise that APA_CASH.SBC_AMT was created in STEP1
+    from APA.STM_BASE_CCY_AMT -- which IS the DRD source attribute.
+
+    Mirrors the real ODI pattern:
+      STEP1: SBC_AMT = APA.STM_BASE_CCY_AMT
+      STEP3: alias APA_CASH -> STEP1; selects APA_CASH.SBC_AMT as CASH_SBC_AMT
+
+    Pre-fix: walker treats APA_CASH.SBC_AMT as authoritative and reports
+    REAL_MISMATCH (DRD says STM_BASE_CCY_AMT, ODI says SBC_AMT).
+    Post-fix: walker resolves through STEP1's column_mappings -> MATCHED.
+    """
+    from app.sql_model.comparator import _check_walker_match
+    from app.sql_model.types import ColumnDerivation
+
+    step1 = StagingStep(
+        step_id=1,
+        name="SSDS_AVY_FACT_STEP1_STG",
+        source_bindings=[_make_binding("APA", "CCAL_REPL_OWNER", "APA")],
+        column_mappings=[
+            ColumnMapping(
+                target_col="SBC_AMT",
+                source=_make_resolved("APA", "STM_BASE_CCY_AMT",
+                                      "CCAL_REPL_OWNER", "APA"),
+            ),
+        ],
+        join_graph=[],
+    )
+    step3 = StagingStep(
+        step_id=3,
+        name="SSDS_AVY_FACT_STEP3_STG",
+        source_bindings=[
+            AliasBinding(alias="APA_CASH",
+                         ref=TableRef(schema="", table="SSDS_AVY_FACT_STEP1_STG")),
+        ],
+        column_mappings=[
+            ColumnMapping(
+                target_col="CASH_SBC_AMT",
+                source=ResolvedColumn(
+                    expr_sql="APA_CASH.SBC_AMT",
+                    provenance=Provenance.ODI,
+                    ref=TableRef(schema="", table="SSDS_AVY_FACT_STEP1_STG"),
+                    column="SBC_AMT",
+                ),
+            ),
+        ],
+        join_graph=[],
+    )
+    model = ODIModel(
+        target=_make_table("IKOROSTELEV", "AVY_FACT_SIDE"),
+        staging_steps=[step1, step3],
+        final_select_sql="",
+        final_insert_columns=["CASH_SBC_AMT"],
+    )
+    model.column_derivations = {
+        "CASH_SBC_AMT": [
+            ColumnDerivation(
+                step_label="STEP3", step_id=3,
+                expr_sql="APA_CASH.SBC_AMT",
+                expr_kind="column_ref",
+                is_authoritative=True,
+                source_alias="APA_CASH",
+                source_col="SBC_AMT",
+            ),
+        ],
+    }
+    drd = DrdClaim(
+        target_col="CASH_SBC_AMT",
+        source_schema="CCAL_REPL_OWNER",
+        source_table="APA",
+        source_attr="STM_BASE_CCY_AMT",
+        transformation="",
+    )
+    result = _check_walker_match(drd, model, "CASH_SBC_AMT")
+    assert result is not None, (
+        "Walker drill-through should resolve APA_CASH.SBC_AMT through "
+        "STEP1 to APA.STM_BASE_CCY_AMT and return MATCHED"
+    )
+    assert result.verdict == ComparisonVerdict.MATCHED
+    assert "drill-through" in result.explanation.lower()
+
+
+def test_walker_drill_through_no_match_when_underlying_differs():
+    """Drill-through must NOT force MATCH when the underlying STEP1 source
+    column also differs from DRD attribute.  Stays None so legacy paths
+    decide the verdict honestly."""
+    from app.sql_model.comparator import _check_walker_match
+    from app.sql_model.types import ColumnDerivation
+
+    step1 = StagingStep(
+        step_id=1,
+        name="SSDS_AVY_FACT_STEP1_STG",
+        source_bindings=[_make_binding("APA", "CCAL_REPL_OWNER", "APA")],
+        column_mappings=[
+            ColumnMapping(
+                target_col="FOO",
+                source=_make_resolved("APA", "TOTALLY_DIFFERENT",
+                                      "CCAL_REPL_OWNER", "APA"),
+            ),
+        ],
+        join_graph=[],
+    )
+    step3 = StagingStep(
+        step_id=3,
+        name="SSDS_AVY_FACT_STEP3_STG",
+        source_bindings=[
+            AliasBinding(alias="APA_CASH",
+                         ref=TableRef(schema="", table="SSDS_AVY_FACT_STEP1_STG")),
+        ],
+        column_mappings=[],
+        join_graph=[],
+    )
+    model = ODIModel(
+        target=_make_table("IKOROSTELEV", "AVY_FACT_SIDE"),
+        staging_steps=[step1, step3],
+        final_select_sql="",
+        final_insert_columns=["CASH_FOO"],
+    )
+    model.column_derivations = {
+        "CASH_FOO": [
+            ColumnDerivation(
+                step_label="STEP3", step_id=3,
+                expr_sql="APA_CASH.FOO", expr_kind="column_ref",
+                is_authoritative=True,
+                source_alias="APA_CASH", source_col="FOO",
+            ),
+        ],
+    }
+    drd = DrdClaim(
+        target_col="CASH_FOO",
+        source_schema="CCAL_REPL_OWNER",
+        source_table="APA",
+        source_attr="EXPECTED_NAME_THAT_DOES_NOT_MATCH",
+        transformation="",
+    )
+    result = _check_walker_match(drd, model, "CASH_FOO")
+    assert result is None, (
+        "When underlying STEP1 source (TOTALLY_DIFFERENT) does NOT match "
+        "DRD attr (EXPECTED_NAME_...), walker must NOT force MATCHED"
+    )

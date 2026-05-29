@@ -57,6 +57,21 @@ _CAT_COMPLEX_EXPRESSION = "COMPLEX_EXPRESSION"
 # SOURCE_MISSING categories
 _CAT_MISSING_IN_ODI = "MISSING_IN_ODI"
 
+# ODI_EXTRA categories (columns ODI projects but DRD does not list)
+_CAT_ODI_EXTRA = "ODI_EXTRA"
+
+# Audit-column names to SKIP entirely per operator (2026-05-29):
+# Audit / session-tracking columns where ODI uses defaults the comparator
+# cannot evaluate (sysdate, sess_name, hard-coded sess_no).  Operator
+# does not want these reported -- they are intentional ODI overrides.
+_SKIP_AUDIT_COLS = frozenset({
+    "LAST_UDT_DTM",
+    "LAST_UDT_USR_NM",
+    "SESS_NO",
+    "FRST_INS_DTM",
+    "FRST_INS_USR_NM",
+})
+
 # Operator-confirmed PDM abbreviation pairs (from this session).
 _CONFIRMED_NAME_PAIRS = (
     ("YIELD", "YLD"),
@@ -325,8 +340,12 @@ def main() -> int:
 
     # UNRESOLVABLE rows: ODI emits a complex expression that the comparator
     # cannot decide automatically.  Categorise the DRD-vs-ODI difference.
+    skipped_audit: list = []
     for cr in unresolvable:
         tgt = (cr.get("target_col") or "").upper()
+        if tgt in _SKIP_AUDIT_COLS:
+            skipped_audit.append(tgt)
+            continue
         drd_row = drd_by_col.get(tgt, {})
         drd_src = (
             f"{drd_row.get('source_schema','')}."
@@ -386,6 +405,46 @@ def main() -> int:
             "recommendation": recommendation,
         })
 
+    # ── ODI_EXTRA rows (Q5 operator 2026-05-29) ──
+    # Columns ODI projects into final INSERT but DRD has no rule for.
+    # Set-difference of model.final_insert_columns vs DRD target columns.
+    drd_cols_set = {
+        (row.get("column") or "").upper()
+        for row in result.augmented_drd_rows
+    }
+    odi_final_cols = {c.upper() for c in (model.final_insert_columns or [])}
+    odi_extra = sorted(odi_final_cols - drd_cols_set)
+    print(f"ODI_EXTRA rows:       {len(odi_extra)}")
+    for tgt in odi_extra:
+        chain = model.column_derivations.get(tgt, [])
+        auth = next((d for d in chain if d.is_authoritative), chain[0] if chain else None)
+        auth_step = auth.step_label if auth else "(unknown)"
+        auth_expr = auth.expr_sql if auth else "(unknown)"
+        chain_compact = _compact_chain(chain) if chain else "(no chain)"
+        out_rows.append({
+            "verdict": "ODI_EXTRA",
+            "target_col": tgt,
+            "mismatch_kind": "EXTRA_IN_ODI",
+            "drd_source": "(no DRD rule)",
+            "drd_rule_full": "(DRD does not list this target column)",
+            "odi_authoritative_step": auth_step,
+            "odi_authoritative_expr": auth_expr,
+            "odi_full_chain": chain_compact,
+            "category": _CAT_ODI_EXTRA,
+            "recommendation": (
+                f"ODI_EXTRA -- ODI projects '{tgt}' but DRD has NO rule "
+                f"for it.  Authoritative source: {auth_expr if auth else '?'}.  "
+                f"Operator must decide: (a) add DRD rule, (b) remove "
+                f"from ODI, or (c) accept as known extra."
+            ),
+        })
+
+    if skipped_audit:
+        print(
+            f"Skipped {len(skipped_audit)} audit/session column(s) per "
+            f"operator rule: {', '.join(skipped_audit)}"
+        )
+
     # Operator-locked rule (2026-05-29): EVERY .md report MUST be
     # accompanied by a CSV of identical content (Excel-friendly).
     # `_write_csv` falls back to a timestamped sibling if Excel holds
@@ -432,14 +491,23 @@ def main() -> int:
         "REAL_MISMATCH": [r for r in out_rows if r["verdict"] == "REAL_MISMATCH"],
         "UNRESOLVABLE": [r for r in out_rows if r["verdict"] == "UNRESOLVABLE"],
         "SOURCE_MISSING": [r for r in out_rows if r["verdict"] == "SOURCE_MISSING"],
+        "ODI_EXTRA": [r for r in out_rows if r["verdict"] == "ODI_EXTRA"],
     }
     md_lines: list = []
     md_lines.append(
         f"# Non-MATCHED columns -- {len(out_rows)} total "
         f"(REAL_MISMATCH={len(by_verdict['REAL_MISMATCH'])}, "
         f"UNRESOLVABLE={len(by_verdict['UNRESOLVABLE'])}, "
-        f"SOURCE_MISSING={len(by_verdict['SOURCE_MISSING'])})"
+        f"SOURCE_MISSING={len(by_verdict['SOURCE_MISSING'])}, "
+        f"ODI_EXTRA={len(by_verdict['ODI_EXTRA'])})"
     )
+    if skipped_audit:
+        md_lines.append("")
+        md_lines.append(
+            f"_Skipped {len(skipped_audit)} audit/session column(s) per "
+            f"operator rule (2026-05-29): "
+            f"{', '.join(f'`{c}`' for c in skipped_audit)}._"
+        )
     md_lines.append("")
     md_lines.append(
         "Honest classification.  When the comparator returns a verdict "
@@ -469,11 +537,17 @@ def main() -> int:
                 "ODI emits an expression the comparator cannot decide "
                 "automatically (literal, audit-default, complex expression)."
             )
-        else:
+        elif verdict_name == "SOURCE_MISSING":
             md_lines.append(
                 "ODI does NOT project this target column anywhere -- not in "
                 "any STEP, not in MERGE.  Either ODI is incomplete or "
                 "target is deprecated."
+            )
+        else:  # ODI_EXTRA
+            md_lines.append(
+                "ODI projects these columns into the final INSERT but the "
+                "DRD has NO rule for them.  Operator must add a DRD rule, "
+                "remove from ODI, or accept as known extra."
             )
         md_lines.append("")
         md_lines.append("| Target | Kind | DRD attr | ODI projection | Category |")
@@ -497,7 +571,7 @@ def main() -> int:
     print(f"Wrote {ROOT / 'data' / 'MISMATCH_FINAL.md'} ({len(md_lines)} lines)")
 
     # ── Per-column expanded view ──
-    _verdict_order = {"REAL_MISMATCH": 0, "UNRESOLVABLE": 1, "SOURCE_MISSING": 2}
+    _verdict_order = {"REAL_MISMATCH": 0, "UNRESOLVABLE": 1, "SOURCE_MISSING": 2, "ODI_EXTRA": 3}
     det: list = []
     det.append(
         f"# Non-MATCHED columns ({len(out_rows)}) -- detailed"
