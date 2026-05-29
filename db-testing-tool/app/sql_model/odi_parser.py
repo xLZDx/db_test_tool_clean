@@ -448,6 +448,15 @@ class OdiXmlParser:
                 "ERROR_NO_MERGE_BLOCK: no MERGE block found in ODI XML"
             )
 
+        # Phase 1 (2026-05-29): enrich the model with per-column derivation
+        # chains via sqlglot AST walk.  Idempotent + degrades to no-op when
+        # sqlglot is unavailable, so existing consumers stay working.
+        try:
+            from app.sql_model.derivation_walker import enrich_model
+            enrich_model(model)
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("derivation_walker enrichment failed: %s", exc)
+
         return model
 
     # ── Step INSERT parsing ───────────────────────────────────────────────────

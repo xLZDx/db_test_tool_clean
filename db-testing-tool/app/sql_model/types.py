@@ -160,6 +160,49 @@ class StagingStep:
     join_graph: list = field(default_factory=list)        # list[JoinEdge]
 
 
+@dataclass(frozen=True)
+class ColumnDerivation:
+    """One ODI step's SELECT-list contribution to a target column.
+
+    Operator-locked invariants (2026-05-29):
+      * Generic -- no business-domain identifiers in the field names.
+      * ``expr_kind`` classifies what KIND of expression produces the value;
+        consumers use this to distinguish pass-throughs from real derivations.
+      * ``is_authoritative=True`` marks the SINGLE step in a column's chain
+        that is the "source of truth" -- the deepest non-pass-through step,
+        or the deepest pass-through if no derivation exists anywhere.
+    """
+    step_label: str                  # "STEP3" or "MERGE"
+    step_id: int                     # numeric (MERGE = 99)
+    expr_sql: str                    # raw SQL expression text (cleaned, post-preprocessor)
+    expr_kind: str                   # passthrough | column_ref | case_when | agg |
+                                     # function | literal | subquery | unpivot |
+                                     # unknown | parse_failed
+    is_authoritative: bool = False
+    source_alias: str = ""           # populated for column_ref / passthrough
+    source_col: str = ""             # populated for column_ref / passthrough
+
+
+# Expression kinds (constants -- callers may compare to these for stability).
+EXPR_KIND_PASSTHROUGH = "passthrough"
+EXPR_KIND_COLUMN_REF = "column_ref"
+EXPR_KIND_CASE_WHEN = "case_when"
+EXPR_KIND_AGG = "agg"
+EXPR_KIND_FUNCTION = "function"
+EXPR_KIND_LITERAL = "literal"
+EXPR_KIND_SUBQUERY = "subquery"
+EXPR_KIND_UNPIVOT = "unpivot"
+EXPR_KIND_UNKNOWN = "unknown"
+EXPR_KIND_PARSE_FAILED = "parse_failed"
+
+# MERGE step uses synthetic step_id so it sorts deterministically AFTER STEP5.
+# The MERGE_USING step is the SELECT inside the USING(...) subquery -- it
+# contains the actual per-column derivations that the WHEN NOT MATCHED INSERT
+# clause copies via ``S.X`` references.
+MERGE_USING_STEP_ID = 98
+MERGE_STEP_ID = 99
+
+
 @dataclass
 class ODIModel:
     """The whole ODI mapping resolved to a structured, typed model."""
@@ -168,12 +211,29 @@ class ODIModel:
     final_insert_columns: list = field(default_factory=list)   # target col order from MERGE/INSERT
     final_select_sql: str = ""           # the MERGE USING / final SELECT body
     notes: list = field(default_factory=list)             # parse notes / stripped blocks
+    # ── Deep derivation map (added 2026-05-29) ──
+    # ``column_derivations[target_col_upper]`` -> ordered list of every step
+    # where the column has a SELECT-list expression.  Default empty dict so
+    # construction sites that don't populate it stay backward-compatible.
+    column_derivations: dict = field(default_factory=dict)  # dict[str, list[ColumnDerivation]]
 
     def step(self, step_id: int):
         for s in self.staging_steps:
             if s.step_id == step_id:
                 return s
         return None
+
+    def authoritative_derivation(self, target_col: str):
+        """Return the single ColumnDerivation marked authoritative for this
+        column, or ``None`` if the column is absent from the derivation map.
+        """
+        chain = self.column_derivations.get((target_col or "").upper())
+        if not chain:
+            return None
+        for d in chain:
+            if d.is_authoritative:
+                return d
+        return chain[-1] if chain else None
 
 
 def build_alias_map(bindings) -> dict:

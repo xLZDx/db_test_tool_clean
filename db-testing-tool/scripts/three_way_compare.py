@@ -68,12 +68,31 @@ def _proj_re(col: str) -> re.Pattern:
 
 
 def odi_chain_for_column(model: ODIModel, col: str) -> List[Dict[str, str]]:
-    """Walk every staging step (STEP1..STEPN) + MERGE block; return a list
-    of ``{step: 'STEP3', source_expr: '...'}`` items showing what each layer
-    projects for ``col``.  Generic text search; no hardcoded names."""
+    """Return the ordered ODI derivation chain for ``col``.
+
+    Operator-locked 2026-05-29: prefer ``model.column_derivations`` (deep
+    walker output) when populated.  Legacy regex fallback below preserves
+    pre-walker behavior for callers without enrichment.
+    """
     out: List[Dict[str, str]] = []
     if not model or not col:
         return out
+    if getattr(model, "column_derivations", None):
+        chain = model.column_derivations.get(col.upper(), [])
+        for d in chain:
+            # Skip pass-through entries to keep the chain visually clean for
+            # the 3-way classifier (which treats pass-through as no signal).
+            if d.expr_kind == "passthrough":
+                continue
+            out.append({
+                "step": d.step_label,
+                "source_expr": d.expr_sql,
+                "expr_kind": d.expr_kind,
+                "is_authoritative": d.is_authoritative,
+            })
+        if out:
+            return out
+    # Legacy fallback: regex search.
     pat = _proj_re(col)
     for step in model.staging_steps:
         sql = step.select_sql or ""

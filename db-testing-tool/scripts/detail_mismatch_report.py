@@ -37,8 +37,27 @@ def _proj_tail_re(col: str) -> re.Pattern:
 
 
 def _odi_chain_for(model, col: str) -> List[Dict[str, str]]:
-    """Walk every ODI step (STAGING + MERGE) and capture the SELECT-list
-    expression that produces ``col`` in that step.  Returns ordered chain."""
+    """Return the ordered ODI derivation chain for ``col``.
+
+    Operator-locked 2026-05-29: prefer ``model.column_derivations`` (the
+    deep walker output built on sqlglot AST) when populated.  Falls back
+    to the legacy regex-based search only for backward compatibility with
+    callers that didn't run the walker.
+    """
+    if getattr(model, "column_derivations", None):
+        chain = model.column_derivations.get((col or "").upper(), [])
+        if chain:
+            return [
+                {
+                    "step": d.step_label,
+                    "expr": d.expr_sql,
+                    "expr_kind": d.expr_kind,
+                    "is_authoritative": d.is_authoritative,
+                }
+                for d in chain
+            ]
+    # Legacy fallback (regex search) -- used when walker enrichment is
+    # disabled or sqlglot is unavailable.
     pat = _proj_tail_re(col)
     chain = []
     for step in model.staging_steps:
@@ -217,19 +236,40 @@ def main() -> None:
     def _compact_chain(chain: list) -> str:
         if not chain:
             return "ABSENT: column never appears in any ODI step"
-        # Detect ODI gap: column only shows in STEP*_STG_RT pass-through.
-        non_empty = [c for c in chain if c["expr"]]
+        # New format (walker-based): each entry has expr_kind + is_authoritative.
+        # Authoritative entry is the deepest non-pass-through step; we render
+        # it with a leading '*' marker for at-a-glance scanning.
+        has_kinds = any("expr_kind" in c for c in chain)
+        if has_kinds:
+            # Detect "all pass-through" -> ODI gap label
+            non_pt = [c for c in chain if c.get("expr_kind") != "passthrough"]
+            if not non_pt:
+                last = chain[-1]
+                return (
+                    f"NO DERIVATION (ODI gap): pass-through "
+                    f"{last['expr'][:80] if last.get('expr') else '(empty)'}"
+                )
+            parts = []
+            for c in chain:
+                marker = "*" if c.get("is_authoritative") else " "
+                kind = c.get("expr_kind", "?")
+                expr = re.sub(r"\s+", " ", (c.get("expr") or "").strip())
+                if len(expr) > 80:
+                    expr = expr[:80].rstrip() + "..."
+                parts.append(f"{marker}{c['step']}[{kind}]: {expr}")
+            return " -> ".join(parts)
+        # Legacy fallback (regex-based chain shape) -- keep existing logic.
         is_passthrough_only = all(
-            (not c["expr"]) or ("_STG_RT." in c["expr"].upper())
+            (not c.get("expr")) or ("_STG_RT." in c.get("expr", "").upper())
             for c in chain
         )
         if is_passthrough_only:
             last = chain[-1]
-            return f"NO DERIVATION (ODI gap): pass-through {last['expr'] or '(empty)'}"
+            return f"NO DERIVATION (ODI gap): pass-through {last.get('expr') or '(empty)'}"
         parts = []
         for c in chain:
-            if not c["expr"]:
-                continue  # skip empty placeholder entries (INSERT col list)
+            if not c.get("expr"):
+                continue
             expr = re.sub(r"\s+", " ", c["expr"].strip())
             if len(expr) > 80:
                 expr = expr[:80].rstrip() + "..."
@@ -292,8 +332,12 @@ def main() -> None:
     print(f"Wrote {md_table_path}  ({len(md_table)} lines)")
 
     csv_path = ROOT / "data" / "MISMATCH_TABLE.csv"
-    csv_path.write_text("\n".join(csv_rows), encoding="utf-8")
-    print(f"Wrote {csv_path}  ({len(csv_rows)} rows incl header)")
+    try:
+        csv_path.write_text("\n".join(csv_rows), encoding="utf-8")
+        print(f"Wrote {csv_path}  ({len(csv_rows)} rows incl header)")
+    except PermissionError as e:
+        # File likely open in Excel; non-fatal -- markdown copies are enough.
+        print(f"CSV write skipped (file in use): {e}")
 
 
 if __name__ == "__main__":
