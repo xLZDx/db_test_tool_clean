@@ -203,37 +203,29 @@ def analyze_control_table(
         source_schema_index=source_index,
         etl_block_index=etl_block_index,
     )
-    # Operator-locked (2026-05-29 Phase 7.3, Issue 1):
-    # The DDL must include EVERY DRD-declared target column.  PDM may be
-    # incomplete (4 SOURCE_MISSING columns in the AVY_FACT_SIDE case),
-    # so we augment target_def with any DRD physical_name that isn't
-    # already in target_def["columns"].  Without this, the generated
-    # CT is missing columns the INSERT tries to write -> ORA-00904.
-    augmented_target_def = dict(target_def)
-    existing_cols = {
+    # Operator-locked (2026-05-29 Phase 7.4, reverts Phase 7.3 Issue 1):
+    # DDL comes from PDM / real DB ONLY.  We do NOT silently default
+    # DRD-declared columns missing from PDM to VARCHAR2(4000) -- that
+    # was hiding a real DRD-vs-PDM mismatch.  Instead the diagnostic
+    # below surfaces the gap so operator can either: (a) extend PDM,
+    # (b) correct the DRD, or (c) accept the column as deprecated.
+    ddl_sql = build_control_table_ddl(control_schema, target_table, target_def)
+    drd_cols_upper = {
+        (r.get("physical_name") or r.get("column") or "").strip().upper()
+        for r in rows
+        if (r.get("physical_name") or r.get("column") or "").strip()
+    }
+    pdm_cols_upper = {
         (c.get("name") or "").strip().upper()
         for c in (target_def.get("columns") or [])
     }
-    drd_extra_cols = []
-    for r in rows:
-        col_name = (r.get("physical_name") or r.get("column") or "").strip().upper()
-        if col_name and col_name not in existing_cols:
-            existing_cols.add(col_name)
-            drd_extra_cols.append({
-                "name": col_name,
-                "data_type": "VARCHAR2(4000)",  # safe default; operator overrides via PDM
-                "nullable": True,
-                "_origin": "DRD_NOT_IN_PDM",
-            })
-    if drd_extra_cols:
-        augmented_target_def["columns"] = (
-            list(target_def.get("columns") or []) + drd_extra_cols
+    drd_not_in_pdm = sorted(drd_cols_upper - pdm_cols_upper - {""})
+    if drd_not_in_pdm:
+        kb_validation.setdefault("ddl_warnings", []).extend(
+            f"{c}: DRD declares this target column but PDM does NOT have it. "
+            f"INSERT will fail unless PDM is extended OR DRD is corrected."
+            for c in drd_not_in_pdm
         )
-        kb_validation.setdefault("ddl_augmentations", []).extend(
-            f"{c['name']} (DRD-declared, missing in PDM; defaulted to VARCHAR2(4000))"
-            for c in drd_extra_cols
-        )
-    ddl_sql = build_control_table_ddl(control_schema, target_table, augmented_target_def)
     insert_sql = build_control_insert_sql(
         control_schema=control_schema,
         target_table=target_table,
@@ -271,44 +263,94 @@ def analyze_control_table(
 
 
 def load_target_table_definition(datasource_id: int, target_schema: str, target_table: str) -> Dict[str, Any]:
-    payload = load_schema_kb_payload(datasource_id)
+    """Load a target table's column definition from any available source.
+
+    Lookup order (operator-locked 2026-05-29 Phase 7.4):
+      1. Primary datasource's saved KB (schema_kb_ds_<id>.json).
+      2. ALL registered datasources' saved KBs.
+      3. ALL on-disk schema_kb_ds_*.json files (even unregistered) --
+         picks up KBs the operator copied in without registering a DS.
+      4. Live DB on primary + all other registered DSes.
+
+    Raises ValueError with ASCII-only message on miss (CP1252-safe).
+    """
+    import logging
+    _log = logging.getLogger(__name__)
     wanted_schema = (target_schema or "").strip().upper()
     wanted_table = (target_table or "").strip().upper()
-    for src in payload.get("sources", []):
-        pdm = (src or {}).get("pdm", {})
-        for schema_block in pdm.get("schemas", []) or []:
-            schema_name = (schema_block.get("schema") or "").strip().upper()
-            if wanted_schema and schema_name != wanted_schema:
-                continue
-            for table_block in schema_block.get("tables", []) or []:
-                table_name = (table_block.get("name") or "").strip().upper()
-                if table_name == wanted_table:
-                    return table_block
-    # ── PDM miss on primary DS: search ALL other saved PDMs ──────────
+
+    def _search_payload(payload: dict, source_label: str) -> Optional[dict]:
+        for src in payload.get("sources", []):
+            pdm = (src or {}).get("pdm", {})
+            for schema_block in pdm.get("schemas", []) or []:
+                schema_name = (schema_block.get("schema") or "").strip().upper()
+                if wanted_schema and schema_name != wanted_schema:
+                    continue
+                for table_block in schema_block.get("tables", []) or []:
+                    table_name = (table_block.get("name") or "").strip().upper()
+                    if table_name == wanted_table:
+                        # Return a shallow copy so callers can stamp
+                        # diagnostic fields without mutating the cached
+                        # payload (review MAJOR finding).
+                        hit = dict(table_block)
+                        hit["_source_label"] = source_label
+                        return hit
+        return None
+
+    # 1. Primary registered DS.
+    hit = _search_payload(load_schema_kb_payload(datasource_id), f"ds_{datasource_id}")
+    if hit is not None:
+        return hit
+
+    # 2. Other registered DSes.
     other_ds_ids = _list_all_datasource_ids()
     for other_id in other_ds_ids:
         if other_id == datasource_id:
             continue
         try:
             other_payload = load_schema_kb_payload(other_id)
-            for src in other_payload.get("sources", []):
-                pdm = (src or {}).get("pdm", {})
-                for schema_block in pdm.get("schemas", []) or []:
-                    schema_name = (schema_block.get("schema") or "").strip().upper()
-                    if wanted_schema and schema_name != wanted_schema:
-                        continue
-                    for table_block in schema_block.get("tables", []) or []:
-                        table_name = (table_block.get("name") or "").strip().upper()
-                        if table_name == wanted_table:
-                            table_block["_source_datasource_id"] = other_id
-                            return table_block
-        except Exception:
+        except Exception as exc:
+            _log.debug("PDM search ds_%s failed: %s", other_id, exc)
             continue
-    # ── Still not found: fall back to live database query ──────────
+        hit = _search_payload(other_payload, f"ds_{other_id}")
+        if hit is not None:
+            hit["_source_datasource_id"] = other_id
+            return hit
+
+    # 3. ON-DISK KB files NOT registered in the DS table.  This catches
+    #    KBs the operator pasted in manually (e.g. local_kb copied
+    #    from another machine).  Operator-locked Phase 7.4 fix.
+    from app.services.schema_kb_service import _kb_dir
+    registered = set(other_ds_ids) | {datasource_id}
+    on_disk_files = sorted((_kb_dir()).glob("schema_kb_ds_*.json"))
+    for f in on_disk_files:
+        # extract DS id from filename: schema_kb_ds_<N>.json
+        m = re.match(r"schema_kb_ds_(\d+)\.json$", f.name)
+        if not m:
+            continue
+        ds_num = int(m.group(1))
+        if ds_num in registered:
+            continue  # already covered by step 1 or 2
+        try:
+            payload = load_schema_kb_payload(ds_num)
+        except Exception as exc:
+            _log.debug("Unregistered KB %s failed to load: %s", f.name, exc)
+            continue
+        hit = _search_payload(payload, f"on-disk:{f.name}")
+        if hit is not None:
+            hit["_source_datasource_id"] = ds_num
+            _log.warning(
+                "Found %s.%s in unregistered KB %s -- consider "
+                "registering datasource %d so future calls do not have "
+                "to scan unregistered files.",
+                wanted_schema, wanted_table, f.name, ds_num,
+            )
+            return hit
+
+    # 4. Fall back to live DB on primary + all other registered DSes.
     fallback = _load_table_def_from_live_db(datasource_id, wanted_schema, wanted_table)
     if fallback:
         return fallback
-    # Try all other Oracle datasources
     for other_id in other_ds_ids:
         if other_id == datasource_id:
             continue
@@ -316,15 +358,41 @@ def load_target_table_definition(datasource_id: int, target_schema: str, target_
         if fallback:
             fallback["_source_datasource_id"] = other_id
             return fallback
+
+    # ASCII-only message (CP1252-safe).  Lists the scanned sources.
+    scanned = [f"ds_{datasource_id}"]
+    scanned += [f"ds_{i}" for i in other_ds_ids if i != datasource_id]
+    # Append the unregistered on-disk KB files (review MAJOR finding:
+    # previous expression double-counted and undercounted).
+    unregistered_names = []
+    for f in on_disk_files:
+        m = re.match(r"schema_kb_ds_(\d+)\.json$", f.name)
+        if not m:
+            continue
+        ds_num = int(m.group(1))
+        if ds_num not in registered:
+            unregistered_names.append(f.name)
+    scanned += unregistered_names
     raise ValueError(
-        f"Table {wanted_schema}.{wanted_table} not found in saved PDM and could not be loaded "
-        f"from the live database. Please generate/save the PDM for datasource {datasource_id} "
-        f"(Schema Browser → Generate PDM) or check the schema/table name."
+        f"Table {wanted_schema}.{wanted_table} not found in any saved PDM "
+        f"({len(scanned)} sources scanned: {', '.join(scanned[:6])}{'...' if len(scanned) > 6 else ''}) "
+        f"and could not be loaded from the live database. "
+        f"Either: (a) place a Git-LFS-pulled schema_kb_ds_*.json into "
+        f"data/local_kb/ that contains {wanted_schema}.{wanted_table}, "
+        f"or (b) generate/save the PDM for datasource {datasource_id} "
+        f"via Schema Browser -> Generate PDM."
     )
 
 
 def _list_all_datasource_ids() -> List[int]:
-    """Return all datasource IDs from the app database."""
+    """Return all datasource IDs from the app database.
+
+    On failure: WARN + return empty list (so the cascade can fall back
+    to on-disk KB files + live DB).  Previously this swallowed silently
+    -- review HIGH finding 2026-05-29 Phase 7.4.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
     try:
         db_path = DATA_DIR / "app.db"
         conn = sqlite3.connect(str(db_path))
@@ -333,7 +401,13 @@ def _list_all_datasource_ids() -> List[int]:
         ids = [row[0] for row in cur.fetchall()]
         conn.close()
         return ids
-    except Exception:
+    except Exception as exc:
+        _log.warning(
+            "_list_all_datasource_ids failed (%s); cascade will fall "
+            "back to on-disk KB files + live DB.  Operator may need to "
+            "register the datasource in app.db.",
+            exc,
+        )
         return []
 
 

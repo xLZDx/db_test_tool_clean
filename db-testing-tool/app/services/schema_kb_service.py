@@ -757,6 +757,17 @@ def build_and_save_schema_kb(ds: DataSource, selected_schemas: Optional[List[str
 
 
 def load_schema_kb_payload(datasource_id: Optional[int] = None) -> Dict[str, Any]:
+    """Load KB payload(s) for one or all saved datasources.
+
+    Operator-locked (2026-05-29 Phase 7.4): detect Git LFS pointer
+    files (`version https://git-lfs.github.com/...`) and skip them
+    with a warning so the silent-fail doesn't mask a missing
+    `git lfs pull`.  Previously the JSON parse error was swallowed
+    and the caller saw "table not found" with no hint that the KB
+    file was an unfetched LFS pointer.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
     kb = _kb_dir()
     files = []
     if datasource_id is not None:
@@ -769,8 +780,21 @@ def load_schema_kb_payload(datasource_id: Optional[int] = None) -> Dict[str, Any
     merged = {"sources": []}
     for f in files:
         try:
-            payload = json.loads(f.read_text(encoding="utf-8"))
+            text = f.read_text(encoding="utf-8")
+            # LFS pointer detection: first line is `version https://...`
+            if text.lstrip().startswith("version https://git-lfs"):
+                _log.warning(
+                    "Schema KB %s is a Git LFS pointer (%d bytes), not real "
+                    "content. Run `git lfs pull` to fetch.",
+                    f.name, len(text),
+                )
+                continue
+            payload = json.loads(text)
             merged["sources"].append(payload)
-        except Exception:
+        except json.JSONDecodeError as exc:
+            _log.warning("Schema KB %s is not valid JSON: %s", f.name, exc)
+            continue
+        except OSError as exc:
+            _log.warning("Schema KB %s could not be read: %s", f.name, exc)
             continue
     return merged

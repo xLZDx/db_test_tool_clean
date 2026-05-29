@@ -15,6 +15,7 @@ Operator-locked invariants (2026-05-29):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +35,7 @@ class V9Result:
     drd_row_count: int = 0
     drd_parse_errors: List[Any] = field(default_factory=list)
     augmented_drd_rows: List[Dict[str, Any]] = field(default_factory=list)
+    insert_dry_run: Dict[str, Any] = field(default_factory=dict)
 
 
 def generate_v9(
@@ -179,6 +181,97 @@ def generate_v9(
     )
     val = validate_oracle_sql(gen.sql, run_live=False)
 
+    # 8) Pre-insert dry-run validation (operator-locked 2026-05-29
+    # Phase 7.4 Issue 3): inspect the emitted INSERT for known smell
+    # patterns that indicate operator should NOT trust the artefact
+    # until investigated.  This is a PURE-TEXT check (no live DB).
+    # Issues surfaced:
+    #   - NULL_SUBSTITUTION: columns the emitter could not resolve
+    #     and replaced with NULL (PDM_MISS marker present).
+    #   - PROVENANCE_FALLBACK: columns projected via
+    #     DRD_PHYSICAL_FALLBACK (DRD source had no JOIN; we fell back
+    #     to the bare physical column).
+    #   - COLUMN_COUNT_MISMATCH: INSERT projects N columns but
+    #     DRD declared M (M != N).
+    insert_sql = gen.sql
+    if insert_sql is None:
+        # Emitter returned None -- treat as hard failure, not silent OK.
+        insert_dry_run = {
+            "passed": False,
+            "issues": ["EMITTER_RETURNED_NONE: gen.sql is None; the emitter "
+                       "did not produce SQL.  Investigate emit_insert_drd_first."],
+            "null_substituted_count": 0,
+            "null_substituted_examples": [],
+            "fallback_substituted_count": 0,
+            "fallback_substituted_examples": [],
+            "drd_declared_columns": 0,
+            "insert_projected_columns": 0,
+        }
+        return V9Result(
+            insert_sql="",
+            provenance=gen.provenance_summary,
+            column_count=gen.column_count,
+            join_count=gen.join_count,
+            cte_count=gen.cte_count,
+            oracle_validation=val.to_dict(),
+            comparison_summary=cmp_summary,
+            comparison_rows=[r.to_dict() for r in cmp_results],
+            drd_row_count=len(drd_rows),
+            drd_parse_errors=drd_errors,
+            augmented_drd_rows=aug,
+            insert_dry_run=insert_dry_run,
+        )
+    null_substituted: List[str] = []
+    fallback_substituted: List[str] = []
+    # Patterns operator-locked Phase 7.4: cover the two known emitter
+    # comment styles (`NULL /* PDM_MISS ... */ AS COL` AND
+    # `NULL AS COL  -- PDM_MISS ...`).
+    _PDM_MISS_INLINE = re.compile(r"NULL\s*/\*\s*PDM_MISS:?[^*]*\*/\s*AS\s+([A-Z0-9_]+)", re.IGNORECASE)
+    _PDM_MISS_TRAILING = re.compile(r"NULL\s+AS\s+([A-Z0-9_]+)\s*,?\s*--.*PDM_MISS", re.IGNORECASE)
+    _PROV_FALLBACK = re.compile(r"\bAS\s+([A-Z0-9_]+),?\s*--.*DRD_PHYSICAL_FALLBACK", re.IGNORECASE)
+    for line in insert_sql.splitlines():
+        m = _PDM_MISS_INLINE.search(line) or _PDM_MISS_TRAILING.search(line)
+        if m:
+            null_substituted.append(m.group(1).upper())
+        m_fb = _PROV_FALLBACK.search(line)
+        if m_fb:
+            fallback_substituted.append(m_fb.group(1).upper())
+    drd_declared = len([r for r in aug if (r.get("physical_name") or r.get("column"))])
+    issues: List[str] = []
+    if null_substituted:
+        issues.append(
+            f"NULL_SUBSTITUTION: {len(null_substituted)} column(s) "
+            f"replaced with NULL/PDM_MISS marker (first 5: "
+            f"{', '.join(null_substituted[:5])}). The emitter could not "
+            f"resolve the DRD source for these columns. Operator MUST "
+            f"investigate before trusting the INSERT."
+        )
+    if fallback_substituted:
+        issues.append(
+            f"PROVENANCE_FALLBACK: {len(fallback_substituted)} column(s) "
+            f"emitted via DRD_PHYSICAL_FALLBACK (no JOIN found, bare "
+            f"physical ref used; first 5: "
+            f"{', '.join(fallback_substituted[:5])}). Operator MUST "
+            f"add the join to the analysis or confirm the fallback is "
+            f"semantically correct."
+        )
+    if gen.column_count != drd_declared and drd_declared > 0:
+        issues.append(
+            f"COLUMN_COUNT_MISMATCH: INSERT projects {gen.column_count} "
+            f"column(s) but DRD declared {drd_declared}. Investigate "
+            f"which rows were dropped or duplicated."
+        )
+    insert_dry_run = {
+        "passed": len(issues) == 0,
+        "issues": issues,
+        "null_substituted_count": len(null_substituted),
+        "null_substituted_examples": null_substituted[:10],
+        "fallback_substituted_count": len(fallback_substituted),
+        "fallback_substituted_examples": fallback_substituted[:10],
+        "drd_declared_columns": drd_declared,
+        "insert_projected_columns": gen.column_count,
+    }
+
     return V9Result(
         insert_sql=gen.sql,
         provenance=gen.provenance_summary,
@@ -191,4 +284,5 @@ def generate_v9(
         drd_row_count=len(drd_rows),
         drd_parse_errors=drd_errors,
         augmented_drd_rows=aug,
+        insert_dry_run=insert_dry_run,
     )

@@ -5719,6 +5719,14 @@ async function onCtDrdFileChanged() {
     const sheetSelect = document.getElementById('ct-sheet-name');
     const sheetMeta = document.getElementById('ct-sheet-meta');
     if (!file) { sheetRow.style.display = 'none'; return; }
+    // Operator-locked (2026-05-29 Phase 7.4 Issue 6): stash the file in
+    // _ctState immediately on selection so subsequent
+    // generateControlTableTests calls work even when the file input has
+    // been cleared by modal-state resets.  Previously this only happened
+    // inside the explicit "Extract DRD" click, leading to operator
+    // confusion ("scan DRD again" error after the DRD was already
+    // loaded).
+    _ctState.file = file;
     const ext = file.name.toLowerCase().split('.').pop();
     if (ext !== 'xlsx' && ext !== 'xls') { sheetRow.style.display = 'none'; return; }
     // Preview file to get sheet list
@@ -6868,7 +6876,24 @@ async function generateControlTableTests() {
     const sheetName = (document.getElementById('ct-sheet-name')?.value || '').trim();
     const { targetSchema, targetTable } = _controlTableTargetParts();
 
-    if (!file) { showToast('Load a DRD file first', 'warning'); return; }
+    if (!file) {
+        // Phase 7.4 Issue 6: more diagnostic message -- if INSERT is already
+        // populated, suggest INSERT-only test generation; otherwise tell
+        // operator exactly what file picker to use.
+        const insertSql = (document.getElementById('ct-insert-sql')?.value || '').trim();
+        if (insertSql) {
+            showToast(
+                'Cannot regenerate tests: the original DRD file is not in '
+                + 'session state.  The current INSERT in the editor is '
+                + 'still valid; use "Save Suite" to persist it.  To '
+                + 'regenerate from DRD, re-upload via the file picker.',
+                'warning'
+            );
+        } else {
+            showToast('Load a DRD file via the file picker first', 'warning');
+        }
+        return;
+    }
     if (!targetSchema || !targetTable) { showToast('Enter target as SCHEMA.TABLE', 'warning'); return; }
     if (!sourceDatasourceId || !targetDatasourceId) { showToast('Select source data source (target is optional)', 'warning'); return; }
 
