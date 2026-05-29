@@ -243,6 +243,46 @@ def _extract_column_refs(expr: str) -> List[Tuple[str, str]]:
     return out
 
 
+# Operator-locked role-prefix equivalences (2026-05-29).  Each entry is a
+# frozenset of two short prefixes that mean the same role in this schema
+# convention.  Adding to this set is a deliberate operator decision -- it
+# tells the comparator "X_<suffix> and Y_<suffix> name the same data".
+# Today's only entry: SCR / SEC, both meaning "Security" -- DRD spec
+# writes SCR_X for columns living directly in APA; ODI projects SEC_X
+# from the APA_SECURITY alias.
+_ROLE_PREFIX_EQUIVALENCES = (
+    frozenset(("SCR", "SEC")),
+)
+
+
+def _columns_equivalent_via_role_prefix(a: str, b: str) -> bool:
+    """True if ``a`` and ``b`` share a common suffix AND their distinct
+    leading prefixes appear together in one of the operator-locked
+    ``_ROLE_PREFIX_EQUIVALENCES`` entries.
+
+    Example (the only entry today):
+        SCR_PRC_IN_TXN_CCY  vs  SEC_PRC_IN_TXN_CCY  -> True (SCR/SEC).
+        ALT_DSC_TRAILER_2   vs  ALT_DSC             -> False.
+    """
+    if not a or not b:
+        return False
+    A = a.strip().upper()
+    B = b.strip().upper()
+    if A == B:
+        return True
+    # Find each known-equivalent pair and check.
+    for equiv in _ROLE_PREFIX_EQUIVALENCES:
+        prefixes = sorted(equiv)
+        p1, p2 = prefixes[0], prefixes[1]
+        if (A.startswith(p1 + "_") and B.startswith(p2 + "_")):
+            if A[len(p1):] == B[len(p2):]:
+                return True
+        if (A.startswith(p2 + "_") and B.startswith(p1 + "_")):
+            if A[len(p2):] == B[len(p1):]:
+                return True
+    return False
+
+
 def _columns_equivalent_modulo_prefix(odi_col: str, drd_col: str) -> bool:
     """True if ``odi_col`` and ``drd_col`` refer to the same underlying column
     modulo a single prefix segment.
@@ -772,10 +812,14 @@ def _check_walker_match(
     # DRD's stated source column directly.
     for entry in chain:
         # 1. Direct source_col match for column_ref / passthrough entries.
+        #    Also tries operator-locked role-prefix equivalences so
+        #    SCR_X / SEC_X are recognised as the same column.
         matched_drd_attr = next(
             (cand for cand in drd_attr_candidates
-             if entry.source_col and _columns_equivalent_modulo_prefix(
-                 entry.source_col, cand)),
+             if entry.source_col and (
+                 _columns_equivalent_modulo_prefix(entry.source_col, cand)
+                 or _columns_equivalent_via_role_prefix(entry.source_col, cand)
+             )),
             None,
         )
         if matched_drd_attr:
@@ -803,11 +847,25 @@ def _check_walker_match(
         # 2. For wrapped expressions (function / case_when / agg / subquery),
         #    scan the expression text for any column ref whose bare column
         #    name matches ANY of the DRD source attribute candidates.
+        #    Includes the operator-locked role-prefix equivalences so
+        #    e.g. SCR_PRC_IN_TXN_CCY (DRD) matches SEC_PRC_IN_TXN_CCY (ODI).
+        def _expr_references_with_role_prefix(expr_sql: str, drd_attr: str) -> bool:
+            """Match drd_attr against expr's leaf column refs, allowing the
+            role-prefix equivalences in addition to the standard modulo-prefix
+            rule already in _odi_expr_references_column."""
+            if not expr_sql or not drd_attr:
+                return False
+            for _alias, col in _extract_column_refs(expr_sql):
+                if _columns_equivalent_via_role_prefix(col, drd_attr):
+                    return True
+            return False
+
         wrapped_match = (
             entry.expr_kind in ("function", "case_when", "agg", "subquery")
             and next(
                 (cand for cand in drd_attr_candidates
-                 if _odi_expr_references_column(entry.expr_sql, cand)),
+                 if _odi_expr_references_column(entry.expr_sql, cand)
+                    or _expr_references_with_role_prefix(entry.expr_sql, cand)),
                 None,
             )
         )

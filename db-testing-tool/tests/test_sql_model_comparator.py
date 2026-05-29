@@ -877,3 +877,53 @@ def test_column_in_merge_block_drd_source_table_not_in_joins():
     assert result.unresolved_reason == "ODI_COLUMN_IN_FINAL_SOURCE_NOT_TRACED"
     # Table not found — must warn the analyst
     assert "NOT found in any ODI step JOINs" in result.explanation
+
+
+# ── Role-prefix equivalence (SCR <-> SEC) ─────────────────────────────────────
+
+def test_role_prefix_equivalence_scr_sec_direct():
+    """SCR_X and SEC_X with identical suffix are recognised as equivalent."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    assert _columns_equivalent_via_role_prefix(
+        "SCR_PRC_IN_TXN_CCY", "SEC_PRC_IN_TXN_CCY") is True
+    assert _columns_equivalent_via_role_prefix(
+        "SEC_PRC_IN_TXN_CCY", "SCR_PRC_IN_TXN_CCY") is True
+
+
+def test_role_prefix_equivalence_case_insensitive():
+    """Lowercase / mixed case match identically."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    assert _columns_equivalent_via_role_prefix(
+        "scr_orig_qty", "SEC_ORIG_QTY") is True
+
+
+def test_role_prefix_equivalence_rejects_different_suffix():
+    """Same prefix-pair but different suffixes -> NOT equivalent."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    assert _columns_equivalent_via_role_prefix(
+        "SCR_PRC_IN_TXN_CCY", "SEC_PRC_IN_BASE_CCY") is False
+
+
+def test_role_prefix_equivalence_rejects_unknown_prefix_pair():
+    """A prefix pair NOT in the operator-locked equivalence set -> rejected.
+    This prevents silent over-matching on coincidental three-letter prefixes."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    # 'CSH' and 'CAS' are not in the equivalence set
+    assert _columns_equivalent_via_role_prefix("CSH_X", "CAS_X") is False
+    # Random three-letter prefix
+    assert _columns_equivalent_via_role_prefix("ABC_VAL", "XYZ_VAL") is False
+
+
+def test_role_prefix_equivalence_identical_columns():
+    """A == B always matches (no prefix logic needed)."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    assert _columns_equivalent_via_role_prefix("X", "X") is True
+    assert _columns_equivalent_via_role_prefix("foo", "FOO") is True
+
+
+def test_role_prefix_equivalence_handles_empty():
+    """Empty strings -> safe False."""
+    from app.sql_model.comparator import _columns_equivalent_via_role_prefix
+    assert _columns_equivalent_via_role_prefix("", "X") is False
+    assert _columns_equivalent_via_role_prefix("X", "") is False
+    assert _columns_equivalent_via_role_prefix("", "") is False
