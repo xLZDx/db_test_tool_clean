@@ -728,6 +728,100 @@ def _step_has_table(table_norm: str, staging_steps: list[StagingStep]) -> bool:
 
 # ── Core comparison ───────────────────────────────────────────────────────────
 
+def _check_walker_match(
+    drd: DrdClaim, model: ODIModel, col: str,
+) -> Optional[ComparisonResult]:
+    """Phase 2 walker-based MATCHED short-circuit.
+
+    Returns a ``ComparisonResult(verdict=MATCHED)`` when the deep ODI
+    derivation walker shows that ``col``'s authoritative ODI expression
+    clearly references the DRD-stated ``source_attribute`` (modulo
+    aliasing and optional NVL/COALESCE/CASE wrapping).
+
+    Returns ``None`` to leave the legacy comparator paths in control --
+    they handle:
+       * pass-through-everywhere chains (real ODI gaps)
+       * derivations whose column ref does NOT match DRD's source_attr
+         (real COLUMN_MISMATCH / TRANSFORMATION_DRIFT cases)
+       * cases the walker couldn't reach (parse failures, MERGE-only
+         columns where USING already lost the alias)
+
+    Generic -- no business-domain identifiers.
+    """
+    if not col or not drd.source_attr:
+        return None
+    derivations = getattr(model, "column_derivations", None) or {}
+    chain = derivations.get(col.upper())
+    if not chain:
+        return None
+    # Find the single authoritative entry (first non-passthrough; or earliest
+    # if every entry is passthrough).
+    auth = next((d for d in chain if d.is_authoritative), None)
+    if auth is None:
+        return None
+    # If the authoritative kind is pass-through, there's no real derivation
+    # in any step -- leave it to legacy logic to flag the ODI gap.
+    if auth.expr_kind == "passthrough":
+        return None
+    drd_attr_up = drd.source_attr.strip().upper()
+    if not drd_attr_up:
+        return None
+    # column_ref: ODI projects a bare <alias>.<col>; match if source_col
+    # equals DRD attr (modulo a single role-prefix segment).
+    if auth.expr_kind == "column_ref":
+        if auth.source_col and _columns_equivalent_modulo_prefix(
+            auth.source_col, drd_attr_up,
+        ):
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table=auth.source_alias,
+                odi_col=auth.source_col,
+                odi_expr_sql=auth.expr_sql,
+                odi_step=auth.step_id,
+                explanation=(
+                    f"MATCHED via deep walker: ODI step {auth.step_label} "
+                    f"projects {auth.source_alias}.{auth.source_col}; "
+                    f"DRD source_attribute matches modulo prefix"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=drd.transformation or drd.source_attr,
+                odi_logic=auth.expr_sql,
+            )
+        return None
+    # function / case_when / agg / subquery: ODI wraps the column ref; match
+    # if the DRD source_attr appears as a column ref anywhere inside.
+    if auth.expr_kind in ("function", "case_when", "agg", "subquery"):
+        if _odi_expr_references_column(auth.expr_sql, drd_attr_up):
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table="",
+                odi_col=drd_attr_up,
+                odi_expr_sql=auth.expr_sql,
+                odi_step=auth.step_id,
+                explanation=(
+                    f"MATCHED via deep walker: ODI step {auth.step_label} "
+                    f"wraps {drd.source_attr} in a {auth.expr_kind} "
+                    f"expression (filter / case / aggregate)"
+                ),
+                mismatch_kind=MismatchKind.NONE,
+                drd_logic=drd.transformation or drd.source_attr,
+                odi_logic=auth.expr_sql,
+            )
+        return None
+    # literal / unknown / parse_failed: leave legacy logic in control.
+    return None
+
+
 def compare_drd_odi(
     drd: DrdClaim,
     model: ODIModel,
@@ -746,6 +840,17 @@ def compare_drd_odi(
     # Pre-compute staging table names once per batch (passed in by caller)
     if _staging_tables is None:
         _staging_tables = _get_staging_table_names(model)
+
+    # ── Phase 2 (2026-05-29): walker-based MATCHED short-circuit ──────────────
+    # When the deep ODI derivation walker populated ``model.column_derivations``
+    # AND the authoritative step for ``col`` clearly references the DRD-stated
+    # source attribute (modulo aliasing / wrapping), return MATCHED before the
+    # legacy regex paths run.  This corrects 100+ verdicts that the old shallow
+    # regex incorrectly tagged TRANSFORMATION_DRIFT because it couldn't see
+    # past STEP5's pass-through.
+    _walker_result = _check_walker_match(drd, model, col)
+    if _walker_result is not None:
+        return _walker_result
 
     # Pre-compute DRD-side facts used by multiple branches.  ``effective_rule_text``
     # includes any cross-tab ETL block body (P3) so multi-line APACSH / APASEC /
