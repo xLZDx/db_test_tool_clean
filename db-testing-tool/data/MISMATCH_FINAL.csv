@@ -1,0 +1,316 @@
+"target_col","mismatch_kind","drd_source","drd_rule_full","odi_authoritative_step","odi_authoritative_expr","odi_full_chain","human_explanation","recommendation"
+"CASH_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_CASH.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.CASH_ALT_DSC_TRAILER_2","APA_CASH aggregation: ODI filters the APA table to APACSH-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_CASH.APA_TP_CD, '^APACSH[0-7][0-9]')` and projects them through the APA_CASH alias.  Plus the documented APACSH04/APACSH11 dual-record resolution when both codes exist for the same transaction.  The DRD's 'Use APACSH logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APACSH selection via STEP1 alias-binding + filter"
+"CASH_APA_TP_CD","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.APA_TP_CD","*STEP3[column_ref]: APA_CASH.APA_TP_CD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_APA_TP_CD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_APA_TP_CD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_APA_TP_CD ->  MERGE[column_ref]: S.CASH_APA_TP_CD","APA_CASH aggregation: ODI filters the APA table to APACSH-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_CASH.APA_TP_CD, '^APACSH[0-7][0-9]')` and projects them through the APA_CASH alias.  Plus the documented APACSH04/APACSH11 dual-record resolution when both codes exist for the same transaction.  The DRD's 'Use APACSH logic from ETL Notes' maps exactly to this STEP1 aggregation.  DRD requests a JOIN to CL_VAL lookup table; ODI denormalises the code/name directly into the APA_CASH alias so no separate lookup is needed -- same value, different SQL shape.","SEMANTIC_MATCH -- ODI implements the APACSH selection via STEP1 alias-binding + filter"
+"CASH_APA_TP_NM","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.APA_TP_NM","*STEP3[column_ref]: APA_CASH.APA_TP_NM ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_APA_TP_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_APA_TP_NM ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_APA_TP_NM ->  MERGE[column_ref]: S.CASH_APA_TP_NM","APA_CASH aggregation: ODI filters the APA table to APACSH-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_CASH.APA_TP_CD, '^APACSH[0-7][0-9]')` and projects them through the APA_CASH alias.  Plus the documented APACSH04/APACSH11 dual-record resolution when both codes exist for the same transaction.  The DRD's 'Use APACSH logic from ETL Notes' maps exactly to this STEP1 aggregation.  DRD requests a JOIN to CL_VAL lookup table; ODI denormalises the code/name directly into the APA_CASH alias so no separate lookup is needed -- same value, different SQL shape.","SEMANTIC_MATCH -- ODI implements the APACSH selection via STEP1 alias-binding + filter"
+"CASH_DSC_TRAILER_1","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.APA_DSC","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.DSC_TRAILER_1","*STEP3[column_ref]: APA_CASH.DSC_TRAILER_1 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_DSC_TRAILER_1 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE[column_ref]: S.CASH_DSC_TRAILER_1","APA_CASH aggregation: ODI filters the APA table to APACSH-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_CASH.APA_TP_CD, '^APACSH[0-7][0-9]')` and projects them through the APA_CASH alias.  Plus the documented APACSH04/APACSH11 dual-record resolution when both codes exist for the same transaction.  The DRD's 'Use APACSH logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APACSH selection via STEP1 alias-binding + filter"
+"CASH_SBC_AMT","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT","Use APACSH logic from 'ETL Notes' tab.
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+	 else exception entire transaction
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.SBC_AMT","*STEP3[column_ref]: APA_CASH.SBC_AMT ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_SBC_AMT ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_SBC_AMT ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_SBC_AMT ->  MERGE[column_ref]: S.CASH_SBC_AMT","APA_CASH aggregation: ODI filters the APA table to APACSH-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_CASH.APA_TP_CD, '^APACSH[0-7][0-9]')` and projects them through the APA_CASH alias.  Plus the documented APACSH04/APACSH11 dual-record resolution when both codes exist for the same transaction.  The DRD's 'Use APACSH logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APACSH selection via STEP1 alias-binding + filter"
+"SEC_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_SECURITY.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.SEC_ALT_DSC_TRAILER_2","APA_SECURITY aggregation: ODI filters the APA table to APASEC-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_SECURITY.APA_TP_CD, '^APASEC[0-7][0-9]')` and projects them through the APA_SECURITY alias.  Plus the APASEC81/83/91/93/94 sub-code projections for specific measures.  The DRD's 'Use APASEC logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APASEC selection via STEP1 alias-binding + filter"
+"SCR_APA_TP_CD","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.APA_TP_CD","*STEP3[column_ref]: APA_SECURITY.APA_TP_CD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SCR_APA_TP_CD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SCR_APA_TP_CD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SCR_APA_TP_CD ->  MERGE[column_ref]: S.SCR_APA_TP_CD","APA_SECURITY aggregation: ODI filters the APA table to APASEC-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_SECURITY.APA_TP_CD, '^APASEC[0-7][0-9]')` and projects them through the APA_SECURITY alias.  Plus the APASEC81/83/91/93/94 sub-code projections for specific measures.  The DRD's 'Use APASEC logic from ETL Notes' maps exactly to this STEP1 aggregation.  DRD requests a JOIN to CL_VAL lookup table; ODI denormalises the code/name directly into the APA_SECURITY alias so no separate lookup is needed -- same value, different SQL shape.","SEMANTIC_MATCH -- ODI implements the APASEC selection via STEP1 alias-binding + filter"
+"SCR_APA_TP_NM","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.APA_TP_NM","*STEP3[column_ref]: APA_SECURITY.APA_TP_NM ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SCR_APA_TP_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SCR_APA_TP_NM ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SCR_APA_TP_NM ->  MERGE[column_ref]: S.SCR_APA_TP_NM","APA_SECURITY aggregation: ODI filters the APA table to APASEC-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_SECURITY.APA_TP_CD, '^APASEC[0-7][0-9]')` and projects them through the APA_SECURITY alias.  Plus the APASEC81/83/91/93/94 sub-code projections for specific measures.  The DRD's 'Use APASEC logic from ETL Notes' maps exactly to this STEP1 aggregation.  DRD requests a JOIN to CL_VAL lookup table; ODI denormalises the code/name directly into the APA_SECURITY alias so no separate lookup is needed -- same value, different SQL shape.","SEMANTIC_MATCH -- ODI implements the APASEC selection via STEP1 alias-binding + filter"
+"SEC_DSC_TRAILER_1","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.APA_DSC","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.DSC_TRAILER_1","*STEP3[column_ref]: APA_SECURITY.DSC_TRAILER_1 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_DSC_TRAILER_1 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_DSC_TRAILER_1 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_DSC_TRAILER_1 ->  MERGE[column_ref]: S.SEC_DSC_TRAILER_1","APA_SECURITY aggregation: ODI filters the APA table to APASEC-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_SECURITY.APA_TP_CD, '^APASEC[0-7][0-9]')` and projects them through the APA_SECURITY alias.  Plus the APASEC81/83/91/93/94 sub-code projections for specific measures.  The DRD's 'Use APASEC logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APASEC selection via STEP1 alias-binding + filter"
+"SEC_SBC_AMT","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.SBC_AMT","*STEP3[column_ref]: APA_SECURITY.SBC_AMT ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_SBC_AMT ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_SBC_AMT ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_SBC_AMT ->  MERGE[column_ref]: S.SEC_SBC_AMT","APA_SECURITY aggregation: ODI filters the APA table to APASEC-prefixed records in STEP1 with the predicate `REGEXP_LIKE(APA_SECURITY.APA_TP_CD, '^APASEC[0-7][0-9]')` and projects them through the APA_SECURITY alias.  Plus the APASEC81/83/91/93/94 sub-code projections for specific measures.  The DRD's 'Use APASEC logic from ETL Notes' maps exactly to this STEP1 aggregation.","SEMANTIC_MATCH -- ODI implements the APASEC selection via STEP1 alias-binding + filter"
+"YLD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD","value to be picked from APASEC","STEP1","APA.YLD","*STEP1[column_ref]: APA.YLD ->  STEP3[column_ref]: APA_SECURITY.YLD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YLD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YLD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YLD ->  MERGE[column_ref]: S.YLD","PDM name-drift: DRD spec uses friendly column name 'YIELD' but the physical Oracle column is 'YLD'.  Same data; spec just hasn't been updated to match the abbreviated physical name.  Cross-check with PDM to confirm the physical name.","SEMANTIC_MATCH -- update DRD spec to physical name or accept the abbreviation"
+"YTW","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST","value to be picked from APASEC","STEP1","APA.YTW","*STEP1[column_ref]: APA.YTW ->  STEP3[column_ref]: APA_SECURITY.YTW ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW ->  MERGE[column_ref]: S.YTW","PDM name-drift: DRD spec uses friendly column name 'YIELD_TO_WORST' but the physical Oracle column is 'YTW'.  Same data; spec just hasn't been updated to match the abbreviated physical name.  Cross-check with PDM to confirm the physical name.","SEMANTIC_MATCH -- update DRD spec to physical name or accept the abbreviation"
+"YTW_CD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST_CD","value to be picked from APASEC","STEP1","APA.YTW_CD","*STEP1[column_ref]: APA.YTW_CD ->  STEP3[column_ref]: APA_SECURITY.YTW_CD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW_CD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW_CD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW_CD ->  MERGE[column_ref]: S.YTW_CD","PDM name-drift: DRD spec uses friendly column name 'YIELD_TO_WORST' but the physical Oracle column is 'YTW'.  Same data; spec just hasn't been updated to match the abbreviated physical name.  Cross-check with PDM to confirm the physical name.","SEMANTIC_MATCH -- update DRD spec to physical name or accept the abbreviation"
+"NO_SIS_SCR_MVMT_TXN_PRC","APPLICABLE_FILTER_DRIFT","CCAL_REPL_OWNER.APA.SCR_PRC_IN_TXN_CCY","Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC93
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","(CASE WHEN APA_SECURITY.APA_TP_CD = 'APASEC93' THEN APA_SECURITY.SEC_PRC_IN_TXN_CCY ELSE NULL END)","*STEP3[function]: (CASE WHEN APA_SECURITY.APA_TP_CD = 'APASEC93' THEN APA_SECURITY.SEC_PRC_IN_TXN_CCY ELSE NULL END) ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.NO_SIS_SCR_MVMT_TXN_PRC ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.NO_SIS_SCR_MVMT_TXN_PRC ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.NO_SIS_SCR_MVMT_TXN_PRC ->  MERGE[column_ref]: S.NO_SIS_SCR_MVMT_TXN_PRC","DRD specifies a row-level filter (`WHERE x = ...` or `IF x = ... THEN`); ODI implements it as a `CASE WHEN ... THEN col ELSE NULL END` so the staging table retains every TXN row and the filter is applied at projection time.  Semantically equivalent.","SEMANTIC_MATCH -- ODI's CASE WHEN realises the DRD WHERE/IF"
+"REIVS_PRC","APPLICABLE_FILTER_DRIFT","CCAL_REPL_OWNER.APA.SCR_PRC_IN_TXN_CCY","Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC94
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","(CASE WHEN APA_SECURITY.APA_TP_CD = 'APASEC94' THEN APA_SECURITY.SEC_PRC_IN_TXN_CCY ELSE NULL END)","*STEP3[function]: (CASE WHEN APA_SECURITY.APA_TP_CD = 'APASEC94' THEN APA_SECURITY.SEC_PRC_IN_TXN_CCY ELSE NULL END) ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.REIVS_PRC ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.REIVS_PRC ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.REIVS_PRC ->  MERGE[column_ref]: S.REIVS_PRC","DRD specifies a row-level filter (`WHERE x = ...` or `IF x = ... THEN`); ODI implements it as a `CASE WHEN ... THEN col ELSE NULL END` so the staging table retains every TXN row and the filter is applied at projection time.  Semantically equivalent.","SEMANTIC_MATCH -- ODI's CASE WHEN realises the DRD WHERE/IF"
