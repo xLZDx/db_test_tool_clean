@@ -465,8 +465,12 @@ def _plan_column(
     source_attr = _first_token(row.get("source_attribute") or "").upper()
     source_table = _first_token(row.get("source_table") or "").upper()
     source_schema = _first_token(row.get("source_schema") or "").upper()
+    transformation = (row.get("transformation") or "")
     etl_block_ref = (row.get("etl_block_ref") or "").strip().upper()
     etl_block_body = (row.get("etl_block_body") or "").strip()
+    etl_note = ""
+    if etl_block_ref and etl_block_body:
+        etl_note = f" /* see ETL block {etl_block_ref} in header */"
 
     # Register inline DRD col-AD joins (the "and below logic" the operator
     # wants captured).  Aliases are rewritten to our canonical scheme so the
@@ -518,16 +522,24 @@ def _plan_column(
             notes="system-managed",
         )
 
-    # Surface ETL Notes block as supplemental context (comment only).
-    etl_note = ""
-    if etl_block_ref and etl_block_body:
-        etl_note = f" /* see ETL block {etl_block_ref} in header */"
+    # 0.5) Generic EXISTS-derived flag (shared rule engine) -- run EARLY
+    # because some DRD parsers leak the natural-language rule text into the
+    # ``source_attribute`` field, which would otherwise mislead the
+    # DRD_PHYSICAL path into projecting ``<TARGET>.<first_word>``.
+    exists_spec_early = extract_exists_derived_flag(transformation)
+    if exists_spec_early is not None:
+        return _ColumnPlan(
+            target_col=target,
+            source_expr=compose_exists_case_expr(exists_spec_early, else_value="NULL"),
+            provenance="DRD_EXISTS_DERIVED_FLAG",
+            notes=f"derived flag: EXISTS({exists_spec_early['table']}, "
+                  f"set '{exists_spec_early['set_value']}'){etl_note}",
+        )
 
     # Detect "Applicable only for <CODE>" + discover discriminator from the
     # referenced ETL block.  When BOTH are present, wrap the projection in a
     # CASE so it only fires for the named code -- matching ODI's typical
     # ``CASE WHEN <alias>.<col> = '<CODE>' THEN <expr> ELSE NULL END``.
-    transformation = (row.get("transformation") or "")
     applicable_code = extract_applicable_only_code(transformation)
     discriminator: Optional[Tuple[str, str]] = None
     if applicable_code:
@@ -610,17 +622,6 @@ def _plan_column(
             source_expr=wrapped,
             provenance=prov,
             notes=f"DRD source {fq}.{source_attr}{note_extra}{etl_note}",
-        )
-
-    # 2.5) EXISTS-derived flag (shared rule engine): generic CASE WHEN EXISTS(...) ELSE NULL.
-    exists_spec = extract_exists_derived_flag(transformation)
-    if exists_spec is not None:
-        return _ColumnPlan(
-            target_col=target,
-            source_expr=compose_exists_case_expr(exists_spec, else_value="NULL"),
-            provenance="DRD_EXISTS_DERIVED_FLAG",
-            notes=f"derived flag: EXISTS({exists_spec['table']}, "
-                  f"set '{exists_spec['set_value']}'){etl_note}",
         )
 
     # 3) NULL last resort

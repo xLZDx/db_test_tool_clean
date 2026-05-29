@@ -586,6 +586,41 @@ def test_applicable_filter_drift_shared_with_emitter():
     assert r.odi_logic == "SRC.AMT"
 
 
+def test_extract_column_refs_strips_sql_keywords():
+    """Generic: keywords like NVL/COALESCE/CASE never appear as 'aliases'."""
+    from app.sql_model.comparator import _extract_column_refs
+    refs = _extract_column_refs("NVL(t.x, 0)")
+    assert refs == [("t", "x")]
+    refs = _extract_column_refs("(coalesce(A.X, B.X))")
+    assert refs == [("A", "X"), ("B", "X")]
+    refs = _extract_column_refs("CASE WHEN a.cond = 1 THEN c.amt ELSE d.amt END")
+    assert ("a", "cond") in refs
+    assert ("c", "amt") in refs
+    assert ("d", "amt") in refs
+    # Functions not captured as aliases
+    refs = _extract_column_refs("SYSDATE")
+    assert refs == []
+
+
+def test_odi_expr_references_column_semantic_match():
+    """Operator-locked semantic match: NVL/COALESCE/CASE wrappers don't
+    obscure the underlying column reference.  Uses generic identifiers."""
+    from app.sql_model.comparator import _odi_expr_references_column
+    # NVL wrapper
+    assert _odi_expr_references_column("NVL(X.Y, 0)", "Y") is True
+    # COALESCE of two subset aliases for the same bare column
+    assert _odi_expr_references_column("(coalesce(A_SUBSET.X, B_SUBSET.X))", "X") is True
+    # CASE branches all hit the same column name
+    assert _odi_expr_references_column(
+        "CASE WHEN t.cond = 1 THEN apa1.amt ELSE apa2.amt END", "AMT"
+    ) is True
+    # Negative -- different column
+    assert _odi_expr_references_column("NVL(X.Y, 0)", "Z") is False
+    # Empty inputs
+    assert _odi_expr_references_column("", "X") is False
+    assert _odi_expr_references_column("X.Y", "") is False
+
+
 def test_join_drift_satisfied_no_drift():
     """When ODI implements every DRD-required join predicate, JOIN_DRIFT does
     NOT fire (verdict stays MATCHED or whatever the column compare yielded)."""

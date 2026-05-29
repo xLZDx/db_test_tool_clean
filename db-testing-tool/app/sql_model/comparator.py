@@ -19,7 +19,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from app.sql_model.drd_ad_parser import (
     DrdAdRule,
@@ -174,6 +174,61 @@ _STAGING_REF_RE = re.compile(
     r"^\s*([A-Z][A-Z0-9_$#]*)\.([A-Z][A-Z0-9_$#]*)\s*$",
     re.IGNORECASE,
 )
+
+
+_BARE_REF_FINDER_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z0-9_$#]*)\.([A-Za-z][A-Za-z0-9_$#]*)\b",
+)
+
+_SQL_RESERVED_PREFIXES = {
+    "SYSDATE", "SYSTIMESTAMP", "TRUNC", "TO_CHAR", "TO_DATE", "TO_NUMBER",
+    "NVL", "COALESCE", "DECODE", "CASE", "WHEN", "THEN", "ELSE", "END",
+    "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "EXISTS", "IN", "BETWEEN",
+    "LIKE", "REGEXP_LIKE", "SUM", "AVG", "MIN", "MAX", "COUNT", "CAST",
+}
+
+
+def _extract_column_refs(expr: str) -> List[Tuple[str, str]]:
+    """Extract every ``<alias>.<col>`` reference from a SQL expression.
+
+    Strips out SQL keyword "aliases" (SYSDATE.something would be bogus).
+    Generic -- no specific table / column / business names.
+
+    Used by the semantic-equivalence check: when ODI projects
+    ``NVL(EXG_DIM.EXG_DIM_ID,0)`` or ``(coalesce(APA_CASH.X, APA_SECURITY.X))``,
+    we extract the leaves so the comparator can match against DRD's bare
+    ``source_attribute`` regardless of the SQL wrapping.
+    """
+    if not expr:
+        return []
+    out: List[Tuple[str, str]] = []
+    for m in _BARE_REF_FINDER_RE.finditer(expr):
+        alias = m.group(1)
+        col = m.group(2)
+        if alias.upper() in _SQL_RESERVED_PREFIXES:
+            continue
+        out.append((alias, col))
+    return out
+
+
+def _odi_expr_references_column(odi_expr: str, drd_col: str) -> bool:
+    """True if any leaf ref in ``odi_expr`` projects from the same bare column
+    name as ``drd_col``.  This is the semantic-equivalence rule:
+
+      * ``NVL(X.Y, 0)``                       -> Y matches drd_col "Y"  -> True
+      * ``coalesce(A.X, B.X)``               -> X matches drd_col "X"  -> True
+      * ``CASE WHEN cond THEN A.X ELSE B.X END`` -> X matches "X"      -> True
+      * ``A.Z``                              -> Z != "X"               -> False
+
+    Generic -- works for any column / alias names.
+    """
+    if not odi_expr or not drd_col:
+        return False
+    drd_up = drd_col.strip().upper()
+    if not drd_up:
+        return False
+    refs = _extract_column_refs(odi_expr)
+    return any(col.upper() == drd_up for _alias, col in refs)
 
 
 def _normalize_case_when_redundant(expr: str) -> str:

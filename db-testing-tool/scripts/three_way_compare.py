@@ -234,10 +234,23 @@ def classify_row(
                 ref_col = m.group(2).upper()
                 if ref_col == target and ("_STG" in ref_table or "_RT" in ref_table or "STAGING" in ref_table):
                     is_odi_underspecified = True
+
+        # Semantic-equivalence detector (shared comparator helper): the ODI
+        # text expression may wrap the same underlying column ref in NVL /
+        # COALESCE / CASE / subset-CTE alias -- treat as MATCH when the
+        # leaf column name lines up with the DRD source_attribute.
+        from app.sql_model.comparator import _odi_expr_references_column
+        semantic_match = (
+            bool(drd_source_attr) and _odi_expr_references_column(odi_top, drd_source_attr)
+        )
+
         if is_odi_underspecified:
             drd_odi_agree = "ODI_UNDERSPECIFIED"
         elif odi_resolved_col and odi_resolved_col == drd_source_attr and odi_tbl_bare == bare_drd_tbl:
             drd_odi_agree = "YES"
+        elif semantic_match:
+            # ODI wraps the same column in NVL/COALESCE/CASE/subset-CTE alias.
+            drd_odi_agree = "SEMANTIC_MATCH"
         elif odi_resolved_col == drd_source_attr and odi_resolved_col:
             drd_odi_agree = "ALIAS_DRIFT_ONLY"
         elif odi_tbl_bare == bare_drd_tbl and odi_tbl_bare:
@@ -275,10 +288,16 @@ def classify_row(
         drd_gen_agree = "MANUAL_VERIFY"
 
     # 3-way summary verdict (operator-locked: distinguish "ODI doesn't
-    # populate" from "ODI projects from a real but different table").
+    # populate" from "ODI projects from a real but different table"; flag
+    # ETL audit cols as system-managed not a drift).
+    is_etl_default = (gen_prov == "ETL_DEFAULT")
     if drd_intent in ("EMPTY",):
         verdict = "DRD_EMPTY"
-    elif drd_odi_agree == "YES" and drd_gen_agree == "YES":
+    elif is_etl_default:
+        # Gen system-manages an audit/ETL column. Whatever DRD says, this is
+        # intentional. The operator can override etl_column_defaults if not.
+        verdict = "ETL_DEFAULT_OK"
+    elif drd_odi_agree in ("YES", "SEMANTIC_MATCH") and drd_gen_agree == "YES":
         verdict = "ALL_AGREE"
     elif drd_odi_agree == "ODI_UNDERSPECIFIED" and drd_gen_agree == "YES":
         verdict = "GEN_RESOLVES_ODI_UNDERSPEC"  # ODI gap, Gen fills it from DRD
