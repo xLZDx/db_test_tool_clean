@@ -505,23 +505,30 @@ def main() -> int:
             f"operator rule: {', '.join(skipped_audit)}"
         )
 
-    # ── CHAIN_WARNING safety scan (Q1+Q3 operator 2026-05-29) ──
-    # Scan every ODI-projected column (including MATCHED ones) for
-    # chain inconsistencies the comparator's verdict alone would hide.
-    # Caught case: TXN_CCY explicit STEP3 NULL + STEP5 CCY.CCY_NM
-    # overwrite (final MATCHED but suspicious).
-    chain_warning_count = 0
+    # ── Chain safety scan (Q1 + Q3 operator 2026-05-29) ──
+    # Scan every ODI-projected column for chain inconsistencies the
+    # comparator's verdict alone would hide.  Caught: TXN_CCY STEP3
+    # NULL + STEP5 CCY.CCY_NM overwrite.
+    #
+    # Operator-locked verdict policy (2026-05-29 Phase 6.5):
+    # When a chain anomaly hits a column that has a CLEAR DRD source
+    # rule (drd source_attribute non-empty), the column is REAL_MISMATCH
+    # with mismatch_kind=IMPLEMENTATION_DRIFT_FROM_DRD -- not a soft
+    # "warning".  Operator: "if DRD has a clear rule, why is this a
+    # warning and not a mismatch?".  Reserve CHAIN_WARNING for cases
+    # where there is no DRD source to compare against.
+    chain_safety_count_real = 0
+    chain_safety_count_warning = 0
     for tgt, chain in model.column_derivations.items():
         tgt_up = tgt.upper()
         if tgt_up in _SKIP_AUDIT_COLS:
-            continue  # audit / sysdate columns are intentional
-        # Skip if already in a non-MATCHED bucket (already in the report).
-        if any(r["target_col"] == tgt_up for r in out_rows):
             continue
+        if any(r["target_col"] == tgt_up for r in out_rows):
+            continue  # already surfaced in another bucket
         chain_warnings = _scan_chain_for_warnings(tgt_up, chain)
         for w in chain_warnings:
-            chain_warning_count += 1
             drd_row = drd_by_col.get(tgt_up, {})
+            drd_attr = (drd_row.get("source_attribute", "") or "").strip()
             drd_src = (
                 f"{drd_row.get('source_schema','')}."
                 f"{drd_row.get('source_table','')}."
@@ -530,21 +537,59 @@ def main() -> int:
             drd_full = drd_full_map.get(
                 tgt_up, drd_row.get("transformation") or "",
             )
-            out_rows.append({
-                "verdict": "CHAIN_WARNING",
-                "target_col": tgt_up,
-                "mismatch_kind": w["kind"],
-                "drd_source": drd_src,
-                "drd_rule_full": drd_full,
-                "odi_authoritative_step": (
-                    f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
-                ),
-                "odi_authoritative_expr": w["real_expr"],
-                "odi_full_chain": _compact_chain(chain),
-                "category": w["kind"],
-                "recommendation": w["recommendation"],
-            })
-    print(f"CHAIN_WARNING rows:   {chain_warning_count}")
+            has_drd_rule = bool(drd_attr)
+            if has_drd_rule:
+                # DRD has a clear rule -> the NULL injection IS a
+                # mismatch with DRD's stated implementation, even if
+                # the final value happens to land on the right source.
+                chain_safety_count_real += 1
+                out_rows.append({
+                    "verdict": "REAL_MISMATCH",
+                    "target_col": tgt_up,
+                    "mismatch_kind": "IMPLEMENTATION_DRIFT_FROM_DRD",
+                    "drd_source": drd_src,
+                    "drd_rule_full": drd_full,
+                    "odi_authoritative_step": (
+                        f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
+                    ),
+                    "odi_authoritative_expr": w["real_expr"],
+                    "odi_full_chain": _compact_chain(chain),
+                    "category": w["kind"],
+                    "recommendation": (
+                        f"REAL_MISMATCH (implementation drift) -- "
+                        f"DRD spec sources '{tgt_up}' from "
+                        f"'{drd_src}'.  ODI emits NULL at "
+                        f"{w['null_step']} and only obtains the real "
+                        f"value at {w['real_step']} via "
+                        f"'{w['real_expr']}'.  The final value matches "
+                        f"DRD's expected source, but ODI does NOT "
+                        f"implement DRD's rule directly -- the NULL "
+                        f"placeholder is a structural divergence.  "
+                        f"Operator must decide: (a) remove the NULL in "
+                        f"{w['null_step']} and put the real source there, "
+                        f"or (b) accept the multi-step pattern."
+                    ),
+                })
+            else:
+                chain_safety_count_warning += 1
+                out_rows.append({
+                    "verdict": "CHAIN_WARNING",
+                    "target_col": tgt_up,
+                    "mismatch_kind": w["kind"],
+                    "drd_source": drd_src,
+                    "drd_rule_full": drd_full,
+                    "odi_authoritative_step": (
+                        f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
+                    ),
+                    "odi_authoritative_expr": w["real_expr"],
+                    "odi_full_chain": _compact_chain(chain),
+                    "category": w["kind"],
+                    "recommendation": w["recommendation"],
+                })
+    print(
+        f"Chain safety scan: REAL_MISMATCH (implementation drift)={chain_safety_count_real}, "
+        f"CHAIN_WARNING (no DRD rule)={chain_safety_count_warning}"
+    )
 
     # Operator-locked rule (2026-05-29): EVERY .md report MUST be
     # accompanied by a CSV of identical content (Excel-friendly).
@@ -633,7 +678,11 @@ def main() -> int:
         md_lines.append("")
         if verdict_name == "REAL_MISMATCH":
             md_lines.append(
-                "DRD source attribute name differs from ODI's projection."
+                "DRD has a clear rule but ODI's implementation does not "
+                "match it -- either the source attribute name differs "
+                "(NAME_DRIFT_*) or the implementation injects a NULL / "
+                "literal before the real derivation "
+                "(IMPLEMENTATION_DRIFT_FROM_DRD)."
             )
         elif verdict_name == "UNRESOLVABLE":
             md_lines.append(
