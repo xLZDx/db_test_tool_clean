@@ -1,0 +1,38 @@
+# Free Oracle XE 21c (community image, no Oracle account required).
+#
+# Bring up:
+#   cd infra/oracle_xe
+#   docker compose up -d
+#   docker compose logs -f oracle-xe   # wait for "DATABASE IS READY TO USE!"
+#
+# Connection:
+#   DSN:      localhost:1521/XEPDB1
+#   System :  username=system  password=oracle
+#   App KB :  username=DBTOOL   password=dbtool
+#
+# Tear down (drops the data volume too):
+#   docker compose down -v
+#
+# This image uses ~2 GB disk + 1 GB RAM. APEX is NOT installed (faststart variant).
+
+services:
+  oracle-xe:
+    image: gvenzl/oracle-xe:21-slim-faststart
+    container_name: dbtool-oracle-xe
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PASSWORD: oracle           # SYSTEM password
+      APP_USER: dbtool                  # auto-created app user
+      APP_USER_PASSWORD: dbtool
+    volumes:
+      - oracle_xe_data:/opt/oracle/oradata
+      - ./bootstrap:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+
+volumes:
+  oracle_xe_data:

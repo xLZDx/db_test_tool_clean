@@ -10,7 +10,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -773,3 +773,441 @@ async def cancel_odi_session(session_id: str):
         except Exception:
             pass
     return {"ok": True, "session_id": session_id, "status": "cancel_requested"}
+
+
+# ── ODI Scenario Analysis Endpoints ──────────────────────────────────────────
+# These endpoints implement the morning deliverable:
+# 1. Parse an ODI XML scenario export offline (no Oracle DB required)
+# 2. Emit the correct Oracle INSERT SQL from the parsed model
+# 3. 3-way DRD vs ODI comparison grid (DRD file optional)
+# 4. P5 static offline validator (PDM_MISS / COLUMN_NOT_IN_KB / NULL risk)
+# 5. P6 Oracle XE Docker confirmatory run (optional, requires local XE instance)
+#
+# All processing is offline against the local KB at data/local_kb/.
+# Operator rule: no live Oracle DB access; PDM_MISS = hard error, not warning.
+
+_MAX_UPLOAD_BYTES_ODI = 20 * 1024 * 1024  # 20 MB hard limit
+
+# KB path for P5 static validator + P6 XE synthetic data generator.
+# Resolved once at module load; endpoints degrade gracefully if file absent.
+_KB_PATH = Path(__file__).resolve().parents[2] / "data" / "local_kb" / "schema_kb_ds_1.json"
+
+
+async def _read_upload_checked_odi(file: UploadFile, max_bytes: int = _MAX_UPLOAD_BYTES_ODI) -> bytes:
+    if file.size is not None and file.size > max_bytes:
+        raise HTTPException(413, f"Upload too large ({file.size} bytes > {max_bytes} limit)")
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"Upload exceeds {max_bytes // 1024 // 1024} MB limit")
+    return data
+
+
+@router.post("/scenario/parse")
+async def parse_odi_scenario(
+    xml_file: UploadFile = File(...),
+    target_schema: str = Query(default="IKOROSTELEV"),
+    target_table: str = Query(default="AVY_FACT_SIDE"),
+    strict: bool = Query(default=False),
+):
+    """Parse an ODI XML scenario export and emit the correct Oracle INSERT SQL.
+
+    Returns:
+    - sql: the emitted Oracle INSERT SQL (WITH ... CTEs + INSERT INTO target SELECT ...)
+    - model_summary: step count, final column count, unresolved count
+    - unresolved: list of columns that could not be resolved (ALIAS_NOT_IN_JOIN_GRAPH, etc.)
+    - warnings: parser / emitter warnings
+    - steps: list of staging steps with source tables and column count
+
+    No Oracle DB connection is made. Everything is computed offline.
+    """
+    from app.sql_model.odi_parser import OdiXmlParser
+    from app.sql_model.sql_emitter import EmitError, emit_insert
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+
+    try:
+        parser = OdiXmlParser(target_schema=target_schema, target_table=target_table)
+        model = parser.parse_bytes(xml_bytes)
+    except ValueError as exc:
+        raise HTTPException(422, f"ODI XML parse error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected parse error: {exc}") from exc
+
+    try:
+        emit_result = emit_insert(model, strict=strict, add_header_comment=True)
+    except EmitError as exc:
+        raise HTTPException(422, f"SQL emit error (strict=True): {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected emit error: {exc}") from exc
+
+    # P5 — static offline validation against local KB (best-effort; absent KB → None)
+    static_validation = None
+    if _KB_PATH.exists():
+        try:
+            from app.sql_model.static_validator import KBLookup, validate_model_offline
+            kb = KBLookup(_KB_PATH)
+            static_validation = validate_model_offline(model, kb).to_dict()
+        except Exception:
+            pass  # never break the parse response due to validator issues
+
+    steps_summary = []
+    for step in model.staging_steps:
+        resolved_count = sum(1 for cm in step.column_mappings if cm.is_resolved)
+        unresolved_count = len(step.column_mappings) - resolved_count
+        source_tables = sorted({
+            b.ref.fq for b in step.source_bindings if b.ref.schema
+        } | {b.ref.table for b in step.source_bindings if not b.ref.schema})
+        steps_summary.append({
+            "step_id": step.step_id,
+            "name": step.name,
+            "column_count": len(step.column_mappings),
+            "resolved_count": resolved_count,
+            "unresolved_count": unresolved_count,
+            "source_tables": source_tables,
+            "join_edge_count": len(step.join_graph),
+        })
+
+    return {
+        "sql": emit_result.sql,
+        "model_summary": {
+            "target": model.target.fq,
+            "step_count": len(model.staging_steps),
+            "final_column_count": len(model.final_insert_columns),
+            "unresolved_count": len(emit_result.unresolved),
+            "warning_count": len(emit_result.warnings),
+            "status": "PARTIAL" if emit_result.unresolved else "OK",
+        },
+        "steps": steps_summary,
+        "unresolved": emit_result.unresolved,
+        "warnings": emit_result.warnings,
+        "final_insert_columns": model.final_insert_columns,
+        "static_validation": static_validation,
+    }
+
+
+@router.post("/scenario/compare")
+async def compare_odi_vs_drd(
+    xml_file: UploadFile = File(...),
+    drd_file: UploadFile = File(None),
+    target_schema: str = Query(default="IKOROSTELEV"),
+    target_table: str = Query(default="AVY_FACT_SIDE"),
+    target_table_drd: str = Query(default=""),
+    strict_emit: bool = Query(default=False),
+):
+    """Parse ODI XML and compare against DRD mapping file (DRD is optional).
+
+    If drd_file is provided, returns a 3-way comparison grid:
+    - MATCHED: ODI source matches DRD claim exactly
+    - ALIAS_DRIFT_ONLY: same physical column, different alias/table name in DRD
+    - REAL_MISMATCH: genuinely different column/logic — REVIEW REQUIRED
+    - UNRESOLVABLE: complex expression or unclear DRD rule — manual verify
+    - SOURCE_MISSING: column in DRD not found in any ODI staging step
+
+    If drd_file is not provided, returns SQL-only (same as /scenario/parse).
+
+    No Oracle DB connection is made. Everything is offline.
+    """
+    from app.sql_model.odi_parser import OdiXmlParser
+    from app.sql_model.sql_emitter import EmitError, emit_insert
+    from app.sql_model.comparator import compare_drd_rows_to_model, comparison_summary
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+
+    try:
+        parser = OdiXmlParser(target_schema=target_schema, target_table=target_table)
+        model = parser.parse_bytes(xml_bytes)
+    except ValueError as exc:
+        raise HTTPException(422, f"ODI XML parse error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected parse error: {exc}") from exc
+
+    try:
+        emit_result = emit_insert(model, strict=strict_emit, add_header_comment=True)
+    except EmitError as exc:
+        raise HTTPException(422, f"SQL emit error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected emit error: {exc}") from exc
+
+    base_response = {
+        "sql": emit_result.sql,
+        "model_summary": {
+            "target": model.target.fq,
+            "step_count": len(model.staging_steps),
+            "final_column_count": len(model.final_insert_columns),
+            "unresolved_count": len(emit_result.unresolved),
+            "status": "PARTIAL" if emit_result.unresolved else "OK",
+        },
+        "warnings": emit_result.warnings,
+        "comparison": None,
+    }
+
+    if drd_file is None:
+        base_response["note"] = "No DRD file provided; returning SQL only. Upload drd_file for 3-way comparison."
+        return base_response
+
+    # ── Parse DRD file ────────────────────────────────────────────────────────
+    drd_bytes = await _read_upload_checked_odi(drd_file)
+    try:
+        from app.services.drd_import_service import parse_drd_file
+        parse_result = parse_drd_file(
+            file_bytes=drd_bytes,
+            filename=drd_file.filename or "mapping.csv",
+            selected_fields=[
+                "logical_name", "physical_name", "source_schema", "source_table",
+                "source_attribute", "transformation", "notes",
+            ],
+            target_schema=target_schema,
+            target_table=target_table_drd or target_table,
+            source_datasource_id=1,
+            target_datasource_id=1,
+            exclude_strikethrough=True,
+        )
+    except Exception as exc:
+        raise HTTPException(422, f"DRD parse error: {exc}") from exc
+
+    drd_rows = parse_result.get("column_mappings", [])
+    drd_errors = parse_result.get("errors", [])
+
+    # ── PDM KB lookup (optional enrichment for UNRESOLVABLE/SOURCE_MISSING) ──
+    kb = None
+    if _KB_PATH.exists():
+        try:
+            from app.sql_model.static_validator import KBLookup
+            kb = KBLookup(_KB_PATH)
+        except Exception:
+            pass  # KB unavailable — comparator runs without PDM enrichment
+
+    # ── Shared v9 pipeline (operator-locked: one code path, both directions) ──
+    from app.services.v9_pipeline import generate_v9
+    v9 = generate_v9(
+        drd_bytes=drd_bytes,
+        drd_filename=drd_file.filename or "drd.xlsx",
+        odi_xml_bytes=xml_bytes,
+        target_schema=target_schema,
+        target_table=target_table,
+    )
+    base_response["comparison"] = {
+        "summary": v9.comparison_summary,
+        "rows": v9.comparison_rows,
+        "drd_parse_errors": v9.drd_parse_errors,
+        "drd_row_count": v9.drd_row_count,
+    }
+    base_response["drd_first_insert"] = {
+        "sql": v9.insert_sql,
+        "provenance": v9.provenance,
+        "validation": v9.oracle_validation,
+    }
+    return base_response
+
+
+@router.post("/scenario/emit-sql")
+async def emit_sql_from_xml(
+    xml_file: UploadFile = File(...),
+    target_schema: str = Query(default="IKOROSTELEV"),
+    target_table: str = Query(default="AVY_FACT_SIDE"),
+    strict: bool = Query(default=False),
+):
+    """Lightweight endpoint: parse ODI XML and return only the emitted SQL string.
+
+    Response: {"sql": "<Oracle INSERT SQL>", "unresolved_count": N}
+    """
+    from app.sql_model.odi_parser import OdiXmlParser
+    from app.sql_model.sql_emitter import EmitError, emit_insert
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+    try:
+        parser = OdiXmlParser(target_schema=target_schema, target_table=target_table)
+        model = parser.parse_bytes(xml_bytes)
+        result = emit_insert(model, strict=strict, add_header_comment=True)
+    except (ValueError, EmitError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+    return {
+        "sql": result.sql,
+        "unresolved_count": len(result.unresolved),
+        "warning_count": len(result.warnings),
+        "status": "PARTIAL" if result.unresolved else "OK",
+    }
+
+
+@router.post("/scenario/run-xe")
+async def run_xe_insert(
+    xml_file: UploadFile = File(...),
+    target_schema: str = Query(default="IKOROSTELEV"),
+    target_table: str = Query(default="AVY_FACT_SIDE"),
+    strict: bool = Query(default=False),
+    test_rows: int = Query(default=10, ge=1, le=100),
+    scratch_schema: str = Query(default=""),
+):
+    """P6 — Oracle XE confirmatory run (OPTIONAL).
+
+    Parse the ODI XML, emit the INSERT SQL, then execute it against a local
+    Oracle XE Docker instance using synthetic data generated from the KB.
+
+    Design invariants (operator-locked):
+    - xe_status in {'confirmed', 'unavailable'}
+    - rows_affected from cursor.rowcount (NOT len(result))
+    - rows_affected == 0  ->  verdict = FAIL_ZERO_ROWS
+    - XE_UNAVAILABLE is never is_pass=True
+    - Never flips STATIC_PASS -> FAIL (static gate stays authoritative)
+
+    Connection: oracledb thin mode (no Oracle Instant Client).
+    Configure via env: ORA_XE_DSN / ORA_XE_USER / ORA_XE_PASSWORD.
+
+    Returns XeRunResult.to_dict() including is_pass, verdict, rows_affected,
+    ora_errors, and synthetic_tables_created.
+
+    If KB file is absent, xe_status='unavailable' is returned immediately.
+    """
+    from app.sql_model.odi_parser import OdiXmlParser
+    from app.sql_model.sql_emitter import EmitError, emit_insert
+    from app.db.xe_harness import XeRunResult, XeVerdict, run_insert_on_xe
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+
+    try:
+        parser = OdiXmlParser(target_schema=target_schema, target_table=target_table)
+        model = parser.parse_bytes(xml_bytes)
+    except ValueError as exc:
+        raise HTTPException(422, f"ODI XML parse error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected parse error: {exc}") from exc
+
+    try:
+        emit_result = emit_insert(model, strict=strict, add_header_comment=True)
+    except EmitError as exc:
+        raise HTTPException(422, f"SQL emit error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected emit error: {exc}") from exc
+
+    if not _KB_PATH.exists():
+        result = XeRunResult(
+            xe_status="unavailable",
+            verdict=XeVerdict.XE_UNAVAILABLE,
+            note=f"KB file not found at {_KB_PATH}",
+        )
+        return result.to_dict()
+
+    xe_result = await asyncio.to_thread(
+        run_insert_on_xe,
+        model,
+        emit_result.sql,
+        _KB_PATH,
+        test_rows,
+        scratch_schema,
+    )
+    return xe_result.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# P7 — DRD all-sheets parse
+# ---------------------------------------------------------------------------
+
+@router.post("/drd/all-sheets-parse")
+async def drd_all_sheets_parse(
+    drd_file: UploadFile = File(...),
+):
+    """P7 — Parse ALL sheets of a DRD Excel workbook.
+
+    Reads the file in non-read-only mode so openpyxl exposes hyperlinks.
+    Returns:
+      - sheets: list with role, row count, sample rows, hyperlink count per sheet
+      - deferred_refs: hyperlinks / PBI links that cannot be resolved locally
+      - extracted_rules: transformation rules, grain columns, join conditions
+        extracted from ETL Notes / Grain / Model / Consumer View sheets
+      - verdict: "FULL_DRD" (no deferred refs) | "PARTIAL_DRD" (some refs unresolved)
+      - grain_columns: key / grain column names found across grain sheets
+
+    Design invariant: deferred_refs is NEVER silently empty when hyperlinks exist.
+    PARTIAL_DRD is always visible to the caller.
+    """
+    from app.sql_model.drd_multi_sheet import parse_all_sheets
+
+    if not drd_file.filename:
+        raise HTTPException(422, "No filename provided")
+
+    ext = drd_file.filename.rsplit(".", 1)[-1].lower() if "." in drd_file.filename else ""
+    if ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(422, f"Unsupported file type: {ext!r}. Expected xlsx/xls/xlsm")
+
+    raw = await drd_file.read()
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "DRD file exceeds 20 MB limit")
+    if not raw:
+        raise HTTPException(422, "Empty file")
+
+    result = await asyncio.to_thread(parse_all_sheets, raw)
+    return result.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# P8 — Fix-mismatch overrides
+# ---------------------------------------------------------------------------
+
+_OVERRIDES_PATH = Path(__file__).resolve().parents[2] / "data" / "overrides" / "comparison_overrides.json"
+
+
+class FixMismatchRequest(BaseModel):
+    target_col: str
+    verdict_override: Literal["MATCHED", "ALIAS_DRIFT_ONLY"]
+    reason: str = ""
+
+
+def _load_overrides() -> list:
+    if not _OVERRIDES_PATH.exists():
+        return []
+    try:
+        return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_overrides(records: list) -> None:
+    _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _OVERRIDES_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _OVERRIDES_PATH)
+
+
+@router.post("/scenario/fix-mismatch")
+async def fix_mismatch(body: FixMismatchRequest):
+    """Persist a manual verdict override for a mismatched target column.
+
+    Stores the override in data/overrides/comparison_overrides.json so
+    the comparison grid can show the corrected verdict on future runs.
+    A new entry for the same target_col replaces the existing one.
+
+    Request body:
+      target_col         — physical column name (e.g. "AGRT_ID")
+      verdict_override   — "MATCHED" or "ALIAS_DRIFT_ONLY"
+      reason             — optional human note ("DRD uses legacy alias; ODI is correct")
+    """
+    target_col = (body.target_col or "").strip().upper()
+    if not target_col:
+        raise HTTPException(status_code=400, detail="target_col is required")
+
+    records = _load_overrides()
+    # Replace existing entry for the same target_col
+    records = [r for r in records if (r.get("target_col") or "").upper() != target_col]
+    entry = {
+        "target_col": target_col,
+        "verdict_override": body.verdict_override,
+        "reason": (body.reason or "").strip(),
+        "saved_at": time.time(),
+    }
+    records.append(entry)
+    try:
+        _save_overrides(records)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save override: {exc}") from exc
+
+    return {"ok": True, "override": entry, "total_overrides": len(records)}
+
+
+@router.get("/scenario/fix-mismatch/list")
+async def list_fix_mismatches():
+    """Return all saved comparison verdict overrides."""
+    records = _load_overrides()
+    return {"overrides": records, "total": len(records)}
