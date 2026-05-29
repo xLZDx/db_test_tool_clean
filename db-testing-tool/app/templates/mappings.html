@@ -356,6 +356,11 @@
                 <label>Mapping Document (.csv, .xlsx, .xls)</label>
                 <input type="file" class="form-control" id="drd-file" accept=".csv,.xlsx,.xls" required>
             </div>
+            <div class="form-group" style="margin-top:12px">
+                <label>ODI XML File <span class="text-muted" style="font-size:11px">(optional — for quality gate comparison)</span></label>
+                <input type="file" class="form-control" id="drd-xml-file" accept=".xml">
+            </div>
+            <div id="drd-xml-parse-result" style="display:none;margin-top:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;max-height:200px;overflow:auto"></div>
             <div id="drd-upload-progress" style="display:none;margin-top:16px">
                 <span class="spinner"></span> Analyzing file...
             </div>
@@ -487,9 +492,41 @@
             </div>
             <div id="drd-import-result" style="margin-top:12px"></div>
 
+            <!-- E2E cycle result panel -->
+            <div id="drd-e2e-result" style="display:none;margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--bg-dark)">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                    <span style="font-weight:600;color:var(--text)">E2E Test Cycle</span>
+                    <span id="drd-e2e-verdict-badge" style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600"></span>
+                    <span id="drd-e2e-spinner" class="spinner" style="display:none"></span>
+                </div>
+                <div id="drd-e2e-summary" style="font-size:13px;color:var(--text-muted);margin-bottom:10px"></div>
+                <details style="margin-bottom:8px">
+                    <summary style="cursor:pointer;font-size:13px;color:var(--primary)">CREATE TABLE SQL</summary>
+                    <pre id="drd-e2e-create-sql" style="font-size:11px;overflow-x:auto;max-height:200px;background:var(--bg);padding:8px;border-radius:4px;margin-top:6px;white-space:pre-wrap"></pre>
+                </details>
+                <details style="margin-bottom:8px">
+                    <summary style="cursor:pointer;font-size:13px;color:var(--primary)">INSERT SQL (<span id="drd-e2e-insert-count">0</span> rows)</summary>
+                    <pre id="drd-e2e-insert-sql" style="font-size:11px;overflow-x:auto;max-height:200px;background:var(--bg);padding:8px;border-radius:4px;margin-top:6px;white-space:pre-wrap"></pre>
+                </details>
+                <details>
+                    <summary style="cursor:pointer;font-size:13px;color:var(--primary)">Validation Queries (<span id="drd-e2e-val-count">0</span>)</summary>
+                    <div id="drd-e2e-val-list" style="font-size:11px;max-height:160px;overflow-y:auto;margin-top:6px"></div>
+                </details>
+                <div id="drd-e2e-xe-block" style="display:none;margin-top:10px;padding:8px;border-radius:6px;border:1px solid var(--border)">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:4px">XE Run</div>
+                    <div id="drd-e2e-xe-detail" style="font-size:12px;color:var(--text-muted)"></div>
+                </div>
+                <div style="margin-top:10px">
+                    <button class="btn btn-success btn-sm" onclick="saveE2ECycleToSuite()" id="drd-e2e-save-btn" style="display:none">
+                        &#10003; Save to Test Suite
+                    </button>
+                </div>
+            </div>
+
             <div class="flex gap-8 mt-16">
                 <button class="btn btn-outline" onclick="drdGoBack()">&#8592; Back</button>
                 <button class="btn btn-primary" id="drd-import-btn" onclick="executeDrdImport()">Generate DRD Tests</button>
+                <button class="btn btn-success" id="drd-e2e-btn" onclick="runDrdE2ECycle(false)" title="Generate CREATE TABLE + INSERT + validation scripts from DRD">&#9654; E2E Test Cycle</button>
                 <button class="btn btn-info" onclick="openControlTableFromDrd()" title="Open Control Table Generator pre-filled with this DRD's target/source tables">&#8594; CT Generator</button>
                 <button class="btn btn-outline" onclick="closeModal('modal-drd-import')">Cancel</button>
             </div>
@@ -981,6 +1018,40 @@
                         </div>
                         <div id="ct-compare-summary" class="text-muted" style="margin-top:10px"></div>
                         <div id="ct-compare-results" style="margin-top:10px"></div>
+
+                        <div style="margin-top:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)">
+                            <div class="ct-sect-hdr" onclick="ctToggleSection('ct-sect-doc-compare')" style="padding:10px 12px">
+                                <div style="font-weight:600;display:flex;gap:8px;align-items:center">
+                                    <span>DRD / ODI / Manual SQL Compare</span>
+                                    <span class="text-muted" style="font-size:12px">pairwise + multi-compare</span>
+                                </div>
+                                <button class="ct-sect-toggle" id="ct-sect-doc-compare-btn" type="button">&#9660;</button>
+                            </div>
+                            <div class="ct-sect-body" id="ct-sect-doc-compare" style="padding:12px">
+                                <div class="grid grid-2" style="gap:10px;align-items:start">
+                                    <div>
+                                        <label style="font-size:12px">DRD File</label>
+                                        <input type="file" id="ct-doc-drd" class="form-control" accept=".xlsx,.xls,.csv,.xml,.txt" />
+                                    </div>
+                                    <div>
+                                        <label style="font-size:12px">ODI XML #1</label>
+                                        <input type="file" id="ct-doc-odi-1" class="form-control" accept=".xml,.txt" />
+                                    </div>
+                                    <div>
+                                        <label style="font-size:12px">ODI XML #2</label>
+                                        <input type="file" id="ct-doc-odi-2" class="form-control" accept=".xml,.txt" />
+                                    </div>
+                                    <div>
+                                        <label style="font-size:12px">Manual SQL (optional)</label>
+                                        <textarea id="ct-doc-manual-sql" class="form-control" rows="5" placeholder="Paste manual SQL to include in pairwise/multi compare" style="font-family:monospace;font-size:12px"></textarea>
+                                    </div>
+                                </div>
+                                <div class="flex gap-8 mt-8">
+                                    <button class="btn btn-outline btn-sm" onclick="runControlTableDocCompare()">Run Pairwise/Multi Compare</button>
+                                </div>
+                                <div id="ct-doc-compare-results" style="margin-top:10px;font-size:12px"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="ct-tab-insert" style="display:none">
@@ -1121,6 +1192,12 @@
                         <button class="ct-sect-toggle" id="ct-sect-suite-btn" type="button">&#9660;</button>
                     </div>
                     <div class="ct-sect-body" id="ct-sect-suite">
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+                            <button class="btn btn-primary btn-sm" onclick="generatePerAttributeTestSuite('CT')">&#9654; Generate Per-Attribute Test Suite</button>
+                            <button class="btn btn-outline btn-sm" onclick="generatePerAttributeTestSuite('DRD')">Generate DRD Suite</button>
+                            <button class="btn btn-outline btn-sm" onclick="generatePerAttributeTestSuite('CHAT')">Generate Chat Suite</button>
+                            <span id="ct-gen-suite-status" class="text-muted" style="font-size:11px"></span>
+                        </div>
                         <div id="ct-tests-summary" class="text-muted" style="margin-bottom:10px"></div>
                         <div id="ct-tests-list" style="max-height:420px;overflow-y:auto"></div>
                     </div>
@@ -2641,6 +2718,145 @@ async function executeDrdImport() {
     }
 }
 
+// ── DRD E2E Cycle ───────────────────────────────────────────────────────────
+let _lastE2ERecord = null;
+
+async function runDrdE2ECycle(withXe) {
+    if (!_drdFileForImport) {
+        showToast('Upload a DRD file first (Step 1)', 'error');
+        return;
+    }
+    const targetVal = (document.getElementById('drd-target')?.value || '').trim();
+    if (!targetVal) {
+        showToast('Target Schema.Table is required', 'error');
+        return;
+    }
+    let targetSchema = '', targetTable = targetVal;
+    if (targetVal.includes('.')) {
+        const parts = targetVal.split('.', 2);
+        targetSchema = parts[0];
+        targetTable = parts[1];
+    }
+
+    const resultDiv = document.getElementById('drd-e2e-result');
+    const spinner = document.getElementById('drd-e2e-spinner');
+    const verdictBadge = document.getElementById('drd-e2e-verdict-badge');
+    const e2eBtn = document.getElementById('drd-e2e-btn');
+
+    resultDiv.style.display = 'block';
+    spinner.style.display = 'inline-block';
+    verdictBadge.textContent = 'running...';
+    verdictBadge.style.background = 'var(--bg)';
+    verdictBadge.style.color = 'var(--text-muted)';
+    document.getElementById('drd-e2e-summary').textContent = 'Generating scripts...';
+    document.getElementById('drd-e2e-save-btn').style.display = 'none';
+    document.getElementById('drd-e2e-xe-block').style.display = 'none';
+    if (e2eBtn) e2eBtn.disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append('file', _drdFileForImport);
+        formData.append('target_schema', targetSchema);
+        formData.append('target_table', targetTable);
+        formData.append('test_rows', '10');
+        formData.append('run_xe', withXe ? 'true' : 'false');
+
+        const resp = await fetch('/api/mappings/drd-e2e-cycle', { method: 'POST', body: formData });
+        if (!resp.ok) {
+            const t = await resp.text(); throw new Error(`${resp.status}: ${t}`);
+        }
+        const data = await resp.json();
+        _lastE2ERecord = data;
+
+        const scripts = data.scripts || {};
+        const xe = data.xe_result || {};
+        const colCount = data.column_count || 0;
+        const insertLines = (scripts.insert_sql || '').split('\n').filter(l => l.trim().toUpperCase().startsWith('INSERT')).length;
+        const valCount = (scripts.validation_sqls || []).length;
+
+        // Summary
+        document.getElementById('drd-e2e-summary').innerHTML =
+            `<strong>${colCount}</strong> columns &nbsp;|&nbsp; <strong>${insertLines}</strong> INSERT rows &nbsp;|&nbsp; <strong>${valCount}</strong> validation queries` +
+            (data.parse_errors && data.parse_errors.length ? `&nbsp;&nbsp;<span style="color:var(--warning)">(${data.parse_errors.length} parse warnings)</span>` : '');
+
+        // Scripts
+        document.getElementById('drd-e2e-create-sql').textContent = scripts.create_table_sql || '';
+        document.getElementById('drd-e2e-insert-sql').textContent = scripts.insert_sql || '';
+        document.getElementById('drd-e2e-insert-count').textContent = insertLines;
+
+        const valList = document.getElementById('drd-e2e-val-list');
+        valList.innerHTML = (scripts.validation_sqls || []).map(vq =>
+            `<div style="padding:3px 0;border-bottom:1px solid var(--border)"><strong style="color:var(--primary)">${escapeHtml(vq.label)}</strong><br><code style="font-size:10px">${escapeHtml(vq.sql)}</code></div>`
+        ).join('');
+        document.getElementById('drd-e2e-val-count').textContent = valCount;
+
+        // Verdict
+        const verdict = xe.verdict || 'skipped';
+        const isPass = xe.is_pass === true;
+        const xeSkipped = verdict === 'skipped';
+        verdictBadge.textContent = xeSkipped ? 'scripts OK' : (isPass ? 'XE PASS' : verdict.toUpperCase());
+        verdictBadge.style.background = isPass ? 'rgba(34,197,94,.2)' : (xeSkipped ? 'rgba(99,102,241,.2)' : 'rgba(239,68,68,.2)');
+        verdictBadge.style.color = isPass ? 'var(--success)' : (xeSkipped ? 'var(--primary)' : 'var(--danger)');
+
+        // XE block
+        if (!xeSkipped) {
+            document.getElementById('drd-e2e-xe-block').style.display = 'block';
+            document.getElementById('drd-e2e-xe-block').style.borderColor = isPass ? 'var(--success)' : 'var(--danger)';
+            let xeHtml = `xe_status: <strong>${escapeHtml(xe.xe_status)}</strong> &nbsp; rows_inserted: <strong>${xe.rows_inserted || 0}</strong>`;
+            if (xe.ora_errors && xe.ora_errors.length) {
+                xeHtml += `<br><span style="color:var(--danger)">${xe.ora_errors.map(escapeHtml).join('<br>')}</span>`;
+            }
+            document.getElementById('drd-e2e-xe-detail').innerHTML = xeHtml;
+        }
+
+        // Save button
+        document.getElementById('drd-e2e-save-btn').style.display = 'inline-block';
+
+        showToast(`E2E cycle: ${colCount} columns, ${insertLines} inserts, ${valCount} validations`, 'success');
+    } catch (e) {
+        verdictBadge.textContent = 'ERROR';
+        verdictBadge.style.background = 'rgba(239,68,68,.2)';
+        verdictBadge.style.color = 'var(--danger)';
+        document.getElementById('drd-e2e-summary').textContent = e.message;
+        showToast(e.message, 'error');
+    } finally {
+        spinner.style.display = 'none';
+        if (e2eBtn) e2eBtn.disabled = false;
+    }
+}
+
+async function saveE2ECycleToSuite() {
+    if (!_lastE2ERecord) { showToast('Run E2E cycle first', 'error'); return; }
+    const rec = _lastE2ERecord.test_run_record || {};
+    const scripts = _lastE2ERecord.scripts || {};
+    const payload = {
+        suite_name: rec.suite_name || `DRD E2E - ${_lastE2ERecord.target_schema}.${_lastE2ERecord.target_table}`,
+        tests: [
+            { name: 'CREATE TABLE DDL', test_type: 'ddl', severity: 'critical',
+              sql_query: scripts.create_table_sql || '', description: 'CREATE TABLE from DRD column types' },
+            { name: 'INSERT synthetic data', test_type: 'dml', severity: 'high',
+              sql_query: scripts.insert_sql || '', description: `Insert ${_lastE2ERecord.column_count} columns` },
+            ...(scripts.validation_sqls || []).map(vq => ({
+                name: `Validate: ${vq.label}`, test_type: 'validation', severity: 'medium',
+                sql_query: vq.sql, description: vq.label,
+            })),
+        ],
+    };
+    try {
+        const resp = await fetch('/api/tests/control-table/save-suite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!resp.ok) { const t = await resp.text(); throw new Error(`${resp.status}: ${t}`); }
+        const result = await resp.json();
+        showToast(`Saved ${payload.tests.length} scripts to test suite`, 'success');
+        document.getElementById('drd-e2e-save-btn').style.display = 'none';
+    } catch (e) {
+        showToast(`Save failed: ${e.message}`, 'error');
+    }
+}
+
 function renderDrdTestsGrid(tests) {
     const grid = document.getElementById('drd-tests-grid');
     grid.innerHTML = tests.map((t, i) => `
@@ -3417,6 +3633,8 @@ let tfsState = {
     lastFailedTestPoints: [],
     currentRun: null,
     isExecuting: false,
+    // Maps planId → actual TFS project (handles cross-project team-alias scenario)
+    planProjectMap: {},
 };
 
 let _tfsDatasourcesCache = [];
@@ -3512,6 +3730,7 @@ async function onProjectChanged() {
     tfsState.testPlans = {};
     tfsState.selectedPlanId = null;
     tfsState.selectedSuiteId = null;
+    tfsState.planProjectMap = {};
     await loadTestPlans();
 }
 
@@ -3578,11 +3797,16 @@ async function loadTestSuites(planId, element) {
         element.classList.add('loading');
         const resp = await API.getTestSuites(project, planId);
         element.classList.remove('loading');
+        // Store the actual TFS project for this plan (may differ from selectedProject)
+        const resolvedProject = resp.resolved_project || project;
+        if (resolvedProject !== project) {
+            tfsState.planProjectMap[planId] = resolvedProject;
+        }
         const hideHeavy = !!document.getElementById('filter-hide-heavy')?.checked;
         let innerHtml = `<div class="tfs-tree-item tfs-indent-1" style="font-weight:bold;cursor:default;">📋 ${escapeHtml(tfsState.testPlans[planId]?.name || String(planId))}</div>`;
         for (const suite of (resp.suites || [])) {
             if (hideHeavy && suite.is_heavy) continue;
-            tfsState.testSuites[suite.id] = { ...suite, plan_id: planId, project };
+            tfsState.testSuites[suite.id] = { ...suite, plan_id: planId, project: resolvedProject };
             const hasTests = suite.test_case_count > 0;
             innerHtml += `<div class="tfs-tree-item tfs-indent-2" style="cursor:pointer;" id="suite-row-${suite.id}"><div class="suite-row" onclick="toggleSuite(${planId}, ${suite.id}, this.parentElement)"><span>📁 ${escapeHtml(suite.name)} <span class="text-muted">(${suite.test_case_count})</span></span><span><button class="suite-add-local" onclick="event.stopPropagation(); importSelectedLocalTestsToChosenSuite(${planId}, ${suite.id}, this)">+ Add Selected</button>${hasTests ? `<button class="suite-select-all" onclick="event.stopPropagation(); selectAllFromSuite(${planId}, ${suite.id}, this)">☑ Select All</button>` : ''}</span></div></div>`;
         }
@@ -3598,10 +3822,12 @@ async function loadTestSuites(planId, element) {
 }
 
 async function refreshSuiteRowAfterInlineImport(planId, suiteId) {
-    const project = tfsState.selectedProject;
+    const project = tfsState.planProjectMap[planId] || tfsState.selectedProject;
     if (!project) return;
     try {
         const resp = await API.getTestSuites(project, planId);
+        const resolvedProject = resp.resolved_project || project;
+        if (resolvedProject !== project) tfsState.planProjectMap[planId] = resolvedProject;
         const suite = (resp.suites || []).find(s => Number(s.id) === Number(suiteId));
         if (!suite) return;
 
@@ -3656,20 +3882,25 @@ function openTfsPointItem(testCaseId) {
 }
 
 async function loadTestPoints(planId, suiteId, element) {
-    const project = tfsState.selectedProject;
+    const project = tfsState.planProjectMap[planId] || tfsState.selectedProject;
     if (!project) return;
     if (document.getElementById(`suite-points-${suiteId}`)) return;
     try {
         element.classList.add('loading');
         const resp = await API.getTestPoints(project, planId, suiteId);
         element.classList.remove('loading');
+        // Update resolved project if fallback was used
+        const resolvedProject = resp.resolved_project || project;
+        if (resolvedProject !== (tfsState.planProjectMap[planId] || tfsState.selectedProject)) {
+            tfsState.planProjectMap[planId] = resolvedProject;
+        }
         tfsState.suiteTestPoints[suiteId] = [];
         let innerHtml = '';
         for (const tp of (resp.test_points || [])) {
-            tfsState.testPoints[tp.test_point_id] = { ...tp, suite_id: suiteId, plan_id: planId, project };
+            tfsState.testPoints[tp.test_point_id] = { ...tp, suite_id: suiteId, plan_id: planId, project: resolvedProject };
             tfsState.suiteTestPoints[suiteId].push(tp.test_point_id);
             const checked = tfsState.selectedTestPoints.has(tp.test_point_id) ? 'checked' : '';
-            innerHtml += `<div class="tfs-tree-item tfs-indent-3" data-tp="${tp.test_point_id}"><label class="checkbox-label" style="margin:0;display:flex;gap:8px;align-items:center;justify-content:space-between"><span style="display:flex;gap:8px;align-items:center;min-width:0;flex:1"><input type="checkbox" value="${tp.test_point_id}" ${checked} onchange="onTestPointToggled(this)"><span>${escapeHtml(tp.title)}</span></span><button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); openTfsPointItem(${tp.test_case_id})">Open</button></label></div>`;
+            innerHtml += `<div class="tfs-tree-item tfs-indent-3" data-tp="${tp.test_point_id}"><label class="checkbox-label" style="margin:0;display:flex;gap:8px;align-items:center;justify-content:space-between"><span style="display:flex;gap:8px;align-items:center;min-width:0;flex:1"><input type="checkbox" value="${tp.test_point_id}" ${checked} onchange="onTestPointToggled(this)"><span>${escapeHtml(tp.title || `TC #${tp.test_case_id}`)}</span></span><button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); openTfsPointItem(${tp.test_case_id})">Open</button></label></div>`;
         }
         const container = document.createElement('div');
         container.id = `suite-points-${suiteId}`;
@@ -3683,16 +3914,18 @@ async function loadTestPoints(planId, suiteId, element) {
 }
 
 async function selectAllFromSuite(planId, suiteId, btn) {
-    const project = tfsState.selectedProject;
+    const project = tfsState.planProjectMap[planId] || tfsState.selectedProject;
     if (!project) return;
     if (!tfsState.suiteTestPoints[suiteId]) {
         btn.textContent = '...';
         btn.disabled = true;
         try {
             const resp = await API.getTestPoints(project, planId, suiteId);
+            const resolvedProject = resp.resolved_project || project;
+            if (resolvedProject !== project) tfsState.planProjectMap[planId] = resolvedProject;
             tfsState.suiteTestPoints[suiteId] = [];
             for (const tp of (resp.test_points || [])) {
-                tfsState.testPoints[tp.test_point_id] = { ...tp, suite_id: suiteId, plan_id: planId, project };
+                tfsState.testPoints[tp.test_point_id] = { ...tp, suite_id: suiteId, plan_id: planId, project: resolvedProject };
                 tfsState.suiteTestPoints[suiteId].push(tp.test_point_id);
             }
         } catch (e) {
@@ -3723,7 +3956,8 @@ async function importSelectedLocalTestsToChosenSuite(planId, suiteId, btn) {
         return;
     }
 
-    const project = tfsState.selectedProject;
+    // Use resolved project for this plan (handles cross-project team-alias scenario)
+    const project = tfsState.planProjectMap[planId] || tfsState.selectedProject;
     if (!project) {
         showToast('Select TFS project first', 'warning');
         return;
@@ -4667,6 +4901,12 @@ function renderEditLastRunResult(test) {
     const err = String(test?.last_error_message || '').trim();
     const actual = String(test?.last_actual_result || '').trim();
     const mismatchCount = Number(test?.last_mismatch_count || 0);
+    let parsedActual = null;
+    try { parsedActual = actual ? JSON.parse(actual) : null; } catch (_) { parsedActual = null; }
+    const diag = parsedActual?.diagnostics || parsedActual?.detail?.diagnostics || {};
+    const suggestions = parsedActual?.suggestions || parsedActual?.detail?.suggestions || [];
+    const missingCols = Array.isArray(diag?.missing_columns) ? diag.missing_columns : [];
+    const missingTables = Array.isArray(diag?.missing_tables) ? diag.missing_tables : [];
     if (status === 'untested' && !err && !actual) {
         el.innerHTML = '<span class="text-muted">No execution result yet.</span>';
         return;
@@ -4676,6 +4916,9 @@ function renderEditLastRunResult(test) {
         <div><strong>Executed:</strong> ${escapeHtml(executedAt || '-')}</div>
         <div><strong>Mismatches:</strong> ${mismatchCount}</div>
         ${err ? `<div style="margin-top:6px;color:var(--danger);white-space:pre-wrap"><strong>Error:</strong><br>${escapeHtml(err)}</div>` : ''}
+        ${missingTables.length ? `<div style="margin-top:6px;color:var(--warning);white-space:pre-wrap"><strong>Missing Tables:</strong><br>${escapeHtml(missingTables.map(t => `${t.schema}.${t.table}${t.closest_table ? ` -> closest: ${t.closest_table}` : ''}`).join('\n'))}</div>` : ''}
+        ${missingCols.length ? `<div style="margin-top:6px;color:var(--warning);white-space:pre-wrap"><strong>Missing Columns:</strong><br>${escapeHtml(missingCols.map(c => `${c.schema}.${c.table}.${c.column}${c.closest_column ? ` -> closest: ${c.closest_column}` : ''}`).join('\n'))}</div>` : ''}
+        ${suggestions.length ? `<div style="margin-top:6px;color:var(--info);white-space:pre-wrap"><strong>Suggested Fixes:</strong><br>${escapeHtml(suggestions.join('\n'))}</div>` : ''}
         ${actual ? `<div style="margin-top:6px;white-space:pre-wrap"><strong>Actual Result:</strong><br>${escapeHtml(actual)}</div>` : ''}
     `;
 }
@@ -6243,7 +6486,7 @@ async function askControlTableCoach() {
         const historyMessages = _ctCoachHistory.slice(-20); // last 20 messages for context
         const messages = [...historyMessages, { role: 'user', content: question }];
         const agentIds = mode === 'local' && agentId ? [agentId] : [];
-        const provider = mode === 'ghc' ? 'githubcopilot' : '';
+        const provider = mode === 'ghc' ? 'githubcopilot' : 'local';
         const res = await API.aiChat(messages, context, provider, agentIds, 'control-table training loop');
         const reply = res.reply || '(no response)';
         output.value = reply;
@@ -6765,6 +7008,80 @@ async function compareControlTableStatements(mode = 'all') {
     }
 }
 
+async function runControlTableDocCompare() {
+    const out = document.getElementById('ct-doc-compare-results');
+    if (!out) return;
+    const drdFile = document.getElementById('ct-doc-drd')?.files?.[0] || null;
+    const odi1 = document.getElementById('ct-doc-odi-1')?.files?.[0] || null;
+    const odi2 = document.getElementById('ct-doc-odi-2')?.files?.[0] || null;
+    const manualSql = (document.getElementById('ct-doc-manual-sql')?.value || '').trim();
+
+    if (!drdFile && !odi1 && !odi2 && !manualSql) {
+        showToast('Provide at least two sources to compare', 'warning');
+        return;
+    }
+
+    out.innerHTML = '<span class="text-muted spinner-sm">&#8987; Comparing documents...</span>';
+    try {
+        const res = await API.compareControlTableDocs({
+            drd_file: drdFile,
+            odi_file_1: odi1,
+            odi_file_2: odi2,
+            manual_sql: manualSql,
+        });
+
+        const docs = Array.isArray(res.documents) ? res.documents : [];
+        const pairwise = Array.isArray(res.pairwise) ? res.pairwise : [];
+        const multi = res.multi_compare || {};
+        const conflicts = Array.isArray(multi.conflicts) ? multi.conflicts : [];
+
+        const docsHtml = docs.length
+            ? `<div style="margin-bottom:8px"><strong>Sources:</strong> ${docs.map(d => `${escapeHtml(d.name)} (${Number(d.mapping_count||0)} mappings)`).join(' | ')}</div>`
+            : '';
+
+        const pairHtml = pairwise.length
+            ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;border-bottom:1px solid var(--border);padding:6px">Pair</th>
+                        <th style="text-align:right;border-bottom:1px solid var(--border);padding:6px">Common</th>
+                        <th style="text-align:right;border-bottom:1px solid var(--border);padding:6px">Only Left</th>
+                        <th style="text-align:right;border-bottom:1px solid var(--border);padding:6px">Only Right</th>
+                        <th style="text-align:right;border-bottom:1px solid var(--border);padding:6px">Expr Conflicts</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${pairwise.map(p => `<tr>
+                        <td style="padding:6px;border-bottom:1px solid var(--border)">${escapeHtml(`${p.left} vs ${p.right}`)}</td>
+                        <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right">${Number(p.common_count||0)}</td>
+                        <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right">${Array.isArray(p.only_left) ? p.only_left.length : 0}</td>
+                        <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right">${Array.isArray(p.only_right) ? p.only_right.length : 0}</td>
+                        <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right">${Number(p.conflict_count||0)}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`
+            : '<div class="text-muted">No pairwise results</div>';
+
+        const conflictHtml = conflicts.length
+            ? `<div style="margin-top:8px"><strong>Multi-compare conflicts:</strong><br>${escapeHtml(conflicts.slice(0, 25).map(c => c.target).join(', '))}${conflicts.length > 25 ? ' ...' : ''}</div>`
+            : '<div style="margin-top:8px;color:var(--success)">No multi-way expression conflicts in shared targets.</div>';
+
+        out.innerHTML = `
+            ${docsHtml}
+            <div style="margin-bottom:8px">
+                <strong>Multi-compare:</strong>
+                shared targets ${Number(multi.common_target_count||0)} / union ${Number(multi.union_target_count||0)}
+            </div>
+            ${pairHtml}
+            ${conflictHtml}
+        `;
+        showToast('Document comparison completed', 'success');
+    } catch (e) {
+        out.innerHTML = `<span style="color:var(--danger)">${escapeHtml(e.message || String(e))}</span>`;
+        showToast('Document compare failed: ' + (e.message || String(e)), 'error');
+    }
+}
+
 async function applyControlTableChoices() {
     const comparison = _ctState.analysis?.comparison;
     if (!comparison?.rows?.length) { showToast('Run comparison first', 'warning'); return; }
@@ -6949,5 +7266,737 @@ async function fetchTfsContextForDrd(force = false) {
         if (progress) progress.style.display = 'none';
     }
 }
+
+// ── Per-Attribute Test Suite Generator ──────────────────────────────────────
+async function generatePerAttributeTestSuite(prefix) {
+    const statusEl = document.getElementById('ct-gen-suite-status');
+    if (statusEl) statusEl.textContent = `Generating ${prefix} suite...`;
+
+    // Gather analysis rows from current CT state
+    const rows = window._ctAnalysisRows || [];
+    if (!rows.length) {
+        showToast('No analysis rows available. Run CT analysis first.', 'error');
+        if (statusEl) statusEl.textContent = '';
+        return;
+    }
+
+    const targetSchema = (document.getElementById('ct-target-schema') || {}).value || '';
+    const targetTable = (document.getElementById('ct-target-table') || {}).value || '';
+    const generatedSql = window._ctGeneratedSql || '';
+    const srcDsId = parseInt((document.getElementById('ct-source-ds') || {}).value || '0');
+    const tgtDsId = parseInt((document.getElementById('ct-target-ds') || {}).value || '0');
+    const pbiId = (document.getElementById('drd-tfs-item-id') || {}).value || '';
+
+    try {
+        const res = await api('POST', '/api/tests/control-table/generate-attribute-tests', {
+            analysis_rows: rows,
+            generated_sql: generatedSql,
+            target_schema: targetSchema,
+            target_table: targetTable,
+            source_datasource_id: srcDsId,
+            target_datasource_id: tgtDsId,
+            pbi_id: pbiId ? `PBI${pbiId}` : '',
+            suite_prefix: prefix,
+            folder_name: `${prefix}_TEST`,
+        });
+        if (statusEl) statusEl.textContent = `✓ Created ${res.count} tests in folder "${res.folder_name}" (ID ${res.folder_id})`;
+        showToast(`Generated ${res.count} per-attribute tests → ${res.folder_name}`, 'success');
+    } catch (e) {
+        showToast(`Failed to generate ${prefix} suite: ${e.message}`, 'error');
+        if (statusEl) statusEl.textContent = 'Error: ' + e.message;
+    }
+}
+
+// ── XML File Upload Handler ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    const xmlInput = document.getElementById('drd-xml-file');
+    if (xmlInput) {
+        xmlInput.addEventListener('change', async function() {
+            const file = this.files[0];
+            const resultDiv = document.getElementById('drd-xml-parse-result');
+            if (!file || !resultDiv) return;
+
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<span class="spinner"></span> Parsing XML...';
+
+            const formData = new FormData();
+            formData.append('xml_file', file);
+
+            try {
+                const resp = await fetch('/api/tests/control-table/parse-xml', {method: 'POST', body: formData});
+                if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+                const data = await resp.json();
+                const r = data.result || {};
+                let html = `<strong style="color:var(--success)">✓ XML Parsed:</strong> ${data.filename} (${(data.size_bytes/1024).toFixed(1)} KB)<br>`;
+                if (r.scenario_name) html += `<strong>Scenario:</strong> ${escapeHtml(r.scenario_name)}<br>`;
+                if (r.target_table) html += `<strong>Target:</strong> ${escapeHtml(r.target_table)}<br>`;
+                if (r.steps && r.steps.length) html += `<strong>Steps:</strong> ${r.steps.length}<br>`;
+                if (r.final_merge_columns) html += `<strong>Final merge columns:</strong> ${r.final_merge_columns.length}<br>`;
+                if (r.stage_create_columns) html += `<strong>Stage columns:</strong> ${r.stage_create_columns.length}<br>`;
+                resultDiv.innerHTML = html;
+                // Store for later comparison
+                window._ctXmlParseResult = data.result;
+            } catch (e) {
+                resultDiv.innerHTML = `<span style="color:var(--error)">XML parse failed: ${escapeHtml(e.message)}</span>`;
+            }
+        });
+    }
+});
+
+// ── TFS Project Loading on modal open ────────────────────────────────────────
+(function() {
+    const origOpenModal = window.openModal;
+    if (origOpenModal) {
+        window.openModal = function(id) {
+            origOpenModal(id);
+            if (id === 'modal-drd-import') {
+                ensureTfsProjectsLoadedForMappings();
+            }
+        };
+    }
+})();
+</script>
+
+<!-- ── ODI vs DRD Validation card ────────────────────────────────────────── -->
+<div class="card mt-16" id="odi-val-card">
+    <div class="card-header tm-sect-hdr" onclick="toggleMainSection('odi-val-body','odi-val-toggle')">
+        <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="margin:0">ODI vs DRD Validation</h2>
+            <span id="odi-status-badge" style="display:none;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600"></span>
+        </div>
+        <button class="tm-sect-toggle" id="odi-val-toggle" type="button">▼</button>
+    </div>
+    <div class="tm-sect-body" id="odi-val-body" style="padding:14px 16px 18px 16px">
+
+        <!-- Upload row -->
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>ODI Scenario XML <span style="color:var(--danger)">*</span></label>
+                <input type="file" id="odi-xml-file" accept=".xml" class="form-control">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>DRD Mapping File <span class="text-muted" style="font-size:11px">(XLSX = all sheets parsed · CSV = mapping sheet only)</span></label>
+                <input type="file" id="odi-drd-file" accept=".csv,.xlsx,.xls,.xlsm" class="form-control">
+            </div>
+        </div>
+
+        <!-- Config + filter row -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Schema</label>
+                <input class="form-control" id="odi-target-schema" value="IKOROSTELEV">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Table</label>
+                <input class="form-control" id="odi-target-table" value="AVY_FACT_SIDE">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 190px">
+                <label style="font-size:11px">Filter Verdict</label>
+                <select class="form-control" id="odi-filter-verdict" onchange="odiRenderGrid()">
+                    <option value="">All verdicts</option>
+                    <option value="REAL_MISMATCH">Mismatches only</option>
+                    <option value="UNRESOLVABLE">Unresolvable only</option>
+                    <option value="SOURCE_MISSING">Missing only</option>
+                    <option value="ALIAS_DRIFT_ONLY">Alias drift only</option>
+                    <option value="MATCHED">Matched only</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" style="flex:0 0 130px;height:38px" onclick="odiRunAnalysis()" id="odi-analyze-btn">&#128269; Analyze</button>
+        </div>
+
+        <!-- Loading -->
+        <div id="odi-loading" style="display:none;text-align:center;padding:28px;color:var(--text-muted)">Analyzing ODI XML…</div>
+
+        <!-- Summary stats -->
+        <div id="odi-summary" style="display:none;margin-bottom:14px">
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+                <div style="padding:10px 14px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--success)">Matched</div>
+                    <div id="odi-s-matched" style="font-size:24px;font-weight:700;color:var(--success)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--warning)">Alias Drift</div>
+                    <div id="odi-s-alias" style="font-size:24px;font-weight:700;color:var(--warning)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--danger)">Mismatch</div>
+                    <div id="odi-s-mismatch" style="font-size:24px;font-weight:700;color:var(--danger)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--info)">Unresolvable</div>
+                    <div id="odi-s-unresolvable" style="font-size:24px;font-weight:700;color:var(--info)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(148,163,184,.1);border:1px solid rgba(148,163,184,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-muted)">Missing</div>
+                    <div id="odi-s-missing" style="font-size:24px;font-weight:700">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SQL preview -->
+        <div id="odi-sql-section" style="display:none;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Emitted Oracle INSERT SQL</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-outline btn-sm" onclick="odiToggleSql()" id="odi-sql-toggle-btn">Hide</button>
+                    <button class="btn btn-outline btn-sm" onclick="odiCopySql()">Copy</button>
+                    <button class="btn btn-outline btn-sm" id="odi-run-xe-btn" onclick="odiRunXe()" style="border-color:var(--info);color:var(--info)" title="Run emitted SQL against local Oracle XE Docker (optional confirmatory)">Run vs XE</button>
+                </div>
+            </div>
+            <div id="odi-sql-wrap">
+                <pre id="odi-sql-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+            </div>
+            <!-- XE run result (P6) -->
+            <div id="odi-xe-result" style="display:none;margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;border:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-weight:600">XE Run Result</span>
+                    <span id="odi-xe-badge" style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700"></span>
+                    <span id="odi-xe-loading" style="display:none;font-size:11px;color:var(--text-muted)">Running…</span>
+                </div>
+                <div id="odi-xe-detail" style="color:var(--text-muted);font-family:monospace;font-size:11px;line-height:1.6"></div>
+            </div>
+        </div>
+
+        <!-- P5 Static validation errors -->
+        <div id="odi-static-section" style="display:none;margin-bottom:14px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Static KB Validation</div>
+            <div id="odi-static-body" style="overflow-x:auto;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 10px;text-align:left">Code</th>
+                            <th style="padding:6px 10px;text-align:left">Table</th>
+                            <th style="padding:6px 10px;text-align:left">Column</th>
+                            <th style="padding:6px 10px;text-align:left">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-static-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Comparison grid -->
+        <div id="odi-grid-section" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)" id="odi-grid-title">Comparison Grid</span>
+                <button class="btn btn-outline btn-sm" onclick="odiExportCsv()">Export CSV</button>
+            </div>
+            <div style="overflow-x:auto;max-height:480px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Target Col</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">DRD Source</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">ODI Source</th>
+                            <th style="padding:8px 6px;text-align:center;white-space:nowrap">Step</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Verdict</th>
+                            <th style="padding:8px 10px;text-align:left">Explanation</th>
+                            <th style="padding:8px 4px;text-align:center;white-space:nowrap">Fix</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-grid-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Quick-correct panel -->
+        <div id="odi-fix-panel" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--warning);border-radius:8px;background:rgba(245,158,11,.06)">
+            <div style="font-weight:600;margin-bottom:10px;color:var(--warning)">Quick Correction — <span id="odi-fix-col" style="font-family:monospace"></span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Source Table</label>
+                    <input class="form-control" id="odi-fix-table" placeholder="e.g. APA_SECURITY_POSITION">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Attribute</label>
+                    <input class="form-control" id="odi-fix-attr" placeholder="e.g. BKR_AR_ID">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Transformation Rule</label>
+                    <input class="form-control" id="odi-fix-transform" placeholder="e.g. Direct copy">
+                </div>
+            </div>
+            <div class="form-group" style="margin:0 0 10px 0">
+                <label style="font-size:11px">Annotation / Reason</label>
+                <textarea class="form-control" id="odi-fix-note" rows="2" placeholder="Explain the correct mapping or why this differs from DRD…"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button class="btn btn-outline btn-sm" onclick="odiCloseFix()">Cancel</button>
+                <button class="btn btn-warning btn-sm" onclick="odiSaveFix()">Save Annotation</button>
+            </div>
+        </div>
+
+        <!-- P7: DRD Multi-Sheet Context panel (populated when XLSX DRD is uploaded) -->
+        <div id="odi-multisheet-panel" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                <span style="font-size:13px;font-weight:600">DRD Multi-Sheet Context</span>
+                <span id="odi-ms-verdict-badge" style="display:none;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700"></span>
+                <span class="text-muted" style="font-size:11px">ETL Notes · Model · Grain · Consumer View extracted from all sheets</span>
+            </div>
+
+            <!-- Sheet summary pills -->
+            <div id="odi-ms-pills" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+
+            <!-- Deferred refs (only when PARTIAL_DRD) -->
+            <div id="odi-ms-deferred-section" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.3);border-radius:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--warning);margin-bottom:6px">
+                    &#9888; Deferred References
+                    <span id="odi-ms-deferred-count" style="background:var(--warning);color:#000;border-radius:10px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+                    <span style="font-weight:400;color:var(--text-muted);font-size:11px;margin-left:6px">— these hyperlinks/PBIs cannot be followed offline; verdict downgraded to PARTIAL_DRD</span>
+                </div>
+                <div style="overflow-x:auto;max-height:160px;overflow-y:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                        <thead>
+                            <tr style="border-bottom:1px solid rgba(245,158,11,.3)">
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Location</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Type</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Value</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="odi-ms-deferred-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Grain columns -->
+            <div id="odi-ms-grain-section" style="display:none;margin-bottom:12px">
+                <span style="font-size:12px;font-weight:600;color:var(--success);margin-right:8px">Grain / Key Columns:</span>
+                <span id="odi-ms-grain-list" style="display:inline-flex;flex-wrap:wrap;gap:5px"></span>
+            </div>
+
+            <!-- Extracted rules (collapsible) -->
+            <div id="odi-ms-rules-section" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Extracted Rules</span>
+                    <span id="odi-ms-rules-count" style="background:var(--info);color:#fff;border-radius:10px;padding:1px 8px;font-size:11px"></span>
+                    <button class="btn btn-outline btn-sm" id="odi-ms-rules-toggle" onclick="odiToggleMsRules()" style="padding:1px 8px;font-size:11px">Show</button>
+                </div>
+                <div id="odi-ms-rules-wrap" style="display:none;overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                        <thead style="position:sticky;top:0;background:var(--surface)">
+                            <tr style="border-bottom:2px solid var(--border)">
+                                <th style="padding:5px 8px;text-align:left">Sheet</th>
+                                <th style="padding:5px 8px;text-align:left">Role</th>
+                                <th style="padding:5px 8px;text-align:left">Type</th>
+                                <th style="padding:5px 8px;text-align:left">Target Col</th>
+                                <th style="padding:5px 8px;text-align:left">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="odi-ms-rules-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // Move ODI vs DRD card to right after Run Statuses (card is parsed above but placed at DOM bottom)
+    var _odiCard = document.getElementById('odi-val-card');
+    var _runsCard = document.getElementById('runs-card');
+    if (_odiCard && _runsCard && _runsCard.parentNode) {
+        _runsCard.insertAdjacentElement('afterend', _odiCard);
+    }
+
+    let _odiResults = null;
+    let _odiMultiSheetData = null;
+    let _odiMsRulesVisible = false;
+    let _odiAnnotations = {};
+    let _odiCurrentFixCol = null;
+    let _odiSqlVisible = true;
+    try { _odiAnnotations = JSON.parse(localStorage.getItem('odi_annotations') || '{}'); } catch(_) {}
+
+    window.odiRunAnalysis = async function() {
+        const xmlFile = document.getElementById('odi-xml-file').files[0];
+        if (!xmlFile) { showToast('Please select an ODI XML file', 'warning'); return; }
+        const drdFile = document.getElementById('odi-drd-file').files[0];
+        const schema  = document.getElementById('odi-target-schema').value.trim() || 'IKOROSTELEV';
+        const tbl     = document.getElementById('odi-target-table').value.trim()  || 'AVY_FACT_SIDE';
+
+        document.getElementById('odi-loading').style.display = 'block';
+        ['odi-summary','odi-sql-section','odi-grid-section','odi-fix-panel','odi-multisheet-panel'].forEach(id => {
+            document.getElementById(id).style.display = 'none';
+        });
+        document.getElementById('odi-analyze-btn').disabled = true;
+        document.getElementById('odi-status-badge').style.display = 'none';
+        _odiMultiSheetData = null;
+        _odiMsRulesVisible = false;
+
+        try {
+            const fd = new FormData();
+            fd.append('xml_file', xmlFile);
+            if (drdFile) fd.append('drd_file', drdFile);
+            const url = `/api/odi/scenario/compare?target_schema=${encodeURIComponent(schema)}&target_table=${encodeURIComponent(tbl)}`;
+
+            // Fire compare + all-sheets-parse in parallel when DRD is an Excel file
+            const isExcel = drdFile && /\.(xlsx|xls|xlsm)$/i.test(drdFile.name);
+            let msPromise = null;
+            if (isExcel) {
+                const fd2 = new FormData();
+                fd2.append('drd_file', drdFile);
+                msPromise = fetch('/api/odi/drd/all-sheets-parse', { method: 'POST', body: fd2 })
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null);
+            }
+
+            const [resp] = await Promise.all([
+                fetch(url, { method: 'POST', body: fd }),
+                msPromise ? msPromise.then(d => { _odiMultiSheetData = d; }) : Promise.resolve()
+            ]);
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+                throw new Error(err.detail || 'HTTP ' + resp.status);
+            }
+            _odiResults = await resp.json();
+            _odiRender();
+        } catch(e) {
+            document.getElementById('odi-loading').style.display = 'none';
+            document.getElementById('odi-analyze-btn').disabled = false;
+            showToast('Analysis failed: ' + e.message, 'error');
+        }
+    };
+
+    function _odiRender() {
+        document.getElementById('odi-loading').style.display = 'none';
+        document.getElementById('odi-analyze-btn').disabled = false;
+        const data = _odiResults;
+        const badge = document.getElementById('odi-status-badge');
+
+        if (data.sql) {
+            document.getElementById('odi-sql-pre').textContent = data.sql;
+            document.getElementById('odi-sql-section').style.display = 'block';
+            _odiSqlVisible = true;
+            document.getElementById('odi-sql-toggle-btn').textContent = 'Hide';
+            document.getElementById('odi-sql-wrap').style.display = 'block';
+            document.getElementById('odi-xe-result').style.display = 'none';
+        }
+
+        // P5 static validation
+        const sv = data.static_validation;
+        if (sv) {
+            const errors = sv.errors || [];
+            const staticSection = document.getElementById('odi-static-section');
+            if (errors.length > 0) {
+                const tbody = document.getElementById('odi-static-tbody');
+                tbody.innerHTML = errors.map(e => {
+                    const isBlock = e.is_blocking;
+                    const rowColor = isBlock ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.06)';
+                    const codeColor = isBlock ? 'var(--danger)' : 'var(--warning)';
+                    return `<tr style="border-bottom:1px solid var(--border);background:${rowColor}">
+                        <td style="padding:5px 10px;white-space:nowrap">
+                            <span style="font-family:monospace;font-weight:700;color:${codeColor}">${escapeHtml(e.code)}</span>
+                        </td>
+                        <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--text-muted);white-space:nowrap">${escapeHtml(e.table || '—')}</td>
+                        <td style="padding:5px 10px;font-family:monospace;font-size:10px;white-space:nowrap">${escapeHtml(e.column || '—')}</td>
+                        <td style="padding:5px 10px;font-size:11px">${escapeHtml(e.detail)}</td>
+                    </tr>`;
+                }).join('');
+                staticSection.style.display = 'block';
+                if (sv.is_blocking)
+                    showToast(`Static validation: ${errors.filter(e=>e.is_blocking).length} blocker(s) — ${sv.verdict}`, 'error');
+                else
+                    showToast(`Static validation: ${errors.length} warning(s) — ${sv.verdict}`, 'warning');
+            } else {
+                staticSection.style.display = 'none';
+            }
+        }
+
+        if (data.comparison) {
+            const s = data.comparison.summary || {};
+            document.getElementById('odi-s-matched').textContent      = s.matched          || 0;
+            document.getElementById('odi-s-alias').textContent        = s.alias_drift_only  || 0;
+            document.getElementById('odi-s-mismatch').textContent     = s.real_mismatch     || 0;
+            document.getElementById('odi-s-unresolvable').textContent = s.unresolvable      || 0;
+            document.getElementById('odi-s-missing').textContent      = s.source_missing    || 0;
+            document.getElementById('odi-summary').style.display = 'block';
+            document.getElementById('odi-grid-section').style.display = 'block';
+
+            const issues = (s.real_mismatch || 0) + (s.source_missing || 0);
+            badge.textContent = issues > 0 ? `${issues} issues` : 'OK';
+            badge.style.cssText = `display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${issues > 0 ? 'rgba(239,68,68,.2)' : 'rgba(34,197,94,.2)'};color:${issues > 0 ? 'var(--danger)' : 'var(--success)'}`;
+
+            if (data.comparison.drd_parse_errors && data.comparison.drd_parse_errors.length)
+                showToast(`DRD: ${data.comparison.drd_parse_errors.length} row(s) skipped`, 'warning');
+
+            odiRenderGrid();
+        } else {
+            badge.textContent = 'SQL only';
+            badge.style.cssText = 'display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(6,182,212,.2);color:var(--info)';
+            if (data.note) showToast(data.note, 'info');
+        }
+        if (data.warnings && data.warnings.length)
+            showToast(`${data.warnings.length} parse warning(s)`, 'warning');
+
+        // Render multi-sheet DRD context if available (P7)
+        if (_odiMultiSheetData) _odiRenderMultiSheet(_odiMultiSheetData);
+    }
+
+    function _odiRenderMultiSheet(d) {
+        const panel = document.getElementById('odi-multisheet-panel');
+        panel.style.display = 'block';
+
+        // Verdict badge
+        const badge = document.getElementById('odi-ms-verdict-badge');
+        const isPartial = d.verdict === 'PARTIAL_DRD';
+        badge.textContent = isPartial ? 'PARTIAL DRD' : 'FULL DRD';
+        badge.style.cssText = `display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:${isPartial ? 'rgba(245,158,11,.2)' : 'rgba(34,197,94,.2)'};color:${isPartial ? 'var(--warning)' : 'var(--success)'};border:1px solid ${isPartial ? 'rgba(245,158,11,.5)' : 'rgba(34,197,94,.5)'}`;
+
+        // Sheet pills
+        const roleColors = {
+            mapping: 'var(--success)', etl_notes: 'var(--warning)', grain: 'var(--info)',
+            model: 'var(--primary)', consumer_view: 'var(--info)', attribute: '#94a3b8',
+            table: '#94a3b8', unknown: '#94a3b8'
+        };
+        document.getElementById('odi-ms-pills').innerHTML = (d.sheets || []).map(s => {
+            const isPrimary = s.name === d.mapping_sheet;
+            const c = roleColors[s.role] || '#94a3b8';
+            return `<span style="padding:3px 10px;border-radius:12px;font-size:11px;background:${isPrimary ? 'rgba(34,197,94,.12)' : 'var(--bg)'};border:1px solid ${isPrimary ? 'rgba(34,197,94,.4)' : 'var(--border)'};color:${c}">
+                ${escapeHtml(s.name)}${isPrimary ? ' <b style="font-size:10px">[primary]</b>' : ''}
+                <span style="color:var(--text-muted);font-size:10px">(${s.role}${s.hyperlink_count > 0 ? ', '+s.hyperlink_count+' links' : ''})</span>
+            </span>`;
+        }).join('');
+
+        // Deferred refs
+        const deferSect = document.getElementById('odi-ms-deferred-section');
+        if (d.deferred_refs && d.deferred_refs.length > 0) {
+            deferSect.style.display = 'block';
+            document.getElementById('odi-ms-deferred-count').textContent = d.deferred_refs.length;
+            document.getElementById('odi-ms-deferred-tbody').innerHTML = d.deferred_refs.map(r =>
+                `<tr style="border-bottom:1px solid rgba(245,158,11,.12)">
+                    <td style="padding:3px 8px;font-family:monospace;font-size:10px">${escapeHtml(r.source)}</td>
+                    <td style="padding:3px 8px;color:var(--warning)">${escapeHtml(r.ref_type)}</td>
+                    <td style="padding:3px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(r.raw_value)}">${escapeHtml(r.raw_value.substring(0,80))}${r.raw_value.length>80?'…':''}</td>
+                    <td style="padding:3px 8px;color:var(--text-muted);font-size:10px">${escapeHtml(r.reason)}</td>
+                </tr>`
+            ).join('');
+            showToast(`PARTIAL_DRD — ${d.deferred_refs.length} deferred ref(s); comparison may be incomplete`, 'warning');
+        } else {
+            deferSect.style.display = 'none';
+        }
+
+        // Grain columns
+        const grainSect = document.getElementById('odi-ms-grain-section');
+        if (d.grain_columns && d.grain_columns.length > 0) {
+            grainSect.style.display = 'block';
+            document.getElementById('odi-ms-grain-list').innerHTML = d.grain_columns.map(g =>
+                `<span style="padding:2px 9px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;font-family:monospace;color:var(--success);font-size:11px">${escapeHtml(g)}</span>`
+            ).join('');
+        } else {
+            grainSect.style.display = 'none';
+        }
+
+        // Extracted rules
+        const rulesSect = document.getElementById('odi-ms-rules-section');
+        if (d.extracted_rules && d.extracted_rules.length > 0) {
+            rulesSect.style.display = 'block';
+            document.getElementById('odi-ms-rules-count').textContent = d.extracted_rules.length;
+            document.getElementById('odi-ms-rules-tbody').innerHTML = d.extracted_rules.map(r =>
+                `<tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:4px 8px;font-family:monospace;font-size:10px">${escapeHtml(r.sheet)}</td>
+                    <td style="padding:4px 8px;color:${roleColors[r.role]||'#94a3b8'}">${escapeHtml(r.role)}</td>
+                    <td style="padding:4px 8px;font-size:10px">${escapeHtml(r.rule_type)}</td>
+                    <td style="padding:4px 8px;font-family:monospace;font-size:10px">${r.target_col ? escapeHtml(r.target_col) : '<span class="text-muted">—</span>'}</td>
+                    <td style="padding:4px 8px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px" title="${escapeHtml(r.description)}">${escapeHtml(r.description.substring(0,120))}${r.description.length>120?'…':''}</td>
+                </tr>`
+            ).join('');
+        } else {
+            rulesSect.style.display = 'none';
+        }
+    }
+
+    const _VC = {
+        'MATCHED':          { color:'var(--success)', bg:'rgba(34,197,94,.1)',   label:'MATCHED'      },
+        'ALIAS_DRIFT_ONLY': { color:'var(--warning)', bg:'rgba(245,158,11,.1)',  label:'ALIAS DRIFT'  },
+        'REAL_MISMATCH':    { color:'var(--danger)',  bg:'rgba(239,68,68,.1)',   label:'MISMATCH'     },
+        'UNRESOLVABLE':     { color:'var(--info)',    bg:'rgba(6,182,212,.1)',   label:'UNRESOLVABLE' },
+        'SOURCE_MISSING':   { color:'#94a3b8',        bg:'rgba(148,163,184,.1)', label:'MISSING'      },
+    };
+
+    window.odiRenderGrid = function() {
+        if (!_odiResults || !_odiResults.comparison) return;
+        const rows = _odiResults.comparison.rows || [];
+        const filter = document.getElementById('odi-filter-verdict').value;
+        const visible = filter ? rows.filter(r => r.verdict === filter) : rows;
+
+        document.getElementById('odi-grid-title').textContent =
+            `Comparison Grid — ${visible.length.toLocaleString()} of ${rows.length.toLocaleString()} rows`;
+
+        const tbody = document.getElementById('odi-grid-tbody');
+        tbody.innerHTML = visible.map(r => {
+            const vc  = _VC[r.verdict] || { color:'#999', bg:'transparent', label:r.verdict };
+            const ann = _odiAnnotations[r.target_col];
+            const canFix = r.verdict === 'REAL_MISMATCH' || r.verdict === 'UNRESOLVABLE' || r.verdict === 'SOURCE_MISSING';
+            const drdSrc = [r.drd_table, r.drd_attr].filter(Boolean).join('.') || '—';
+            let odiSrc = '—';
+            if (r.odi_table && r.odi_col) odiSrc = r.odi_table + '.' + r.odi_col;
+            else if (r.odi_col)           odiSrc = r.odi_col;
+            else if (r.odi_expr_sql)      odiSrc = r.odi_expr_sql.length > 45 ? r.odi_expr_sql.slice(0,45) + '…' : r.odi_expr_sql;
+
+            const aliasNote = r.alias_evidence ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${escapeHtml(r.alias_evidence)}</div>` : '';
+            const annNote   = ann ? `<div style="font-size:10px;color:var(--warning);margin-top:2px">&#128203; ${escapeHtml(ann.note || ann.attr || '')}</div>` : '';
+            const rowBorder = ann ? 'border-left:3px solid var(--warning);' : '';
+            const fixStyle  = ann ? 'color:var(--warning);border-color:var(--warning);' : '';
+
+            const colJ    = escapeHtml(JSON.stringify(r.target_col));
+            const tableJ  = escapeHtml(JSON.stringify(r.drd_table  || ''));
+            const attrJ   = escapeHtml(JSON.stringify(r.drd_attr   || ''));
+            const reasonJ = escapeHtml(JSON.stringify(r.unresolved_reason || ''));
+
+            return `<tr style="border-bottom:1px solid var(--border);background:${vc.bg};${rowBorder}">
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap;font-weight:500">${escapeHtml(r.target_col)}</td>
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:var(--text-muted);white-space:nowrap">${escapeHtml(drdSrc)}</td>
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap">${escapeHtml(odiSrc)}${aliasNote}</td>
+                <td style="padding:7px 6px;text-align:center;font-size:11px;color:var(--text-muted)">S${r.odi_step || 0}</td>
+                <td style="padding:7px 10px;white-space:nowrap">
+                    <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:${vc.color};border:1px solid ${vc.color}">${vc.label}</span>
+                </td>
+                <td style="padding:7px 10px;font-size:11px;color:var(--text-muted);max-width:280px">${escapeHtml((r.explanation || '').slice(0,130))}${annNote}</td>
+                <td style="padding:7px 4px;text-align:center">
+                    ${canFix ? `<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:10px;${fixStyle}" onclick="odiOpenFix(${colJ},${tableJ},${attrJ},${reasonJ})">${ann ? '&#9998;' : 'Fix'}</button>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+    };
+
+    window.odiOpenFix = function(col, drdTable, drdAttr, reason) {
+        _odiCurrentFixCol = col;
+        document.getElementById('odi-fix-col').textContent = col;
+        const ann = _odiAnnotations[col] || {};
+        document.getElementById('odi-fix-table').value     = ann.table     || drdTable || '';
+        document.getElementById('odi-fix-attr').value      = ann.attr      || drdAttr  || '';
+        document.getElementById('odi-fix-transform').value = ann.transform || '';
+        document.getElementById('odi-fix-note').value      = ann.note      || (reason ? `Unresolved: ${reason}` : '');
+        const panel = document.getElementById('odi-fix-panel');
+        panel.style.display = 'block';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    window.odiCloseFix = function() {
+        document.getElementById('odi-fix-panel').style.display = 'none';
+        _odiCurrentFixCol = null;
+    };
+
+    window.odiSaveFix = function() {
+        if (!_odiCurrentFixCol) return;
+        _odiAnnotations[_odiCurrentFixCol] = {
+            table:     document.getElementById('odi-fix-table').value.trim(),
+            attr:      document.getElementById('odi-fix-attr').value.trim(),
+            transform: document.getElementById('odi-fix-transform').value.trim(),
+            note:      document.getElementById('odi-fix-note').value.trim(),
+            saved_at:  new Date().toISOString(),
+        };
+        try { localStorage.setItem('odi_annotations', JSON.stringify(_odiAnnotations)); } catch(_) {}
+        showToast(`Annotation saved for ${_odiCurrentFixCol}`, 'success');
+        odiCloseFix();
+        odiRenderGrid();
+    };
+
+    window.odiToggleSql = function() {
+        _odiSqlVisible = !_odiSqlVisible;
+        document.getElementById('odi-sql-wrap').style.display = _odiSqlVisible ? 'block' : 'none';
+        document.getElementById('odi-sql-toggle-btn').textContent = _odiSqlVisible ? 'Hide' : 'Show';
+    };
+
+    window.odiRunXe = async function() {
+        const xmlFile = document.getElementById('odi-xml-file').files[0];
+        if (!xmlFile) { showToast('Select an ODI XML file first', 'warning'); return; }
+        const schema = document.getElementById('odi-target-schema').value.trim() || 'IKOROSTELEV';
+        const tbl    = document.getElementById('odi-target-table').value.trim()  || 'AVY_FACT_SIDE';
+
+        const xeResult  = document.getElementById('odi-xe-result');
+        const xeBadge   = document.getElementById('odi-xe-badge');
+        const xeDetail  = document.getElementById('odi-xe-detail');
+        const xeLoading = document.getElementById('odi-xe-loading');
+        const btn       = document.getElementById('odi-run-xe-btn');
+
+        xeResult.style.display = 'block';
+        xeResult.style.borderColor = 'var(--border)';
+        xeBadge.textContent = '';
+        xeDetail.textContent = '';
+        xeLoading.style.display = 'inline';
+        btn.disabled = true;
+
+        try {
+            const fd = new FormData();
+            fd.append('xml_file', xmlFile);
+            const url = `/api/odi/scenario/run-xe?target_schema=${encodeURIComponent(schema)}&target_table=${encodeURIComponent(tbl)}`;
+            const resp = await fetch(url, { method: 'POST', body: fd });
+            const d = await resp.json();
+
+            xeLoading.style.display = 'none';
+            btn.disabled = false;
+
+            // Invariant: is_pass only for CONFIRMED
+            const isPass     = d.is_pass === true;
+            const isUnavail  = d.xe_status === 'unavailable';
+            const verdict    = (d.verdict || '').toUpperCase();
+
+            if (isUnavail) {
+                xeBadge.textContent = 'UNAVAILABLE';
+                xeBadge.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(148,163,184,.2);color:#94a3b8';
+                xeResult.style.borderColor = 'var(--border)';
+            } else if (isPass) {
+                xeBadge.textContent = 'CONFIRMED';
+                xeBadge.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(34,197,94,.2);color:var(--success)';
+                xeResult.style.borderColor = 'var(--success)';
+            } else {
+                xeBadge.textContent = verdict || 'FAIL';
+                xeBadge.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(239,68,68,.2);color:var(--danger)';
+                xeResult.style.borderColor = 'var(--danger)';
+            }
+
+            const lines = [];
+            if (!isUnavail) lines.push(`rows_affected: ${d.rows_affected}`);
+            if (d.note)      lines.push(`note: ${d.note}`);
+            if (d.synthetic_tables_created && d.synthetic_tables_created.length)
+                lines.push(`tables created: ${d.synthetic_tables_created.join(', ')}`);
+            if (d.ora_errors && d.ora_errors.length)
+                lines.push(`errors:\n  ${d.ora_errors.join('\n  ')}`);
+            if (isUnavail) lines.push(d.note || 'Oracle XE not reachable — confirmatory run skipped');
+            xeDetail.textContent = lines.join('\n');
+        } catch(e) {
+            xeLoading.style.display = 'none';
+            btn.disabled = false;
+            xeBadge.textContent = 'ERROR';
+            xeBadge.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(239,68,68,.2);color:var(--danger)';
+            xeDetail.textContent = e.message;
+        }
+    };
+
+    window.odiCopySql = function() {
+        const sql = document.getElementById('odi-sql-pre').textContent;
+        if (!sql) return;
+        const copy = t => { const a = document.createElement('textarea'); a.value = t; Object.assign(a.style,{position:'fixed',opacity:'0'}); document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a); };
+        if (navigator.clipboard) navigator.clipboard.writeText(sql).then(() => showToast('SQL copied','success')).catch(() => { copy(sql); showToast('SQL copied','success'); });
+        else { copy(sql); showToast('SQL copied','success'); }
+    };
+
+    window.odiExportCsv = function() {
+        if (!_odiResults || !_odiResults.comparison) return;
+        const rows = _odiResults.comparison.rows || [];
+        const hdr = ['target_col','verdict','drd_table','drd_attr','odi_schema','odi_table','odi_col','odi_expr_sql','odi_step','explanation','ann_table','ann_attr','ann_note'];
+        const q = v => `"${String(v||'').replace(/"/g,'""')}"`;
+        const lines = [hdr.join(',')];
+        rows.forEach(r => {
+            const a = _odiAnnotations[r.target_col] || {};
+            lines.push([r.target_col,r.verdict,r.drd_table||'',r.drd_attr||'',r.odi_schema||'',r.odi_table||'',r.odi_col||'',r.odi_expr_sql||'',r.odi_step||'',r.explanation||'',a.table||'',a.attr||'',a.note||''].map(q).join(','));
+        });
+        const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `odi_comparison_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    };
+
+    window.odiToggleMsRules = function() {
+        _odiMsRulesVisible = !_odiMsRulesVisible;
+        document.getElementById('odi-ms-rules-wrap').style.display = _odiMsRulesVisible ? 'block' : 'none';
+        document.getElementById('odi-ms-rules-toggle').textContent = _odiMsRulesVisible ? 'Hide' : 'Show';
+    };
+})();
 </script>
 {% endblock %}

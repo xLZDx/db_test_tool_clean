@@ -1,31 +1,3 @@
-[
-  {
-    "scenario": "pbi_1736268_trailer",
-    "tfs_item_id": "1736268",
-    "status": "ok",
-    "test_count": 7,
-    "output_folder": "C:\\GIT_Repo\\db-testing-tool\\reports\\e2e_batch_runs\\20260428_081309\\pbi_1736268_trailer"
-  },
-  {
-    "scenario": "pbi_1915216_trailer_3_sources",
-    "tfs_item_id": "1915216",
-    "status": "ok",
-    "test_count": 6,
-    "output_folder": "C:\\GIT_Repo\\db-testing-tool\\reports\\e2e_batch_runs\\20260428_081309\\pbi_1915216_trailer_3_sources"
-  },
-  {
-    "scenario": "ct_control_table_validation",
-    "tfs_item_id": null,
-    "status": "ok",
-    "test_count": 10,
-    "output_folder": "C:\\GIT_Repo\\db-testing-tool\\reports\\e2e_batch_runs\\20260428_081309\\ct_control_table_validation"
-  },
-  {
-    "scenario": "drd_mapping_validation",
-    "tfs_item_id": null,
-    "status": "error",
-    "test_count": 0,
-    "output_folder": "C:\\GIT_Repo\\db-testing-tool\\reports\\e2e_batch_runs\\20260428_081309\\drd_mapping_validation",
-    "error": "IDE token expired: unauthorized: token expired"
-  }
-]
+version https://git-lfs.github.com/spec/v1
+oid sha256:2bde3c3485a33248c17b14a60ea4b660f83e2a0224e5c2db8c7380b191337e73
+size 1071

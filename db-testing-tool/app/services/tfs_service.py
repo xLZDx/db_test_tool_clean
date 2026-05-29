@@ -125,7 +125,7 @@ async def create_work_item(db: AsyncSession, title: str, description: str,
             logger.exception("TFS integration error")
             wi.description += f"\n\n[TFS sync error: {e}]"
     else:
-        logger.info("TFS not configured - work item stored locally only.")
+        logger.info("TFS not configured – work item stored locally only.")
 
     db.add(wi)
     await db.commit()
@@ -881,13 +881,28 @@ async def fetch_work_item_full_context(item_id: int, project: str = "") -> dict:
     # Attempt to fetch content from linked web pages (Confluence/SharePoint/Docs)
     for link in context.get("hyperlinks", []):
         url = link["url"]
-        if url.startswith("http"):
+        if url.startswith("https://"):
             headers_for_link = {}
             from urllib.parse import urlparse
-            link_host = urlparse(url).netloc.lower()
-            # Use MSAL certificate-based token if configured and host matches
-            msal_hosts = ("sharepoint.com", "onedrive.com", "microsoft.com", "confluence", "wiki.rjf.com")
-            msal_needed = any(h in link_host for h in msal_hosts)
+            parsed_link = urlparse(url)
+            link_host = parsed_link.netloc.lower()
+            # SECURITY: block plain IP / private ranges before any credential dispatch
+            import ipaddress, re as _re
+            _host_only = link_host.split(":")[0]
+            try:
+                _ip = ipaddress.ip_address(_host_only)
+                if _ip.is_private or _ip.is_loopback or _ip.is_reserved:
+                    link["content_text"] = "[Blocked: private/internal IP not allowed]"
+                    continue
+            except ValueError:
+                pass  # hostname, not IP — OK to proceed
+            # Use MSAL certificate-based token if configured and host matches.
+            # SECURITY FIX: use suffix check (host == domain or host ends with .domain),
+            # NOT substring containment — "microsoft.com" must NOT match "evil-microsoft.com.attacker.com".
+            _MSAL_DOMAINS = ("sharepoint.com", "onedrive.com", "microsoft.com", "wiki.rjf.com")
+            def _host_matches_domain(host: str, domain: str) -> bool:
+                return host == domain or host.endswith("." + domain)
+            msal_needed = any(_host_matches_domain(_host_only, d) for d in _MSAL_DOMAINS)
             cert_configured = bool(getattr(settings, "SHAREPOINT_CERT_PATH", "") and getattr(settings, "SHAREPOINT_CLIENT_ID", "") and getattr(settings, "SHAREPOINT_TENANT_ID", "") and getattr(settings, "SHAREPOINT_CERT_THUMBPRINT", ""))
             if msal_needed and cert_configured:
                 try:

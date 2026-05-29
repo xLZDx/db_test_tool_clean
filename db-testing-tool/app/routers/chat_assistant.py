@@ -222,6 +222,229 @@ def _next_phase_prompt(current_phase: str) -> str:
     )
 
 
+# ── /run-99 and /pdm-generate handlers ────────────────────────────────────
+
+async def _handle_run_99(message: str, artifact_ids: List[str], conversation_id: str) -> str:
+    """Dispatch /run-99 command: run 99% parity scoring on DRD + XML artifacts.
+
+    Usage: /run-99 drd_id=<artifact_id> xml_id=<artifact_id>
+       or: /run-99  (uses the last .xlsx and .xml artifacts in conversation)
+    """
+    import asyncio
+    from app.services.orchestrator_99_service import run_99_orchestration
+
+    art_index = {a["id"]: a for a in list_artifacts()}
+
+    # Parse explicit IDs or auto-detect
+    drd_id = re.search(r"drd_id=(\S+)", message)
+    xml_id = re.search(r"xml_id=(\S+)", message)
+
+    drd_bytes, xml_bytes = None, None
+    drd_name, xml_name = "", ""
+
+    if drd_id and xml_id:
+        drd_content = get_artifact_content(drd_id.group(1))
+        xml_content = get_artifact_content(xml_id.group(1))
+        if not drd_content:
+            return f"❌ DRD artifact `{drd_id.group(1)}` not found."
+        if not xml_content:
+            return f"❌ XML artifact `{xml_id.group(1)}` not found."
+        drd_bytes = drd_content if isinstance(drd_content, bytes) else drd_content.encode("utf-8")
+        xml_bytes = xml_content if isinstance(xml_content, bytes) else xml_content.encode("utf-8")
+        drd_name = art_index.get(drd_id.group(1), {}).get("name", "drd")
+        xml_name = art_index.get(xml_id.group(1), {}).get("name", "xml")
+    else:
+        # Auto-detect: find last .xlsx and .xml in conversation artifacts
+        for aid in reversed(artifact_ids):
+            meta = art_index.get(aid, {})
+            name = (meta.get("name") or "").lower()
+            if not drd_bytes and name.endswith((".xlsx", ".xls")):
+                content = get_artifact_content(aid)
+                if content:
+                    drd_bytes = content if isinstance(content, bytes) else content.encode("utf-8")
+                    drd_name = meta.get("name", "drd.xlsx")
+            if not xml_bytes and name.endswith(".xml"):
+                content = get_artifact_content(aid)
+                if content:
+                    xml_bytes = content if isinstance(content, bytes) else content.encode("utf-8")
+                    xml_name = meta.get("name", "scenario.xml")
+
+    if not drd_bytes:
+        return "❌ No DRD Excel file found. Upload a .xlsx artifact or specify `drd_id=<id>`."
+    if not xml_bytes:
+        return "❌ No XML file found. Upload a .xml artifact or specify `xml_id=<id>`."
+
+    # Parse optional config from message
+    config_match = re.search(r"config=(\{.*\})", message)
+    user_config = {}
+    if config_match:
+        try:
+            user_config = json.loads(config_match.group(1))
+        except Exception:
+            pass
+
+    try:
+        result = await asyncio.to_thread(run_99_orchestration, drd_bytes, xml_bytes, user_config)
+    except Exception as exc:
+        return f"❌ 99% orchestration failed: {exc}"
+
+    # Format scorecard
+    score = result.get("score", 0)
+    status = result.get("status", "UNKNOWN")
+    icon = "✅" if status == "PASS" else "⚠️"
+    out = f"## {icon} 99% Parity Score: {score}% — {status}\n\n"
+    out += f"**Table:** {result.get('table', 'N/A')}\n"
+    out += f"**Run ID:** `{result.get('run_id', '')}`\n\n"
+
+    fm = result.get("final_merge_score", {})
+    out += f"| Metric | Value |\n|--------|-------|\n"
+    out += f"| DRD Columns (active) | {result.get('counts', {}).get('drd_active_columns', 0)} |\n"
+    out += f"| XML Merge Insert Cols | {result.get('counts', {}).get('xml_final_merge_insert_columns', 0)} |\n"
+    out += f"| Matched | {fm.get('matched_columns', 0)} |\n"
+    out += f"| Missing in XML | {len(fm.get('missing', []))} |\n"
+    out += f"| Extra in XML | {len(fm.get('extra', []))} |\n\n"
+
+    if fm.get("missing"):
+        out += f"<details><summary>Missing columns ({len(fm['missing'])})</summary>\n\n"
+        out += ", ".join(f"`{c}`" for c in fm["missing"][:50])
+        out += "\n</details>\n\n"
+    if fm.get("extra"):
+        out += f"<details><summary>Extra XML columns ({len(fm['extra'])})</summary>\n\n"
+        out += ", ".join(f"`{c}`" for c in fm["extra"][:50])
+        out += "\n</details>\n\n"
+
+    out += f"**Files:** {drd_name} + {xml_name}\n"
+    return out
+
+
+async def _handle_pdm_generate(message: str, artifact_ids: List[str], conversation_id: str) -> str:
+    """Dispatch /pdm-generate: run DRD PDM enrichment + SQL generation.
+
+    Usage: /pdm-generate [target_schema=X target_table=Y]
+       Uses the last .xlsx artifact + optional .xml for quality gate.
+    """
+    import asyncio
+    from app.services.drd_import_service import parse_drd_file
+    from app.services.drd_pdm_enrichment_service import DRDPDMEnrichmentService
+    from app.services.statement_mode_generation_service import StatementModeGenerationService
+    from app.services.semantic_alias_quality_gate_service import SemanticAliasQualityGateService
+    from app.services.schema_kb_service import _kb_dir
+
+    art_index = {a["id"]: a for a in list_artifacts()}
+
+    drd_bytes, xml_bytes = None, None
+    drd_name = ""
+    for aid in reversed(artifact_ids):
+        meta = art_index.get(aid, {})
+        name = (meta.get("name") or "").lower()
+        if not drd_bytes and name.endswith((".xlsx", ".xls")):
+            content = get_artifact_content(aid)
+            if content:
+                drd_bytes = content if isinstance(content, bytes) else content.encode("utf-8")
+                drd_name = meta.get("name", "drd.xlsx")
+        if not xml_bytes and name.endswith(".xml"):
+            content = get_artifact_content(aid)
+            if content:
+                xml_bytes = content if isinstance(content, bytes) else content.encode("utf-8")
+
+    if not drd_bytes:
+        return "❌ No DRD Excel file found. Upload a .xlsx artifact first."
+
+    # Parse target_schema/target_table from message
+    ts_match = re.search(r"target_schema=(\S+)", message)
+    tt_match = re.search(r"target_table=(\S+)", message)
+    target_schema = ts_match.group(1) if ts_match else ""
+    target_table = tt_match.group(1) if tt_match else ""
+
+    # Parse DRD
+    selected_fields = [
+        "logical_name", "physical_name", "source_schema", "source_table",
+        "source_attribute", "transformation", "notes", "target_datatype_oracle",
+        "target_nullable_oracle",
+    ]
+    try:
+        parse_result = await asyncio.to_thread(
+            parse_drd_file,
+            file_bytes=drd_bytes,
+            filename=drd_name or "drd.xlsx",
+            selected_fields=selected_fields,
+            target_schema=target_schema,
+            target_table=target_table,
+        )
+    except Exception as exc:
+        return f"❌ DRD parse failed: {exc}"
+
+    column_mappings = parse_result.get("column_mappings", [])
+    if not column_mappings:
+        return "❌ No column mappings found in DRD file."
+
+    # Adapt rows for v10
+    rows = []
+    for r in column_mappings:
+        row = dict(r)
+        row.setdefault("column", row.get("physical_name", ""))
+        row.setdefault("dtype", row.get("target_datatype_oracle", ""))
+        rows.append(row)
+
+    # Build config
+    config = {"pdm_cache": {"local_kb_dir": str(_kb_dir())}}
+    if target_schema or target_table:
+        config["table"] = {"name": f"{target_schema}.{target_table}"}
+
+    # Run pipeline
+    try:
+        def _run():
+            enricher = DRDPDMEnrichmentService(config)
+            enriched, resolutions, cache_summary = enricher.enrich_rows(rows)
+            gen = StatementModeGenerationService(config)
+            generated = gen.generate_all(enriched)
+            gate = SemanticAliasQualityGateService()
+            quality = gate.evaluate(generated, xml_bytes, config)
+            return enriched, resolutions, cache_summary, generated, quality
+
+        enriched, resolutions, cache_summary, generated, quality = await asyncio.to_thread(_run)
+    except Exception as exc:
+        return f"❌ PDM pipeline failed: {exc}"
+
+    # Format response
+    status = quality.get("status", "UNKNOWN")
+    icon = "✅" if "GENERATED" in status else "⚠️"
+    out = f"## {icon} PDM-Aware SQL Generation — {status}\n\n"
+    out += f"**Table:** {target_schema}.{target_table}\n"
+    out += f"**DRD Rows:** {len(column_mappings)} | **PDM Cache:** {cache_summary.get('column_count', 0)} columns loaded\n\n"
+
+    # Resolution summary
+    from collections import Counter
+    status_counts = Counter(r.get("status", "") for r in resolutions)
+    out += "### PDM Resolution Summary\n\n| Status | Count |\n|--------|-------|\n"
+    for s, c in status_counts.most_common():
+        out += f"| {s} | {c} |\n"
+    out += "\n"
+
+    # SQL outputs
+    out += "### Generated SQL\n\n"
+    out += "<details><summary>CTE (Control Table preferred)</summary>\n\n```sql\n"
+    out += generated.get("cte", "-- none --")
+    out += "\n```\n</details>\n\n"
+    out += "<details><summary>INSERT SELECT (DRD generator preferred)</summary>\n\n```sql\n"
+    out += generated.get("insert_select", "-- none --")
+    out += "\n```\n</details>\n\n"
+    out += "<details><summary>Source SELECT (debug)</summary>\n\n```sql\n"
+    out += generated.get("source_select", "-- none --")
+    out += "\n```\n</details>\n\n"
+    out += "<details><summary>MERGE (target simulation)</summary>\n\n```sql\n"
+    out += generated.get("merge", "-- none --")
+    out += "\n```\n</details>\n\n"
+
+    unresolved = generated.get("unresolved", [])
+    if unresolved:
+        out += f"### ⚠️ Unresolved ({len(unresolved)})\n\n"
+        for u in unresolved[:20]:
+            out += f"- `{u.get('column', '')}`: {u.get('reason', '')}\n"
+
+    return out
+
+
 # ── Message endpoint ───────────────────────────────────────────────────────
 
 @router.post("/message")
@@ -307,6 +530,21 @@ async def send_message(body: SendMessageRequest):
         if m.get("role") in ("user", "assistant")
     ]
     history_messages.append({"role": "user", "content": body.message})
+
+    # ── /run-99 deterministic dispatch (no LLM round-trip) ─────────────────
+    msg_stripped = body.message.strip()
+    if msg_stripped.lower().startswith("/run-99"):
+        assistant_content = await _handle_run_99(msg_stripped, all_artifact_ids, body.conversation_id)
+        add_message(body.conversation_id, "user", body.message, body.artifact_ids)
+        add_message(body.conversation_id, "assistant", assistant_content)
+        return {"role": "assistant", "content": assistant_content, "conversation_id": body.conversation_id}
+
+    # ── /pdm-generate deterministic dispatch ───────────────────────────────
+    if msg_stripped.lower().startswith("/pdm-generate"):
+        assistant_content = await _handle_pdm_generate(msg_stripped, all_artifact_ids, body.conversation_id)
+        add_message(body.conversation_id, "user", body.message, body.artifact_ids)
+        add_message(body.conversation_id, "assistant", assistant_content)
+        return {"role": "assistant", "content": assistant_content, "conversation_id": body.conversation_id}
 
     try:
         if body.mode == "test_generation":

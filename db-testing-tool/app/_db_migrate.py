@@ -172,6 +172,42 @@ for tbl_name, ddl in new_ddl:
     status = "created" if tbl_name not in existing_tables else "already exists"
     print(f"  {tbl_name}: {status}")
 
+# 3b. Migrate control_table_file_states to new schema if still on old layout.
+#     Old schema had: file_path, file_hash, is_processed, processed_at, notes
+#     New schema needs: target_table, file_fingerprint, file_name, final_insert_sql, last_applied_decisions
+cur.execute("PRAGMA table_info(control_table_file_states)")
+ctfs_cols = {r[1] for r in cur.fetchall()}
+if "file_path" in ctfs_cols and "target_table" not in ctfs_cols:
+    # Drop old table and recreate with new schema (no valuable data to preserve)
+    cur.execute("DROP TABLE control_table_file_states")
+    cur.execute(
+        "CREATE TABLE control_table_file_states ("
+        "  id INTEGER PRIMARY KEY, "
+        "  target_table TEXT NOT NULL, "
+        "  file_fingerprint TEXT NOT NULL, "
+        "  file_name TEXT, "
+        "  final_insert_sql TEXT NOT NULL, "
+        "  last_applied_decisions TEXT, "
+        "  UNIQUE(target_table, file_fingerprint)"
+        ")"
+    )
+    print("  control_table_file_states: migrated to new schema (target_table, file_fingerprint, final_insert_sql)")
+elif "target_table" not in ctfs_cols:
+    # Fresh table with correct schema
+    cur.execute("DROP TABLE IF EXISTS control_table_file_states")
+    cur.execute(
+        "CREATE TABLE control_table_file_states ("
+        "  id INTEGER PRIMARY KEY, "
+        "  target_table TEXT NOT NULL, "
+        "  file_fingerprint TEXT NOT NULL, "
+        "  file_name TEXT, "
+        "  final_insert_sql TEXT NOT NULL, "
+        "  last_applied_decisions TEXT, "
+        "  UNIQUE(target_table, file_fingerprint)"
+        ")"
+    )
+    print("  control_table_file_states: recreated with correct schema")
+
 # 4. Add agent_profiles table if not present (agent model stub used __tablename__ = "agent_profiles")
 if "agent_profiles" not in existing_tables:
     cur.execute(

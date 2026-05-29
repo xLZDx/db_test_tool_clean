@@ -266,3 +266,169 @@ def test_schema_queue_status_shape(_server_running):
     for key in ("status", "queue_depth", "worker_count", "active_workers",
                 "active_operation_ids", "workers_started"):
         assert key in body, f"queue/status missing key: {key}"
+
+
+# ── TableInfo / ColumnInfo field-name regression (c6467c8) ──────────────────
+
+def test_table_info_positional_fields():
+    """TableInfo must use schema/table_name/table_type — not the old (name, columns, row_count) layout."""
+    from app.connectors.base import TableInfo
+
+    t = TableInfo("MY_SCHEMA", "MY_TABLE", "TABLE")
+    assert t.schema == "MY_SCHEMA", "TableInfo.schema must be set from first positional arg"
+    assert t.table_name == "MY_TABLE", "TableInfo.table_name must be set from second positional arg"
+    assert t.table_type == "TABLE", "TableInfo.table_type must be set from third positional arg"
+
+
+def test_table_info_default_table_type():
+    """TableInfo.table_type should default to 'TABLE'."""
+    from app.connectors.base import TableInfo
+
+    t = TableInfo("S", "T")
+    assert t.table_type == "TABLE"
+
+
+def test_column_info_positional_fields():
+    """ColumnInfo must expose column_name/data_type/nullable/is_pk/ordinal_position."""
+    from app.connectors.base import ColumnInfo
+
+    c = ColumnInfo("COL_ID", "NUMBER", nullable=False, is_pk=True, ordinal_position=1)
+    assert c.column_name == "COL_ID"
+    assert c.data_type == "NUMBER"
+    assert c.nullable is False
+    assert c.is_pk is True
+    assert c.ordinal_position == 1
+
+
+def test_column_info_defaults():
+    """ColumnInfo defaults: nullable=True, is_pk=False, ordinal_position=0."""
+    from app.connectors.base import ColumnInfo
+
+    c = ColumnInfo("COL_NAME", "VARCHAR2")
+    assert c.nullable is True
+    assert c.is_pk is False
+    assert c.ordinal_position == 0
+
+
+def test_schema_catalog_unsupported_type(_server_running):
+    """GET /api/schemas/catalog for an unsupported db_type must return 422, not 500."""
+    import urllib.error
+    import urllib.request
+    # DS4 is known-error Oracle, so we can't test unsupported via a real DS.
+    # Instead hit /api/schemas/catalog/99999 which returns 404.
+    req = urllib.request.Request(f"{BASE}/api/schemas/catalog/99999")
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        assert False, "Expected 404"
+    except urllib.error.HTTPError as e:
+        assert e.code == 404, f"Expected 404 for unknown DS ID, got {e.code}"
+
+
+def test_extract_lookup_spec_supports_dollar_hash_and_and_tail():
+    from app.services.drd_import_service import _extract_lookup_spec
+
+    spec = _extract_lookup_spec(
+        transformation=(
+            "LEFT OUTER JOIN CCAL_REPL_OWNER.J$TXN J$TXN ON "
+            "J$TXN.SRC_TXN_ID = TXN.TXN_ID AND J$TXN.ACTV_F = 'Y'"
+        ),
+        src_attr_u="TXN_ID",
+        target_col_u="SRC_TXN_TYPE_CD",
+        src_schema="AMOGOREANU",
+        src_table="TXN",
+    )
+
+    assert spec is not None
+    assert spec["lookup_table"] == "CCAL_REPL_OWNER.J$TXN"
+    assert spec["lookup_join_col"] == "SRC_TXN_ID"
+    assert spec["source_lookup_col"] == "TXN_ID"
+    assert "ACTV_F" in (spec.get("extra_filter") or "")
+    assert spec.get("source_alias_hint") == "TXN"
+
+
+def test_extract_lookup_spec_accepts_lkup_suffix_table():
+    from app.services.drd_import_service import _extract_lookup_spec
+
+    spec = _extract_lookup_spec(
+        transformation="LOOKUP ON TXN_SRC_TAX_CODE_LKUP USING SRC_TAX_CODE_ID",
+        src_attr_u="SRC_TAX_CODE_ID",
+        target_col_u="SRC_TAX_CODE_DESC",
+        src_schema="CCAL_REPL_OWNER",
+        src_table="TXN",
+    )
+
+    assert spec is not None
+    assert spec["lookup_table"].endswith("TXN_SRC_TAX_CODE_LKUP")
+
+
+def test_derive_lookup_preserves_explicit_on_source_column():
+    from app.services.control_table_service import derive_lookup_from_transformation
+
+    row = {
+        "transformation": (
+            "LEFT JOIN COMMON_OWNER.CCY_DIM CCY_DIM "
+            "ON CCY_DIM.CCY_CD = TXN.TXN_CCY_CD"
+        ),
+        "source_schema": "AMOGOREANU",
+        "source_table": "TXN",
+    }
+    source_schema_index = {
+        ("COMMON_OWNER", "CCY_DIM"): {
+            "schema": "COMMON_OWNER",
+            "table": "CCY_DIM",
+            "columns": {"CCY_CD": "CCY_CD", "CCY_ID": "CCY_ID"},
+        },
+        ("AMOGOREANU", "TXN"): {
+            "schema": "AMOGOREANU",
+            "table": "TXN",
+            "columns": {"TXN_ID": "TXN_ID", "TXN_CCY_CD": "TXN_CCY_CD"},
+        },
+    }
+
+    join_sql, _ = derive_lookup_from_transformation(
+        row=row,
+        source_attr="TXN_ID",
+        target_col="TXN_CCY_ID",
+        source_schema_index=source_schema_index,
+        source_block="FROM AMOGOREANU.TXN TXN",
+    )
+
+    assert "CCY_DIM.CCY_CD" in join_sql
+    assert "TXN.TXN_CCY_CD" in join_sql
+    assert "TXN.TXN_ID" not in join_sql
+
+
+def test_build_control_insert_sql_pdm_missing_join_becomes_null_marker():
+    from app.services.control_table_service import build_control_insert_sql
+
+    sql = build_control_insert_sql(
+        control_schema="CTL_OWNER",
+        target_table="TGT",
+        target_definition={
+            "columns": [{"name": "COL_A", "nullable": True, "data_type": "VARCHAR2(20)"}],
+            "primary_keys": [],
+        },
+        analysis_rows=[
+            {
+                "column": "COL_A",
+                "drd_expression": "MISS_LKP.COL_A",
+                "lookup_join": "LEFT JOIN CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP MISS_LKP ON MISS_LKP.SRC_TAX_CODE_ID = TXN.SRC_TAX_CODE_ID",
+                "source_table": "TXN",
+                "source_schema": "AMOGOREANU",
+                "source_attribute": "SRC_TAX_CODE_ID",
+                "transformation": "",
+                "source_block": "FROM AMOGOREANU.TXN TXN",
+                "nullable": True,
+            }
+        ],
+        source_schema_index={
+            ("AMOGOREANU", "TXN"): {
+                "schema": "AMOGOREANU",
+                "table": "TXN",
+                "columns": {"SRC_TAX_CODE_ID": "SRC_TAX_CODE_ID"},
+            }
+        },
+    )
+
+    assert "TXN_SRC_TAX_CODE_LKUP" not in sql
+    assert "NULL /* PDM_MISS */ AS COL_A" in sql

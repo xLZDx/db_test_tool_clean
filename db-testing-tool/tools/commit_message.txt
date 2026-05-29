@@ -1,0 +1,23 @@
+Persist: generator run metadata and generator fixes
+
+- Persisted generator run provenance JSON to data/local_kb/generator_runs
+- Fixed duplicate trailing 'AS <COL>' generation in tools/run_build_and_execute_insert.py
+- Added SQL sanity check: tools/sql_sanity_check.py
+- Added health wait helper: tools/wait_for_health.py
+- Added provenance writer: tools/persist_generator_run.py
+- Added endpoint checker: tools/check_endpoints.py
+- Regenerated artifacts: docs/avyfactside_create_369_not_null.sql, docs/avyfactside_insert_100_rows_drd.sql, docs/avyfactside_parity_report_20260525.txt
+
+Todo state at commit time:
+- Present plan for review: completed
+- Probe LH AVY_FACT DDL: not-started
+- Generate AVY_FACT_SIDE DDL: completed
+- Save CREATE DDL file: completed
+- Backup existing table (optional): not-started
+- Execute DROP + CREATE (destructive): not-started
+- Build DRD-based INSERT SQL: completed
+- Execute limited INSERT on LH: completed
+- Run parity comparison: completed
+- Persist generator provenance: completed
+- Health checks and E2E validations: in-progress
+- Commit changes and artifacts: completed

@@ -1,22 +1,24 @@
 """Base connector interface for database connections."""
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class ColumnInfo:
-    """Column metadata."""
-    name: str
-    type: str
+    """Column metadata — matches what all connectors produce."""
+    column_name: str
+    data_type: str
     nullable: bool = True
+    is_pk: bool = False
+    ordinal_position: int = 0
 
 
 @dataclass
 class TableInfo:
-    """Table metadata."""
-    name: str
-    columns: List[ColumnInfo]
-    row_count: int = 0
+    """Table metadata — matches what all connectors produce."""
+    schema: str
+    table_name: str
+    table_type: str = "TABLE"   # TABLE | VIEW | MVIEW
 
 
 @dataclass

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime, timezone
 import re
+import difflib
 
 router = APIRouter(prefix="/api/datasources", tags=["datasources"])
 
@@ -114,11 +115,7 @@ async def _close_cached_connector(ds_id: int):
 
 async def _get_or_create_cached_connector(ds: DataSource):
     if (ds.db_type or "").lower().strip() != "redshift":
-        conn = await asyncio.to_thread(
-            get_connector,
-            ds.db_type, ds.host, ds.port, ds.database_name,
-            ds.username, ds.password, ds.extra_params,
-        )
+        conn = await asyncio.to_thread(get_connector, ds)
         return conn, False
 
     now = time.time()
@@ -139,11 +136,7 @@ async def _get_or_create_cached_connector(ds: DataSource):
             except Exception:
                 pass
 
-    conn = await asyncio.to_thread(
-        get_connector,
-        ds.db_type, ds.host, ds.port, ds.database_name,
-        ds.username, ds.password, ds.extra_params,
-    )
+    conn = await asyncio.to_thread(get_connector, ds)
 
     with _CONNECTOR_CACHE_LOCK:
         _CONNECTOR_CACHE[ds.id] = {
@@ -350,11 +343,21 @@ def _analyze_sql_references(connector, sql: str) -> dict:
             except Exception:
                 exists = True
         if not exists:
+            closest_table = None
+            if hasattr(connector, "get_tables"):
+                try:
+                    known = [str(t.table_name).upper() for t in connector.get_tables(schema)]
+                    matches = difflib.get_close_matches(table, known, n=1, cutoff=0.62)
+                    if matches:
+                        closest_table = matches[0]
+                except Exception:
+                    pass
             missing_tables.append({
                 "schema": schema,
                 "table": table,
                 "line": r.get("line"),
                 "column": r.get("column"),
+                "closest_table": closest_table,
             })
 
     columns_cache: dict = {}
@@ -376,6 +379,13 @@ def _analyze_sql_references(connector, sql: str) -> dict:
                 columns_cache[cache_key] = set()
         if columns_cache[cache_key] and col_name not in columns_cache[cache_key]:
             line, col = _line_col_from_index(sql or "", m.start(2))
+            closest_column = None
+            try:
+                matches = difflib.get_close_matches(col_name, list(columns_cache[cache_key]), n=1, cutoff=0.58)
+                if matches:
+                    closest_column = matches[0]
+            except Exception:
+                pass
             missing_columns.append({
                 "schema": schema,
                 "table": table,
@@ -383,21 +393,37 @@ def _analyze_sql_references(connector, sql: str) -> dict:
                 "alias": alias,
                 "line": line,
                 "column_pos": col,
+                "closest_column": closest_column,
             })
+
+    unknown_aliases: list[dict] = []
+    for m in re.finditer(r"\b([A-Z_][A-Z0-9_]*)\.([A-Z_][A-Z0-9_\$#]*)\b", (sql or ""), flags=re.IGNORECASE):
+        alias = (m.group(1) or "").upper()
+        if alias in alias_map or alias in {"SYS", "DUAL"}:
+            continue
+        line, col = _line_col_from_index(sql or "", m.start(1))
+        unknown_aliases.append({"alias": alias, "column": (m.group(2) or "").upper(), "line": line, "column_pos": col})
 
     suggestions: list[str] = []
     for t in missing_tables:
+        hint = f" Did you mean {t['schema']}.{t['closest_table']}?" if t.get("closest_table") else ""
         suggestions.append(
-            f"Table not found at line {t.get('line')}: {t['schema']}.{t['table']}. Verify schema/table name or datasource."
+            f"Table not found at line {t.get('line')}: {t['schema']}.{t['table']}. Verify schema/table name or datasource.{hint}"
         )
     for c in missing_columns:
+        hint = f" Closest column: {c['closest_column']}." if c.get("closest_column") else ""
         suggestions.append(
-            f"Column not found at line {c.get('line')}: {c['schema']}.{c['table']}.{c['column']} (alias {c['alias']}). Fix table/column mapping."
+            f"Column not found at line {c.get('line')}: {c['schema']}.{c['table']}.{c['column']} (alias {c['alias']}). Fix table/column mapping.{hint}"
+        )
+    for a in unknown_aliases[:10]:
+        suggestions.append(
+            f"Unknown alias at line {a.get('line')}: {a['alias']}.{a['column']}. Define alias in FROM/JOIN or fix typo."
         )
 
     return {
         "missing_tables": missing_tables,
         "missing_columns": missing_columns,
+        "unknown_aliases": unknown_aliases,
         "suggestions": suggestions,
     }
 

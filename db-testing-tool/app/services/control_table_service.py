@@ -143,6 +143,18 @@ def analyze_control_table(
         source_index=source_index,
         target_index=target_index,
     )
+    # P3: parse all DRD sheets (ETL Notes, Model, ...) and build a named-block
+    # index so cross-tab references ("Use APACSH logic from 'ETL Notes' tab")
+    # can be resolved into full body text on each analysis row.  Best-effort:
+    # non-xlsx inputs and parse errors degrade silently.
+    etl_block_index = None
+    try:
+        if (filename or "").lower().endswith(".xlsx"):
+            from app.sql_model.drd_multi_sheet import parse_all_sheets
+            from app.sql_model.etl_block_index import build_block_index
+            etl_block_index = build_block_index(parse_all_sheets(file_bytes))
+    except Exception:
+        etl_block_index = None
     analysis_rows = build_analysis_rows(
         rows=rows,
         baseline_tests=baseline_tests,
@@ -150,6 +162,7 @@ def analyze_control_table(
         target_table=target_table,
         target_definition=target_def,
         source_schema_index=source_index,
+        etl_block_index=etl_block_index,
     )
     ddl_sql = build_control_table_ddl(control_schema, target_table, target_def)
     insert_sql = build_control_insert_sql(
@@ -340,6 +353,7 @@ def build_analysis_rows(
     target_table: str,
     target_definition: Dict[str, Any],
     source_schema_index: Dict[Tuple[str, str], Dict[str, Any]],
+    etl_block_index: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     baseline_by_target = {
         (t.get("target_field") or "").upper(): t
@@ -368,6 +382,10 @@ def build_analysis_rows(
             fallback_source_table=row.get("source_table") or "",
         )
         drd_expr = expr_info.get("expression") or fallback_drd_expression(row, source_attr)
+        # Defensive alignment: baseline-extracted ``<ALIAS>.<COL>`` may use a
+        # placeholder column (e.g. join PK AR_ID) while DRD source_attribute says
+        # the real attr (e.g. AR_CGY_CD). DRD is authoritative.
+        drd_expr = align_expr_with_source_attr(drd_expr, source_attr)
         lookup_join = expr_info.get("lookup_join") or ""
 
         # Always compute bare source-table name for use in expression normalization.
@@ -395,6 +413,27 @@ def build_analysis_rows(
         if transformed_expr and (not expr_info.get("expression") or normalize_sql_expr(drd_expr) in _plain_xform_set):
             drd_expr = transformed_expr
 
+        # P3: detect cross-tab ETL-Notes block reference (e.g. "Use APACSH
+        # logic from 'ETL Notes' tab") and resolve to the full block body so
+        # the comparator can surface the real logic in drd_logic.
+        etl_block_ref: str = ""
+        etl_block_body: str = ""
+        if etl_block_index is not None:
+            from app.sql_model.etl_block_index import (
+                find_block_references,
+                resolve_block_body,
+            )
+            search_text = (
+                (row.get("transformation") or "")
+                + "\n"
+                + (row.get("notes") or "")
+            )
+            refs = find_block_references(search_text, etl_block_index)
+            if refs:
+                etl_block_ref = refs[0]
+                body = resolve_block_body(search_text, etl_block_index)
+                etl_block_body = body or ""
+
         analysis.append(
             {
                 "column": col_name,
@@ -410,6 +449,8 @@ def build_analysis_rows(
                 "source_block": expr_info.get("source_block") or fallback_source_block(row),
                 "lookup_join": lookup_join,
                 "baseline_test_name": baseline.get("name") or "",
+                "etl_block_ref": etl_block_ref,
+                "etl_block_body": etl_block_body,
             }
         )
     return analysis
@@ -422,6 +463,49 @@ def fallback_source_block(row: Dict[str, Any]) -> str:
         return "FROM SOURCE_SCHEMA.SOURCE_TABLE"
     fq = f"{src_schema}.{src_table}" if src_schema else src_table
     return f"FROM {fq}"
+
+
+_RE_BARE_ALIAS_COL = re.compile(
+    r"^\s*([A-Z][A-Z0-9_$#]*)\.([A-Z][A-Z0-9_$#]*)\s*$",
+    re.IGNORECASE,
+)
+_RE_BARE_IDENT = re.compile(r"^[A-Z][A-Z0-9_$#]*$", re.IGNORECASE)
+
+
+def align_expr_with_source_attr(expr: str, source_attr: str) -> str:
+    """Reconcile a bare ``<ALIAS>.<COL>`` expression with the DRD source_attribute.
+
+    The baseline test-SQL extractor sometimes yields a placeholder column on the
+    join alias (e.g. the join PK ``AR_DIM_18.AR_ID``) when the DRD's authoritative
+    ``source_attribute`` for that target column is a different attribute on the
+    same table (e.g. ``AR_CGY_CD``).  The DRD source_attribute is the truth — the
+    alias may legitimately come from the join graph, but the column must match
+    the DRD's claim.
+
+    Triggers ONLY when ALL hold:
+      * ``expr`` is exactly ``<bare_alias>.<bare_col>`` (no functions / literals / CASE)
+      * ``source_attr`` is a bare identifier (no expression)
+      * the projected column differs from ``source_attr``
+
+    Returns the expression unchanged in every other case, including:
+      * CASE / NVL / DECODE / arithmetic expressions
+      * literals (SYSDATE, quoted strings, numerics)
+      * expressions where the bare column already matches source_attr
+      * empty / missing source_attr
+    """
+    if not expr or not source_attr:
+        return expr
+    src = source_attr.strip().upper()
+    if not _RE_BARE_IDENT.match(src):
+        return expr  # source_attr is itself an expression — don't touch
+    m = _RE_BARE_ALIAS_COL.match(expr)
+    if not m:
+        return expr  # not a bare ALIAS.COL — leave CASE/NVL/etc alone
+    alias = m.group(1)
+    col = m.group(2).upper()
+    if col == src:
+        return expr  # already aligned
+    return f"{alias}.{src}"
 
 
 def fallback_drd_expression(row: Dict[str, Any], source_attr: str) -> str:
@@ -840,6 +924,9 @@ def build_control_insert_sql(
         insert_cols.append(col_name)
         row = row_map.get(col_name, {}) or {}
         expr = row.get("drd_expression") or "NULL"
+        # Defensive: even if analysis_rows is stale or was produced before the
+        # align fix, reconcile bare ALIAS.COL against DRD source_attribute.
+        expr = align_expr_with_source_attr(expr, (row.get("source_attribute") or "").strip().upper())
         lookup_join = sanitize_lookup_join_sql((row.get("lookup_join") or "").strip())
         if lookup_join and lookup_join in join_alias_map:
             old_alias, new_alias = join_alias_map[lookup_join]
@@ -2018,6 +2105,8 @@ def select_expr_for_column(
 
     drd_expr = drd_candidate if drd_candidate is not None else (row.get("drd_expression") or "")
     if str(drd_expr).strip().lower() not in _null_markers:
+        # Defensive: align bare ALIAS.COL to the DRD source_attribute when they drift.
+        drd_expr = align_expr_with_source_attr(drd_expr, (row.get("source_attribute") or "").strip().upper())
         return drd_expr, "DRD"
 
     base_expr = baseline.get(col_name.upper()) or baseline.get(col_name) or ""

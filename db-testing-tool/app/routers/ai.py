@@ -1,6 +1,19 @@
 """AI-assisted endpoints."""
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi import Depends
+
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB hard limit before buffering into memory
+
+
+async def _read_upload_checked(file: UploadFile, max_bytes: int = _MAX_UPLOAD_BYTES) -> bytes:
+    """Read an UploadFile with a hard size limit before the full read."""
+    # Check Content-Length header if available to fail fast
+    if file.size is not None and file.size > max_bytes:
+        raise HTTPException(413, f"Upload too large ({file.size} bytes > {max_bytes} limit)")
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"Upload exceeds {max_bytes // 1024 // 1024} MB limit")
+    return data
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
@@ -337,7 +350,7 @@ async def import_mapping_tests(
     if not any((file.filename or "").lower().endswith(ext) for ext in allowed):
         raise HTTPException(400, "File must be CSV or Excel format (.csv, .xlsx, .xls)")
 
-    file_bytes = await file.read()
+    file_bytes = await _read_upload_checked(file)
     fields_list = [f.strip() for f in selected_fields.split(",") if f.strip()]
     if not fields_list:
         fields_list = [
@@ -481,7 +494,7 @@ async def copilot_logout():
 @router.post("/attachment-text")
 async def attachment_text(file: UploadFile = File(...), max_chars: int = 20000):
     """Extract attachment text for AI chat context (supports xlsx/xls/csv/json/text)."""
-    file_bytes = await file.read()
+    file_bytes = await _read_upload_checked(file)
     content, note = _attachment_to_text(file_bytes, file.filename or "attachment", max_chars=max(2000, min(max_chars, 120000)))
     return {
         "name": file.filename or "attachment",
@@ -504,12 +517,12 @@ async def extract_rules_from_mapping_file(
     """Extract mapping rules from uploaded CSV/Excel file using AI and optional SQL comparison."""
     from app.services.drd_import_service import parse_drd_file
     from app.services.ai_service import ai_generate_mapping_rules_from_rows, ai_compare_mapping_with_sql
-    
+
     allowed = ('.csv', '.xlsx', '.xls')
     if not any((file.filename or "").lower().endswith(ext) for ext in allowed):
         raise HTTPException(400, "File must be CSV or Excel format (.csv, .xlsx, .xls)")
-    
-    file_bytes = await file.read()
+
+    file_bytes = await _read_upload_checked(file)
     parse_result = parse_drd_file(
         file_bytes=file_bytes,
         filename=file.filename or "mapping.csv",
@@ -590,12 +603,12 @@ async def generate_tests_from_mapping_file(
 ):
     """Generate test cases from uploaded mapping file using AI analysis."""
     from app.services.drd_import_service import parse_drd_file, generate_drd_tests
-    
+
     allowed = ('.csv', '.xlsx', '.xls')
     if not any((file.filename or "").lower().endswith(ext) for ext in allowed):
         raise HTTPException(400, "File must be CSV or Excel format (.csv, .xlsx, .xls)")
-    
-    file_bytes = await file.read()
+
+    file_bytes = await _read_upload_checked(file)
     parse_result = parse_drd_file(
         file_bytes=file_bytes,
         filename=file.filename or "mapping.csv",

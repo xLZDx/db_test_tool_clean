@@ -288,8 +288,21 @@ def _extract_sql_candidates(text: str | None) -> List[str]:
     for match in pattern.finditer(raw):
         sql = match.group(0).strip().lstrip(":").strip()
         sql = re.sub(r";\s*$", "", sql)
+        if not sql:
+            continue
+
+        sql_u = sql.upper()
+        if sql_u.startswith("WITH"):
+            # Guard against prose like "with no SQL" being treated as a CTE.
+            if "SELECT" not in sql_u:
+                continue
+        elif sql_u.startswith("SELECT"):
+            # Keep SELECT snippets only when they look query-like.
+            if " FROM " not in f" {sql_u} " and not re.fullmatch(r"SELECT\s+\d+(?:\.\d+)?", sql_u):
+                continue
+
         key = re.sub(r"\s+", " ", sql).strip().lower()
-        if sql and key not in seen:
+        if key not in seen:
             seen.add(key)
             found.append(sql)
     return found

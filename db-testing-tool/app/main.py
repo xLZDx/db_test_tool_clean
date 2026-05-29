@@ -19,6 +19,7 @@ import app.models
 from app.routers import (
     datasources, credentials, schemas, tests, tfs, agents, ai,
     chat_assistant, external_tools, odi, regression_lab, system_watchdog, mappings,
+    orchestrator,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -62,6 +63,7 @@ app.include_router(chat_assistant.router)
 app.include_router(regression_lab.router)
 app.include_router(system_watchdog.router)
 app.include_router(mappings.router)
+app.include_router(orchestrator.router)
 
 
 @app.on_event("startup")
@@ -71,6 +73,10 @@ async def startup():
     await sync_datasources_from_env()
     await restore_training_automation_loop()
     await start_session_watchdog()
+    # Restore completed/failed/stopped operation states from disk (survives restarts)
+    from app.services.operation_control import restore_persisted_operations
+    import asyncio
+    await asyncio.to_thread(restore_persisted_operations)
     # Build missing hint indices in background (non-blocking)
     import threading
     def _build_missing_hint_indices():

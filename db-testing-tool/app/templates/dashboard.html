@@ -191,8 +191,19 @@ async function triggerWatchdogSweep() {
     }
 }
 
-// Refresh watchdog status every 5 seconds  
-setInterval(loadWatchdogStatus, 5000);
+// Refresh watchdog status every 5 seconds — paused while page is hidden
+let _watchdogInterval = null;
+function _startWatchdogInterval() {
+    if (_watchdogInterval) return;
+    _watchdogInterval = setInterval(loadWatchdogStatus, 5000);
+}
+function _stopWatchdogInterval() {
+    if (_watchdogInterval) { clearInterval(_watchdogInterval); _watchdogInterval = null; }
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { _stopWatchdogInterval(); } else { _startWatchdogInterval(); loadWatchdogStatus(); }
+});
+_startWatchdogInterval();
 
 async function runAllTests() {
     if (!confirm('Run all active tests now?')) return;

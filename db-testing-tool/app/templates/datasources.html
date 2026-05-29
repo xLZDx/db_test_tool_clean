@@ -1360,17 +1360,22 @@ function renderSqlTabs() {
     _initSqlResultColResizers(contentEl);
 
     const tbodyWrap = contentEl.querySelector('.sql-result-tbody-wrap');
+    const theadWrap = contentEl.querySelector('.sql-result-thead-wrap');
     if (tbodyWrap) {
         tbodyWrap.onscroll = () => {
+            // Sync header horizontal scroll with body
+            if (theadWrap) theadWrap.scrollLeft = tbodyWrap.scrollLeft;
+
             const active = activeSqlTab();
             if (!active || !active.rows || active.visibleRows >= active.rows.length) return;
             const nearBottom = tbodyWrap.scrollTop + tbodyWrap.clientHeight >= tbodyWrap.scrollHeight - 16;
             if (!nearBottom) return;
             active.visibleRows = Math.min(active.visibleRows + SQL_VISIBLE_STEP, active.rows.length);
             const prevTop = tbodyWrap.scrollTop;
+            const prevLeft = tbodyWrap.scrollLeft;
             renderSqlTabs();
             const newWrap = document.querySelector('#sql-result-content .sql-result-tbody-wrap');
-            if (newWrap) newWrap.scrollTop = prevTop;
+            if (newWrap) { newWrap.scrollTop = prevTop; newWrap.scrollLeft = prevLeft; }
         };
     }
 }
@@ -2406,7 +2411,7 @@ async function askDatasourceAssistant() {
             last_error: tab?.error || '',
             result_columns: tab?.columns || [],
         }, null, 2);
-        const provider = mode === 'ghc' ? 'githubcopilot' : '';
+        const provider = mode === 'ghc' ? 'githubcopilot' : 'local';
         const agentIds = mode === 'local' && agentId ? [agentId] : [];
         const res = await API.aiChat([{ role: 'user', content: question }], context, provider, agentIds, 'datasource sql assistant');
         output.value = res.reply || '(no response)';
@@ -3200,9 +3205,25 @@ function _renderTblInspData(tab, subtab) {
     // ── Editable data grid (Data subtab) ──────────────────────────
     const hasCheck = subtab === 'data';
     if (!hasCheck) {
-        // Plain read-only grid for non-data subtabs
-        const hdr = cols.map(c => `<th class="sql-result-th" style="white-space:nowrap">${escapeHtml(c)}</th>`).join('');
-        const body = rows.map((r, ri) => {
+        // Sortable read-only grid for non-data subtabs
+        if (!tab._sortState) tab._sortState = {};
+        const sortState = tab._sortState[subtab] || { col: null, asc: true };
+        let sortedRows = [...rows];
+        if (sortState.col && cols.includes(sortState.col)) {
+            sortedRows.sort((a, b) => {
+                const va = a[sortState.col], vb = b[sortState.col];
+                if (va == null && vb == null) return 0;
+                if (va == null) return sortState.asc ? -1 : 1;
+                if (vb == null) return sortState.asc ? 1 : -1;
+                if (!isNaN(Number(va)) && !isNaN(Number(vb))) return sortState.asc ? Number(va) - Number(vb) : Number(vb) - Number(va);
+                return sortState.asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+            });
+        }
+        const hdr = cols.map(c => {
+            const arrow = sortState.col === c ? (sortState.asc ? ' ▲' : ' ▼') : '';
+            return `<th class="sql-result-th tbl-insp-sort-th" style="white-space:nowrap;cursor:pointer;user-select:none" data-col="${escapeHtml(c)}">${escapeHtml(c)}${arrow}</th>`;
+        }).join('');
+        const body = sortedRows.map((r, ri) => {
             const cells = cols.map(c => {
                 const v = r[c];
                 const disp = v === null || v === undefined ? '<span style="color:#475569;font-style:italic">null</span>' : escapeHtml(String(v));
@@ -3212,6 +3233,16 @@ function _renderTblInspData(tab, subtab) {
         }).join('');
         _tblInspSetContent(`<table class="sql-result-table tbl-insp-grid"><thead><tr>${hdr}</tr></thead><tbody>${body}</tbody></table>`);
         _tblInspUpdateRowCount(rows.length);
+        // Attach sort click handlers
+        document.querySelectorAll('#tbl-insp-content .tbl-insp-sort-th').forEach(th => {
+            th.addEventListener('click', () => {
+                const col = th.dataset.col;
+                const st = tab._sortState[subtab] || { col: null, asc: true };
+                if (st.col === col) { st.asc = !st.asc; } else { st.col = col; st.asc = true; }
+                tab._sortState[subtab] = st;
+                _renderTblInspData(tab, subtab);
+            });
+        });
         return;
     }
 
@@ -3825,10 +3856,14 @@ document.addEventListener('keydown', (event) => {
 }
 .sql-result-thead-wrap {
     flex-shrink: 0;
-    overflow: hidden;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
     border-bottom: 1px solid var(--border);
     background: var(--bg-card);
 }
+.sql-result-thead-wrap::-webkit-scrollbar { display: none; }
 .sql-result-tbody-wrap {
     flex: 1;
     overflow: auto;

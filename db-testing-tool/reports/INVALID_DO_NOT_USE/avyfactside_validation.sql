@@ -1,0 +1,4 @@
+SELECT
+    COUNT(*) as total_rows,
+    SUM(CASE WHEN ROWID IS NULL THEN 1 ELSE 0 END) as null_rowid_count
+FROM IKOROSTELEV.AVY_FACT_SIDE;

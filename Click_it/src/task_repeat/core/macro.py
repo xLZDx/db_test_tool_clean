@@ -83,7 +83,7 @@ class Macro:
                     )
                 )
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"Event #{i}: invalid field — {exc}") from exc
+                raise ValueError(f"Event #{i}: invalid field -- {exc}") from exc
         return cls(
             version=version,
             created_at=data.get("created_at", ""),

@@ -7,6 +7,8 @@ from app.models.test_case import TestCase, TestRun
 from app.models.datasource import DataSource
 from app.connectors.factory import get_connector_from_model
 import json, time, uuid, logging
+import re
+import difflib
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,143 @@ def _execute_single(connector, sql: str) -> dict:
         return {"rows": rows, "count": len(rows), "error": None}
     except Exception as e:
         return {"rows": [], "count": 0, "error": str(e)}
+
+
+def _line_col_from_index(text: str, idx: int) -> tuple[int, int]:
+    if idx < 0:
+        return 1, 1
+    prefix = (text or "")[:idx]
+    line = prefix.count("\n") + 1
+    last_nl = prefix.rfind("\n")
+    col = idx + 1 if last_nl < 0 else (idx - last_nl)
+    return line, col
+
+
+def _analyze_sql_references(connector, sql: str) -> dict:
+    refs: list[dict] = []
+    patt = re.compile(r'\b(FROM|JOIN|INTO)\s+([A-Z0-9_\.\"]+)(?:\s+([A-Z][A-Z0-9_]*))?', flags=re.IGNORECASE)
+    for m in patt.finditer(sql or ""):
+        raw = (m.group(2) or "").strip()
+        if not raw or raw.startswith("("):
+            continue
+        token = raw.replace('"', '')
+        parts = token.split('.')
+        schema = parts[-2].upper() if len(parts) >= 2 else ""
+        table = parts[-1].upper()
+        alias = (m.group(3) or "").strip().upper() or table
+        line, col = _line_col_from_index(sql or "", m.start(2))
+        refs.append({"schema": schema, "table": table, "alias": alias, "line": line, "column": col})
+
+    alias_map = {r["alias"]: (r["schema"], r["table"]) for r in refs if r.get("alias")}
+    missing_tables: list[dict] = []
+    columns_cache: dict = {}
+    missing_columns: list[dict] = []
+
+    for r in refs:
+        schema = r.get("schema") or ""
+        table = r.get("table") or ""
+        if not schema or not table:
+            continue
+        exists = True
+        if hasattr(connector, "table_exists"):
+            try:
+                exists = bool(connector.table_exists(schema, table))
+            except Exception:
+                exists = True
+        if not exists:
+            closest_table = None
+            if hasattr(connector, "get_tables"):
+                try:
+                    known = [str(t.table_name).upper() for t in connector.get_tables(schema)]
+                    match = difflib.get_close_matches(table, known, n=1, cutoff=0.62)
+                    if match:
+                        closest_table = match[0]
+                except Exception:
+                    pass
+            missing_tables.append({
+                "schema": schema,
+                "table": table,
+                "line": r.get("line"),
+                "column": r.get("column"),
+                "closest_table": closest_table,
+            })
+
+    for m in re.finditer(r"\b([A-Z_][A-Z0-9_]*)\.([A-Z_][A-Z0-9_\$#]*)\b", (sql or ""), flags=re.IGNORECASE):
+        alias = (m.group(1) or "").upper()
+        col_name = (m.group(2) or "").upper()
+        if alias not in alias_map:
+            continue
+        schema, table = alias_map[alias]
+        if not schema or not table or not hasattr(connector, "get_columns"):
+            continue
+        key = (schema, table)
+        if key not in columns_cache:
+            try:
+                cols = connector.get_columns(schema, table)
+                columns_cache[key] = {c.column_name.upper() for c in cols}
+            except Exception:
+                columns_cache[key] = set()
+        if columns_cache[key] and col_name not in columns_cache[key]:
+            line, col = _line_col_from_index(sql or "", m.start(2))
+            closest_column = None
+            try:
+                match = difflib.get_close_matches(col_name, list(columns_cache[key]), n=1, cutoff=0.58)
+                if match:
+                    closest_column = match[0]
+            except Exception:
+                pass
+            missing_columns.append({
+                "schema": schema,
+                "table": table,
+                "column": col_name,
+                "alias": alias,
+                "line": line,
+                "column_pos": col,
+                "closest_column": closest_column,
+            })
+
+    suggestions: list[str] = []
+    for t in missing_tables:
+        hint = f" Did you mean {t['schema']}.{t['closest_table']}?" if t.get("closest_table") else ""
+        suggestions.append(f"Table not found at line {t.get('line')}: {t['schema']}.{t['table']}.{hint}")
+    for c in missing_columns:
+        hint = f" Closest column: {c['closest_column']}." if c.get("closest_column") else ""
+        suggestions.append(f"Column not found at line {c.get('line')}: {c['schema']}.{c['table']}.{c['column']} (alias {c['alias']}).{hint}")
+
+    return {
+        "missing_tables": missing_tables,
+        "missing_columns": missing_columns,
+        "suggestions": suggestions,
+    }
+
+
+def _build_oracle_error_payload(error_msg: str, sql: str, connector) -> dict:
+    diagnostics = {}
+    try:
+        diagnostics = _analyze_sql_references(connector, sql)
+    except Exception:
+        diagnostics = {}
+
+    suggestions = list((diagnostics or {}).get("suggestions") or [])
+    err_u = str(error_msg or "").upper()
+    if "ORA-00942" in err_u:
+        suggestions.append("ORA-00942 detected: referenced table/view does not exist or is not accessible.")
+    m = re.search(r'ORA-00904:\s*"?([A-Z0-9_\$#]+)"?: invalid identifier', str(error_msg or ""), flags=re.IGNORECASE)
+    if m:
+        bad = m.group(1).upper()
+        closest = None
+        for item in diagnostics.get("missing_columns", []) or []:
+            if (item.get("column") or "").upper() == bad and item.get("closest_column"):
+                closest = item.get("closest_column")
+                break
+        suffix = f" Closest match: {closest}." if closest else ""
+        suggestions.append(f"ORA-00904 invalid identifier: {bad}.{suffix}")
+
+    return {
+        "error": str(error_msg or ""),
+        "diagnostics": diagnostics,
+        "suggestions": suggestions,
+    }
 
 
 def _compare_results(test: TestCase, src_res: dict, tgt_res: dict) -> tuple:
@@ -194,7 +333,17 @@ async def run_test(db: AsyncSession, test_id: int, batch_id: Optional[str] = Non
 
         if src_res.get("error") or tgt_res.get("error"):
             run.status = "error"
-            run.error_message = src_res.get("error") or tgt_res.get("error")
+            chosen_error = src_res.get("error") or tgt_res.get("error")
+            run.error_message = chosen_error
+            try:
+                err_payload = {"detail": chosen_error}
+                if src_res.get("error") and connectors.get("src") and test.source_query:
+                    err_payload = _build_oracle_error_payload(src_res.get("error"), test.source_query, connectors.get("src"))
+                elif tgt_res.get("error") and connectors.get("tgt") and test.target_query:
+                    err_payload = _build_oracle_error_payload(tgt_res.get("error"), test.target_query, connectors.get("tgt"))
+                run.actual_result = json.dumps(err_payload, default=str)
+            except Exception:
+                pass
 
     except asyncio.CancelledError:
         # task.cancel() was called (Stop Execution). Mark run as stopped and let the

@@ -26,7 +26,7 @@ from app.services.tfs_test_management_service import (
     get_test_case_details, get_test_plan,
     create_test_plan_record, create_test_suite_record,
     create_test_case_work_item, add_test_cases_to_suite,
-    get_classification_nodes,
+    get_classification_nodes, resolve_plan_project,
 )
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -485,16 +485,22 @@ async def lookup_tfs_item(item_id: int):
 
 
 @router.get("/test-suites/{project}/{plan_id}")
-async def list_test_suites(project: str, plan_id: int, parent_suite_id: int = None, 
+async def list_test_suites(project: str, plan_id: int, parent_suite_id: int = None,
                           db: AsyncSession = Depends(get_db)):
-    """List test suites for a plan (hierarchical)."""
+    """List test suites for a plan (hierarchical).
+    
+    Performs cross-project fallback: if the plan is not found in the requested
+    project (e.g. a 'Lighthouse' team alias resolving to 'CDSIntegration'), the
+    service will automatically retry with other configured TFS projects.
+    Returns resolved_project so the frontend can track per-plan project.
+    """
     try:
-        suites_data = await get_test_suites(project, plan_id, parent_suite_id)
-        
-        # Cache suites locally
+        suites_data, resolved_project = await get_test_suites(project, plan_id, parent_suite_id)
+
+        # Cache suites locally (use resolved_project so data is stored correctly)
         cached_suites = []
         for suite_data in suites_data:
-            cached = await cache_test_suite(db, project, plan_id, suite_data)
+            cached = await cache_test_suite(db, resolved_project, plan_id, suite_data)
             cached_suites.append({
                 "id": cached.suite_id,
                 "name": cached.name,
@@ -502,27 +508,40 @@ async def list_test_suites(project: str, plan_id: int, parent_suite_id: int = No
                 "parent": suite_data.get("parent", {}).get("id"),
                 "test_case_count": cached.test_case_count,
                 "is_heavy": cached.is_heavy,
-                "children": [],  # Client will recursively load children
+                "children": [],
             })
-        
-        return {"suites": cached_suites, "count": len(cached_suites)}
+
+        return {
+            "suites": cached_suites,
+            "count": len(cached_suites),
+            "resolved_project": resolved_project,
+        }
     except Exception as e:
         raise HTTPException(500, f"Error listing test suites: {str(e)}")
 
 
 @router.post("/test-suites")
 async def create_suite(body: CreateTestSuiteRequest, db: AsyncSession = Depends(get_db)):
-    """Create a TFS test suite and cache it locally."""
+    """Create a TFS test suite and cache it locally.
+
+    Automatically resolves the actual TFS project that contains the plan
+    (handles the cross-project team-alias scenario).
+    """
     try:
+        # Resolve actual project so suite is created in the correct TFS project
+        actual_project = await resolve_plan_project(body.plan_id, preferred_project=body.project)
+        if not actual_project:
+            actual_project = body.project
+
         created = await create_test_suite_record(
-            project=body.project,
+            project=actual_project,
             plan_id=body.plan_id,
             name=body.name,
             parent_suite_id=body.parent_suite_id,
             suite_type=body.suite_type,
             requirement_id=body.requirement_id,
         )
-        cached = await cache_test_suite(db, body.project, body.plan_id, created)
+        cached = await cache_test_suite(db, actual_project, body.plan_id, created)
         return {
             "id": cached.id,
             "suite_id": cached.suite_id,
@@ -541,27 +560,32 @@ async def create_suite(body: CreateTestSuiteRequest, db: AsyncSession = Depends(
 @router.get("/test-points/{project}/{plan_id}/{suite_id}")
 async def list_test_points(project: str, plan_id: int, suite_id: int,
                           db: AsyncSession = Depends(get_db)):
-    """List test points (test cases) in a suite."""
+    """List test points (test cases) in a suite.
+
+    Uses cross-project fallback just like list_test_suites.
+    Returns resolved_project in the response body.
+    """
     try:
-        points_data = await get_test_points(project, plan_id, suite_id)
-        
-        # Cache test points locally
+        points_data, resolved_project = await get_test_points(project, plan_id, suite_id)
+
         cached_points = []
         for point_data in points_data:
-            cached = await cache_test_point(db, project, plan_id, suite_id, point_data)
-            test_case = point_data.get("testCase", {})
-            test_point = point_data.get("testPoint", {})
+            cached = await cache_test_point(db, resolved_project, plan_id, suite_id, point_data)
             cached_points.append({
                 "test_point_id": cached.test_point_id,
                 "test_case_id": cached.test_case_id,
-                "title": cached.title,
+                "title": cached.title or f"TC #{cached.test_case_id}",
                 "state": cached.state,
                 "priority": cached.priority,
                 "owner": cached.owner,
                 "automation_status": cached.automation_status,
             })
-        
-        return {"test_points": cached_points, "count": len(cached_points)}
+
+        return {
+            "test_points": cached_points,
+            "count": len(cached_points),
+            "resolved_project": resolved_project,
+        }
     except Exception as e:
         raise HTTPException(500, f"Error listing test points: {str(e)}")
 
@@ -582,23 +606,28 @@ async def import_local_tests_to_suite(body: ImportLocalTestsToSuiteRequest,
         raise HTTPException(404, "Selected local tests were not found")
 
     try:
+        # Resolve the actual TFS project that contains this plan (cross-project fallback)
+        actual_project = await resolve_plan_project(body.plan_id, preferred_project=body.project)
+        if not actual_project:
+            actual_project = body.project
+
         destination_suite_id: Optional[int] = None
         destination_suite_name = ""
 
         if body.destination_suite_id:
             destination_suite_id = int(body.destination_suite_id)
-            suites_data = await get_test_suites(body.project, body.plan_id)
+            suites_data, _rp = await get_test_suites(actual_project, body.plan_id)
             destination_suite = next((s for s in suites_data if int(s.get("id") or 0) == destination_suite_id), None)
             if not destination_suite:
                 raise HTTPException(404, f"Destination suite {destination_suite_id} was not found in plan {body.plan_id}")
             destination_suite_name = str(destination_suite.get("name") or "")
-            await cache_test_suite(db, body.project, body.plan_id, destination_suite)
+            await cache_test_suite(db, actual_project, body.plan_id, destination_suite)
         else:
             if not (body.suite_name or "").strip():
                 raise HTTPException(400, "suite_name is required when destination_suite_id is not provided")
 
             created_suite = await create_test_suite_record(
-                project=body.project,
+                project=actual_project,
                 plan_id=body.plan_id,
                 name=body.suite_name,
                 parent_suite_id=body.parent_suite_id,
@@ -607,7 +636,7 @@ async def import_local_tests_to_suite(body: ImportLocalTestsToSuiteRequest,
             if not created_suite or not created_suite.get("id"):
                 raise HTTPException(500, "Failed to create destination suite in TFS")
 
-            cached_suite = await cache_test_suite(db, body.project, body.plan_id, created_suite)
+            cached_suite = await cache_test_suite(db, actual_project, body.plan_id, created_suite)
             destination_suite_id = int(cached_suite.suite_id)
             destination_suite_name = str(cached_suite.name or body.suite_name)
 
@@ -615,7 +644,7 @@ async def import_local_tests_to_suite(body: ImportLocalTestsToSuiteRequest,
         failures = []
         for test in ordered_tests:
             payload = await create_test_case_work_item(
-                project=body.project,
+                project=actual_project,
                 title=test.name,
                 description=_build_local_test_description(test),
                 steps_xml=_build_local_test_steps_xml(test),
@@ -637,7 +666,7 @@ async def import_local_tests_to_suite(body: ImportLocalTestsToSuiteRequest,
         added = []
         if created_cases:
             added = await add_test_cases_to_suite(
-                body.project,
+                actual_project,
                 body.plan_id,
                 destination_suite_id,
                 [c["tfs_test_case_id"] for c in created_cases],
@@ -666,7 +695,12 @@ async def import_tfs_points_to_local_tests(body: ImportTfsPointsToLocalRequest,
     if not body.test_point_ids:
         raise HTTPException(400, "No test point IDs provided")
 
-    points_payload = await get_test_points(body.project, body.plan_id, body.suite_id)
+    # Resolve actual project with cross-project fallback
+    actual_project = await resolve_plan_project(body.plan_id, preferred_project=body.project)
+    if not actual_project:
+        actual_project = body.project
+
+    points_payload, _rp = await get_test_points(actual_project, body.plan_id, body.suite_id)
     points_by_id = {int((item.get("testPoint") or {}).get("id") or item.get("id") or 0): item for item in points_payload}
     selected_points = [points_by_id[tp_id] for tp_id in body.test_point_ids if tp_id in points_by_id]
     if not selected_points:
@@ -680,10 +714,10 @@ async def import_tfs_points_to_local_tests(body: ImportTfsPointsToLocalRequest,
     for point_data in selected_points:
         test_point = point_data.get("testPoint") or {}
         test_case = point_data.get("testCase") or {}
-        point_id = int(test_point.get("id") or 0)
+        point_id = int(test_point.get("id") or point_data.get("id") or 0)
         test_case_id = int(test_case.get("id") or 0)
         title = test_case.get("name") or f"TFS Test Case {test_case_id}"
-        case_payload = await get_test_case_details(body.project, test_case_id)
+        case_payload = await get_test_case_details(actual_project, test_case_id)
         sql_list = _extract_sql_from_test_case_payload(case_payload)
         readonly_sql = [sql for sql in sql_list if _is_readonly_sql(sql)]
 
@@ -707,7 +741,7 @@ async def import_tfs_points_to_local_tests(body: ImportTfsPointsToLocalRequest,
                 target_query=None,
                 expected_result=None,
                 severity="medium",
-                description=f"Imported from TFS project {body.project}, plan {body.plan_id}, suite {body.suite_id}, test point {point_id}, test case {test_case_id}.",
+                description=f"Imported from TFS project {actual_project}, plan {body.plan_id}, suite {body.suite_id}, test point {point_id}, test case {test_case_id}.",
                 is_active=True,
                 is_ai_generated=False,
             )

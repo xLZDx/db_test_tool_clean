@@ -644,7 +644,45 @@ def _resolve_model(provider_override: Optional[str] = None) -> str:
 
 
 def _normalize_provider(provider_override: Optional[str] = None) -> str:
-    return (provider_override or settings.AI_PROVIDER or "openai").lower().strip()
+    provider = (provider_override or settings.AI_PROVIDER or "openai").lower().strip()
+    if provider in {"local", "internal", "localagent", "local_agent"}:
+        return "local"
+    return provider
+
+
+def _local_assistant_reply(messages: list, context: str = "", agent_system_prompt: str = "") -> str:
+    """Deterministic local fallback responder for offline mode.
+
+    Provides actionable SQL diagnostics when Copilot is unavailable.
+    """
+    user_text = ""
+    for msg in reversed(messages or []):
+        if (msg or {}).get("role") == "user":
+            user_text = (msg or {}).get("content") or ""
+            break
+    corpus = f"{context or ''}\n{user_text}"
+    upper = corpus.upper()
+
+    tips: list[str] = []
+    if "ORA-00942" in upper:
+        tips.append("ORA-00942 indicates a missing table/view or missing privileges. Verify schema.table spelling and grants.")
+        tips.append("Quick check: run SELECT 1 FROM <SCHEMA>.<TABLE> WHERE ROWNUM <= 1 to confirm object visibility.")
+    if "ORA-00904" in upper:
+        tips.append("ORA-00904 indicates an invalid identifier (column/alias). Verify alias scope and exact column names.")
+        tips.append("Quick check: DESCRIBE <SCHEMA>.<TABLE> or query ALL_TAB_COLUMNS for the referenced table.")
+    if "ORA-01722" in upper:
+        tips.append("ORA-01722 invalid number usually means implicit string-to-number conversion. CAST explicitly or fix predicates.")
+    if "ORA-00911" in upper:
+        tips.append("ORA-00911 invalid character is commonly a trailing semicolon or hidden character in API-submitted SQL.")
+
+    if not tips:
+        tips.append("Local assistant is active. I can provide rule-based SQL diagnostics and rewrite guidance.")
+        tips.append("Include the exact Oracle error text and the failing SQL snippet for targeted fixes.")
+
+    if agent_system_prompt:
+        tips.append("Applied local agent profile guidance from your selected internal agent.")
+
+    return "\n".join(f"- {t}" for t in tips)
 
 
 def _build_chat_call_args(messages: list, temperature: float, max_tokens: int, provider: str, model: Optional[str]) -> dict:
@@ -1451,8 +1489,18 @@ async def ai_chat(
     context: optional system-level context about the DB testing workspace.
     """
     provider = _normalize_provider(provider_override or None)
+    if provider == "local":
+        return {"reply": _local_assistant_reply(messages, context, agent_system_prompt), "provider": "local"}
+
     client, model, cfg_error = _get_client_and_model(provider)
     if not client:
+        # Graceful fallback: keep local/internal agents usable even if Copilot is disconnected.
+        if agent_system_prompt:
+            return {
+                "reply": _local_assistant_reply(messages, context, agent_system_prompt)
+                        + "\n\n(Copilot unavailable, served by local fallback engine)",
+                "provider": "local-fallback",
+            }
         return {"error": cfg_error}
 
     system_msg = (

@@ -1,18 +1,3 @@
-{
-  "scenario": {
-    "name": "pbi_1915216_trailer_3_sources",
-    "tfs_item_id": "1915216",
-    "prompt": "PBI 1915216. Same trailer-rule business requirement as 1736268 but source is split across three source tables instead of a single GG view. Generate Oracle ETL validation tests for CCAL_OWNER target population and validate cross-source joins and trailer rule ranking. Do not hardcode source CTE assumptions; infer from artifacts.",
-    "artifact_paths": [
-      "C:\\Users\\ikorostelev\\Downloads\\SCEN_CCAL_PKG_LOAD_TX_STCCCALQ_STG_Version_001.xml",
-      "C:\\Users\\ikorostelev\\Downloads\\SCEN_CCAL_PKG_LOAD_TX_SBDI_RT_MT_Version_001.xml"
-    ]
-  },
-  "result": {
-    "scenario": "pbi_1915216_trailer_3_sources",
-    "tfs_item_id": "1915216",
-    "status": "ok",
-    "test_count": 6,
-    "output_folder": "C:\\GIT_Repo\\db-testing-tool\\reports\\e2e_batch_runs\\20260428_081309\\pbi_1915216_trailer_3_sources"
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:4898b7409a8bae4d7bc7203a0c61eca72f15e030cb62802ad5b1db2c87ab9725
+size 943

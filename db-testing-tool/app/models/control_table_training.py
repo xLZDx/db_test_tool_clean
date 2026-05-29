@@ -32,8 +32,8 @@ class ControlTableFileState(Base):
     __tablename__ = "control_table_file_states"
 
     id = Column(Integer, primary_key=True)
-    file_path = Column(String(1024), nullable=False, unique=True)
-    file_hash = Column(String(64), nullable=True)
-    is_processed = Column(Boolean, default=False)
-    processed_at = Column(DateTime(timezone=True), nullable=True)
-    notes = Column(Text, nullable=True)
+    target_table = Column(String(255), nullable=False)
+    file_fingerprint = Column(String(64), nullable=False)
+    file_name = Column(String(1024), nullable=True)
+    final_insert_sql = Column(Text, nullable=False)
+    last_applied_decisions = Column(Text, nullable=True)

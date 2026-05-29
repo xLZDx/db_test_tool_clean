@@ -72,6 +72,147 @@
     <div id="tests-pagination" style="padding:12px 16px;display:none;align-items:center;gap:8px;justify-content:flex-end"></div>
 </div>
 
+<!-- ODI vs DRD Validation card -->
+<div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:14px 18px;border-bottom:1px solid var(--border)" onclick="toggleOdiCard()">
+        <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-weight:600">ODI vs DRD Validation</span>
+            <span id="odi-status-badge" style="display:none;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600"></span>
+        </div>
+        <span id="odi-chevron" style="transition:transform 0.2s;font-size:14px">▾</span>
+    </div>
+    <div id="odi-card-body" style="padding:16px 18px">
+        <!-- Upload row -->
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="form-group" style="margin:0">
+                <label>ODI Scenario XML <span style="color:var(--danger)">*</span></label>
+                <input type="file" id="odi-xml-file" accept=".xml" class="form-control">
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>DRD Mapping File <span class="text-muted" style="font-size:11px">(optional — CSV / XLSX)</span></label>
+                <input type="file" id="odi-drd-file" accept=".csv,.xlsx,.xls" class="form-control">
+            </div>
+        </div>
+        <!-- Config + filter + action row -->
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Schema</label>
+                <input class="form-control" id="odi-target-schema" value="IKOROSTELEV">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Table</label>
+                <input class="form-control" id="odi-target-table" value="AVY_FACT_SIDE">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 180px">
+                <label style="font-size:11px">Filter Verdict</label>
+                <select class="form-control" id="odi-filter-verdict" onchange="renderOdiGrid()">
+                    <option value="">All verdicts</option>
+                    <option value="REAL_MISMATCH">Mismatches only</option>
+                    <option value="UNRESOLVABLE">Unresolvable only</option>
+                    <option value="SOURCE_MISSING">Missing only</option>
+                    <option value="ALIAS_DRIFT_ONLY">Alias drift only</option>
+                    <option value="MATCHED">Matched only</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" style="flex:0 0 120px;height:38px" onclick="runOdiAnalysis()" id="odi-analyze-btn">Analyze</button>
+        </div>
+
+        <!-- Loading -->
+        <div id="odi-loading" style="display:none;text-align:center;padding:28px;color:var(--text-muted)">Analyzing ODI XML…</div>
+
+        <!-- Summary stats -->
+        <div id="odi-summary" style="display:none;margin-bottom:14px">
+            <div class="grid" style="grid-template-columns:repeat(5,1fr);gap:8px">
+                <div style="padding:10px 14px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--success)">Matched</div>
+                    <div id="odi-s-matched" style="font-size:24px;font-weight:700;color:var(--success)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--warning)">Alias Drift</div>
+                    <div id="odi-s-alias" style="font-size:24px;font-weight:700;color:var(--warning)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--danger)">Mismatch</div>
+                    <div id="odi-s-mismatch" style="font-size:24px;font-weight:700;color:var(--danger)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--info)">Unresolvable</div>
+                    <div id="odi-s-unresolvable" style="font-size:24px;font-weight:700;color:var(--info)">0</div>
+                </div>
+                <div style="padding:10px 14px;background:rgba(148,163,184,.1);border:1px solid rgba(148,163,184,.3);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-muted)">Missing</div>
+                    <div id="odi-s-missing" style="font-size:24px;font-weight:700">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SQL preview -->
+        <div id="odi-sql-section" style="display:none;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Emitted Oracle INSERT SQL</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-outline btn-sm" onclick="toggleOdiSql()" id="odi-sql-toggle-btn">Hide</button>
+                    <button class="btn btn-outline btn-sm" onclick="copyOdiSql()">Copy</button>
+                </div>
+            </div>
+            <div id="odi-sql-wrap">
+                <pre id="odi-sql-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+            </div>
+        </div>
+
+        <!-- Comparison grid -->
+        <div id="odi-grid-section" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)" id="odi-grid-title">Comparison Grid</span>
+                <button class="btn btn-outline btn-sm" onclick="exportOdiCsv()">Export CSV</button>
+            </div>
+            <div style="overflow-x:auto;max-height:480px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Target Col</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">DRD Source</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">ODI Source</th>
+                            <th style="padding:8px 6px;text-align:center;white-space:nowrap">Step</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Verdict</th>
+                            <th style="padding:8px 10px;text-align:left">Explanation</th>
+                            <th style="padding:8px 4px;text-align:center;white-space:nowrap">Fix</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-grid-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Quick-correct panel -->
+        <div id="odi-fix-panel" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--warning);border-radius:8px;background:rgba(245,158,11,.06)">
+            <div style="font-weight:600;margin-bottom:10px;color:var(--warning)">Quick Correction — <span id="odi-fix-col" style="font-family:monospace"></span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Source Table</label>
+                    <input class="form-control" id="odi-fix-table" placeholder="e.g. APA_SECURITY_POSITION">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Source Attribute</label>
+                    <input class="form-control" id="odi-fix-attr" placeholder="e.g. BKR_AR_ID">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Transformation Rule</label>
+                    <input class="form-control" id="odi-fix-transform" placeholder="e.g. Direct copy">
+                </div>
+            </div>
+            <div class="form-group" style="margin:0 0 10px 0">
+                <label style="font-size:11px">Annotation / Reason</label>
+                <textarea class="form-control" id="odi-fix-note" rows="2" placeholder="Explain the correct mapping or why this differs from the DRD…"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button class="btn btn-outline btn-sm" onclick="closeOdiFix()">Cancel</button>
+                <button class="btn btn-warning btn-sm" onclick="saveOdiFix()">Save Annotation</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Test detail / edit modal -->
 <div id="test-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9000;align-items:center;justify-content:center">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;max-width:720px;width:95%;max-height:90vh;overflow-y:auto">
@@ -386,6 +527,233 @@ function escHtml(s) {
 document.getElementById('test-modal').addEventListener('click', function(e) {
     if (e.target === this) closeTestModal();
 });
+
+// ── ODI vs DRD Validation ─────────────────────────────────────────────────────
+
+let _odiResults = null;
+let _odiAnnotations = {};
+let _odiCurrentFixCol = null;
+let _odiCardExpanded = true;
+let _odiSqlVisible = true;
+
+try { _odiAnnotations = JSON.parse(localStorage.getItem('odi_annotations') || '{}'); } catch(_) {}
+
+function toggleOdiCard() {
+    _odiCardExpanded = !_odiCardExpanded;
+    document.getElementById('odi-card-body').style.display = _odiCardExpanded ? 'block' : 'none';
+    document.getElementById('odi-chevron').style.transform = _odiCardExpanded ? '' : 'rotate(-90deg)';
+}
+
+async function runOdiAnalysis() {
+    const xmlFile = document.getElementById('odi-xml-file').files[0];
+    if (!xmlFile) { showToast('Please select an ODI XML file', 'warning'); return; }
+
+    const drdFile = document.getElementById('odi-drd-file').files[0];
+    const schema = document.getElementById('odi-target-schema').value.trim() || 'IKOROSTELEV';
+    const table  = document.getElementById('odi-target-table').value.trim()  || 'AVY_FACT_SIDE';
+
+    ['odi-loading','odi-summary','odi-sql-section','odi-grid-section','odi-fix-panel'].forEach(id => {
+        const el = document.getElementById(id);
+        el.style.display = id === 'odi-loading' ? 'block' : 'none';
+    });
+    document.getElementById('odi-analyze-btn').disabled = true;
+    document.getElementById('odi-status-badge').style.display = 'none';
+
+    try {
+        const fd = new FormData();
+        fd.append('xml_file', xmlFile);
+        if (drdFile) fd.append('drd_file', drdFile);
+
+        const url = `/api/odi/scenario/compare?target_schema=${encodeURIComponent(schema)}&target_table=${encodeURIComponent(table)}`;
+        const resp = await fetch(url, { method: 'POST', body: fd });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+            throw new Error(err.detail || 'HTTP ' + resp.status);
+        }
+        _odiResults = await resp.json();
+        _renderOdiResults();
+    } catch(e) {
+        document.getElementById('odi-loading').style.display = 'none';
+        document.getElementById('odi-analyze-btn').disabled = false;
+        showToast('Analysis failed: ' + e.message, 'error');
+    }
+}
+
+function _renderOdiResults() {
+    document.getElementById('odi-loading').style.display = 'none';
+    document.getElementById('odi-analyze-btn').disabled = false;
+    const data = _odiResults;
+
+    if (data.sql) {
+        document.getElementById('odi-sql-pre').textContent = data.sql;
+        document.getElementById('odi-sql-section').style.display = 'block';
+        _odiSqlVisible = true;
+        document.getElementById('odi-sql-toggle-btn').textContent = 'Hide';
+        document.getElementById('odi-sql-wrap').style.display = 'block';
+    }
+
+    const badge = document.getElementById('odi-status-badge');
+    if (data.comparison) {
+        const s = data.comparison.summary || {};
+        document.getElementById('odi-s-matched').textContent     = s.matched       || 0;
+        document.getElementById('odi-s-alias').textContent       = s.alias_drift_only || 0;
+        document.getElementById('odi-s-mismatch').textContent    = s.real_mismatch  || 0;
+        document.getElementById('odi-s-unresolvable').textContent = s.unresolvable  || 0;
+        document.getElementById('odi-s-missing').textContent     = s.source_missing || 0;
+        document.getElementById('odi-summary').style.display = 'block';
+        document.getElementById('odi-grid-section').style.display = 'block';
+
+        const issues = (s.real_mismatch || 0) + (s.source_missing || 0);
+        badge.textContent = issues > 0 ? `${issues} issues` : 'OK';
+        badge.style.cssText = `display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${issues > 0 ? 'rgba(239,68,68,.2)' : 'rgba(34,197,94,.2)'};color:${issues > 0 ? 'var(--danger)' : 'var(--success)'}`;
+
+        if (data.comparison.drd_parse_errors && data.comparison.drd_parse_errors.length)
+            showToast(`DRD parse: ${data.comparison.drd_parse_errors.length} row(s) skipped`, 'warning');
+
+        renderOdiGrid();
+    } else {
+        badge.textContent = 'SQL only';
+        badge.style.cssText = 'display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(6,182,212,.2);color:var(--info)';
+        if (data.note) showToast(data.note, 'info');
+    }
+
+    if (data.warnings && data.warnings.length)
+        showToast(`${data.warnings.length} parse warning(s)`, 'warning');
+}
+
+const _VERDICT_CFG = {
+    'MATCHED':          { color: 'var(--success)',      bg: 'rgba(34,197,94,.1)',    label: 'MATCHED'      },
+    'ALIAS_DRIFT_ONLY': { color: 'var(--warning)',      bg: 'rgba(245,158,11,.1)',   label: 'ALIAS DRIFT'  },
+    'REAL_MISMATCH':    { color: 'var(--danger)',       bg: 'rgba(239,68,68,.1)',    label: 'MISMATCH'     },
+    'UNRESOLVABLE':     { color: 'var(--info)',         bg: 'rgba(6,182,212,.1)',    label: 'UNRESOLVABLE' },
+    'SOURCE_MISSING':   { color: '#94a3b8',             bg: 'rgba(148,163,184,.1)',  label: 'MISSING'      },
+};
+
+function renderOdiGrid() {
+    if (!_odiResults || !_odiResults.comparison) return;
+    const rows = _odiResults.comparison.rows || [];
+    const filter = document.getElementById('odi-filter-verdict').value;
+    const visible = filter ? rows.filter(r => r.verdict === filter) : rows;
+
+    document.getElementById('odi-grid-title').textContent =
+        `Comparison Grid — ${visible.length.toLocaleString()} of ${rows.length.toLocaleString()} rows`;
+
+    const tbody = document.getElementById('odi-grid-tbody');
+    tbody.innerHTML = visible.map(r => {
+        const vc = _VERDICT_CFG[r.verdict] || { color: '#999', bg: 'transparent', label: r.verdict };
+        const ann = _odiAnnotations[r.target_col];
+        const canFix = r.verdict === 'REAL_MISMATCH' || r.verdict === 'UNRESOLVABLE' || r.verdict === 'SOURCE_MISSING';
+        const drdSrc = [r.drd_table, r.drd_attr].filter(Boolean).join('.') || '—';
+        let odiSrc = '—';
+        if (r.odi_table && r.odi_col)        odiSrc = r.odi_table + '.' + r.odi_col;
+        else if (r.odi_col)                   odiSrc = r.odi_col;
+        else if (r.odi_expr_sql)              odiSrc = r.odi_expr_sql.length > 45 ? r.odi_expr_sql.substring(0,45) + '…' : r.odi_expr_sql;
+
+        const aliasNote = r.alias_evidence ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${escHtml(r.alias_evidence)}</div>` : '';
+        const annNote   = ann ? `<div style="font-size:10px;color:var(--warning);margin-top:2px">&#128203; ${escHtml(ann.note || ann.attr || '')}</div>` : '';
+        const rowBorder = ann ? 'border-left:3px solid var(--warning);' : '';
+        const fixBtnStyle = ann ? 'color:var(--warning);border-color:var(--warning);' : '';
+
+        const colJson   = escHtml(JSON.stringify(r.target_col));
+        const tableJson = escHtml(JSON.stringify(r.drd_table || ''));
+        const attrJson  = escHtml(JSON.stringify(r.drd_attr  || ''));
+        const reasonJson= escHtml(JSON.stringify(r.unresolved_reason || ''));
+
+        return `<tr style="border-bottom:1px solid var(--border);background:${vc.bg};${rowBorder}">
+            <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap;font-weight:500">${escHtml(r.target_col)}</td>
+            <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:var(--text-muted);white-space:nowrap">${escHtml(drdSrc)}</td>
+            <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap">${escHtml(odiSrc)}${aliasNote}</td>
+            <td style="padding:7px 6px;text-align:center;font-size:11px;color:var(--text-muted)">S${r.odi_step || 0}</td>
+            <td style="padding:7px 10px;white-space:nowrap">
+                <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:${vc.color};border:1px solid ${vc.color}">${vc.label}</span>
+            </td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--text-muted);max-width:280px">${escHtml((r.explanation || '').substring(0,130))}${annNote}</td>
+            <td style="padding:7px 4px;text-align:center;white-space:nowrap">
+                ${canFix ? `<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:10px;${fixBtnStyle}" onclick="openOdiFix(${colJson},${tableJson},${attrJson},${reasonJson})">${ann ? '&#9998;' : 'Fix'}</button>` : ''}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function openOdiFix(col, drdTable, drdAttr, reason) {
+    _odiCurrentFixCol = col;
+    document.getElementById('odi-fix-col').textContent = col;
+    const ann = _odiAnnotations[col] || {};
+    document.getElementById('odi-fix-table').value     = ann.table     || drdTable || '';
+    document.getElementById('odi-fix-attr').value      = ann.attr      || drdAttr  || '';
+    document.getElementById('odi-fix-transform').value = ann.transform || '';
+    document.getElementById('odi-fix-note').value      = ann.note      || (reason ? `Unresolved: ${reason}` : '');
+    const panel = document.getElementById('odi-fix-panel');
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeOdiFix() {
+    document.getElementById('odi-fix-panel').style.display = 'none';
+    _odiCurrentFixCol = null;
+}
+
+function saveOdiFix() {
+    if (!_odiCurrentFixCol) return;
+    _odiAnnotations[_odiCurrentFixCol] = {
+        table:     document.getElementById('odi-fix-table').value.trim(),
+        attr:      document.getElementById('odi-fix-attr').value.trim(),
+        transform: document.getElementById('odi-fix-transform').value.trim(),
+        note:      document.getElementById('odi-fix-note').value.trim(),
+        saved_at:  new Date().toISOString(),
+    };
+    try { localStorage.setItem('odi_annotations', JSON.stringify(_odiAnnotations)); } catch(_) {}
+    showToast(`Annotation saved for ${_odiCurrentFixCol}`, 'success');
+    closeOdiFix();
+    renderOdiGrid();
+}
+
+function toggleOdiSql() {
+    _odiSqlVisible = !_odiSqlVisible;
+    document.getElementById('odi-sql-wrap').style.display = _odiSqlVisible ? 'block' : 'none';
+    document.getElementById('odi-sql-toggle-btn').textContent = _odiSqlVisible ? 'Hide' : 'Show';
+}
+
+function copyOdiSql() {
+    const sql = document.getElementById('odi-sql-pre').textContent;
+    if (!sql) return;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(sql).then(() => showToast('SQL copied', 'success')).catch(() => _fallbackCopy(sql));
+    } else {
+        _fallbackCopy(sql);
+    }
+}
+
+function _fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    Object.assign(ta.style, { position: 'fixed', opacity: '0' });
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('SQL copied', 'success');
+}
+
+function exportOdiCsv() {
+    if (!_odiResults || !_odiResults.comparison) return;
+    const rows = _odiResults.comparison.rows || [];
+    const header = ['target_col','verdict','drd_table','drd_attr','odi_schema','odi_table','odi_col','odi_expr_sql','odi_step','explanation','annotation_table','annotation_attr','annotation_note'];
+    const q = v => `"${String(v || '').replace(/"/g,'""')}"`;
+    const lines = [header.join(',')];
+    rows.forEach(r => {
+        const ann = _odiAnnotations[r.target_col] || {};
+        lines.push([r.target_col,r.verdict,r.drd_table||'',r.drd_attr||'',r.odi_schema||'',r.odi_table||'',r.odi_col||'',r.odi_expr_sql||'',r.odi_step||'',r.explanation||'',ann.table||'',ann.attr||'',ann.note||''].map(q).join(','));
+    });
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `odi_comparison_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+}
 
 loadTests();
 </script>

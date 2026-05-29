@@ -125,6 +125,8 @@ async def schema_catalog(datasource_id: int, db: AsyncSession = Depends(get_db))
         raise HTTPException(404, f"DataSource {datasource_id} not found")
 
     connector = get_connector_from_model(ds)
+    if connector is None:
+        raise HTTPException(422, f"Unsupported datasource type: {ds.db_type}")
     try:
         connector.connect()
         schemas = connector.get_schemas()
@@ -585,6 +587,8 @@ async def _run_scan_owner_job(datasource_id: int, operation_id: str):
 
 def _fetch_owner_schemas(ds: DataSource) -> List[str]:
     connector = get_connector_from_model(ds)
+    if connector is None:
+        raise RuntimeError(f"Unsupported datasource type: {ds.db_type}")
     try:
         connector.connect()
         all_schemas = connector.get_schemas()

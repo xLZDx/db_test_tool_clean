@@ -16,6 +16,7 @@ from app.models.mapping_rule import MappingRule
 from app.services.drd_import_service import (
     extract_drd_metadata,
     generate_drd_tests,
+    generate_e2e_scripts,
     parse_drd_file,
     preview_file,
     read_excel_all_sheets,
@@ -278,6 +279,174 @@ async def drd_ai_summary(
         "confidence_details": (kb_result.get("confidence_details") or [])[:20],
         "metadata": metadata,
         "errors": errors,
+    }
+
+
+# ── DRD E2E Test Cycle ──────────────────────────────────────────────────────
+
+@router.post("/drd-e2e-cycle")
+async def drd_e2e_cycle(
+    file: UploadFile = File(...),
+    target_schema: str = Form("TRANSACTION_OWNER"),
+    target_table: str = Form("AVY_FACT_SIDE"),
+    source_datasource_id: int = Form(1),
+    target_datasource_id: int = Form(1),
+    test_rows: int = Form(10),
+    sheet_name: str = Form(""),
+    run_xe: bool = Form(False),
+    pdm_filter: bool = Form(False),
+    save_test_case: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Full DRD E2E test cycle: parse DRD -> generate scripts -> optionally run on XE.
+
+    Steps:
+    1. Parse DRD (all rows from Table-View sheet)
+    2. Generate CREATE TABLE DDL from column types in DRD
+    3. Generate INSERT statements with synthetic data (test_rows rows)
+    4. Generate validation SELECT queries (row count + null checks + distinct counts)
+    5. If run_xe=True: execute CREATE/INSERT/validation against Oracle XE (P6 harness)
+       XE_UNAVAILABLE never reads as pass; always ROLLBACK after run.
+    6. Return full run record ready to save as test case.
+
+    Design invariants (operator-locked):
+    - XE_UNAVAILABLE is never is_pass=True
+    - rows_inserted from cursor.rowcount (NOT len(result))
+    - rows_inserted == 0 -> FAIL_ZERO_ROWS
+    - Static script generation never blocked by XE availability
+    """
+    from app.db.xe_harness import DrdXeRunResult, XeVerdict, run_drd_scripts_on_xe
+    import asyncio
+
+    if not file.filename.lower().endswith((".csv", ".xlsx", ".xls")):
+        raise HTTPException(400, "File must be CSV or Excel format")
+
+    file_bytes = await file.read()
+    filename = file.filename or "file.xlsx"
+
+    # ── Step 1: parse DRD ────────────────────────────────────────────────
+    try:
+        parsed = parse_drd_file(
+            file_bytes=file_bytes,
+            filename=filename,
+            selected_fields=[
+                "logical_name", "physical_name", "source_schema", "source_table",
+                "source_attribute", "transformation", "notes",
+                "target_datatype_oracle", "target_nullable_oracle",
+            ],
+            target_schema=target_schema,
+            target_table=target_table,
+            source_datasource_id=source_datasource_id,
+            target_datasource_id=target_datasource_id,
+            sheet_name=sheet_name.strip() or None,
+            exclude_strikethrough=True,
+        )
+    except Exception as exc:
+        raise HTTPException(422, f"DRD parse error: {exc}") from exc
+
+    column_mappings = parsed.get("column_mappings") or []
+    parse_errors = parsed.get("errors") or []
+
+    # ── Step 2-4: generate scripts ───────────────────────────────────────
+    try:
+        scripts = generate_e2e_scripts(
+            column_mappings=column_mappings,
+            target_schema=target_schema,
+            target_table=target_table,
+            test_rows=test_rows,
+            pdm_filter=pdm_filter,
+            target_datasource_id=target_datasource_id,
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"Script generation error: {exc}") from exc
+
+    # ── Step 5: optional XE run ─────────────────────────────────────────
+    xe_result: dict = {
+        "xe_status": "skipped",
+        "verdict": "skipped",
+        "is_pass": False,
+        "rows_inserted": 0,
+        "validation_results": [],
+        "ora_errors": [],
+        "note": "XE run skipped (run_xe=False)",
+    }
+    if run_xe:
+        insert_stmts = [
+            s.strip() for s in scripts["insert_sql"].split("\n")
+            if s.strip() and s.strip().upper().startswith("INSERT")
+        ]
+        try:
+            xe_raw = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_drd_scripts_on_xe,
+                    scripts["create_table_sql"],
+                    insert_stmts,
+                    scripts["validation_sqls"],
+                ),
+                timeout=30,
+            )
+            xe_result = xe_raw.to_dict()
+        except asyncio.TimeoutError:
+            xe_result = {
+                "xe_status": "unavailable",
+                "verdict": "xe_unavailable",
+                "is_pass": False,
+                "rows_inserted": 0,
+                "validation_results": [],
+                "ora_errors": ["XE connection timed out after 30s"],
+                "note": "XE run timed out",
+            }
+
+    # ── Step 6: auto-save test case ──────────────────────────────────────
+    auto_save: dict = {"ok": False, "test_case_id": None, "error": None}
+    if save_test_case and scripts.get("create_table_sql"):
+        from app.models.test_case import TestCase
+        try:
+            tc = TestCase(
+                name=f"DRD E2E - {target_schema}.{target_table} ({filename})",
+                test_type="e2e_drd",
+                source_datasource_id=source_datasource_id,
+                target_datasource_id=target_datasource_id,
+                source_query=scripts["create_table_sql"],
+                target_query=scripts["insert_sql"],
+                expected_result=json.dumps(scripts["validation_sqls"]),
+                mapping_table=f"{target_schema}.{target_table}",
+                description=f"Auto-generated from DRD file: {filename}",
+                is_ai_generated=True,
+            )
+            db.add(tc)
+            await db.commit()
+            await db.refresh(tc)
+            auto_save = {"ok": True, "test_case_id": tc.id, "error": None}
+        except Exception as exc:
+            logger.warning("auto-save test case failed for %s.%s: %s", target_schema, target_table, exc)
+            auto_save = {"ok": False, "test_case_id": None, "error": str(exc)}
+
+    return {
+        "status": "success" if not parse_errors else "partial",
+        "drd_file": filename,
+        "target_schema": target_schema,
+        "target_table": target_table,
+        "column_count": scripts["column_count"],
+        "columns_parsed": len(column_mappings),
+        "pdm_filtered": scripts.get("pdm_filtered", False),
+        "pdm_extra_cols": scripts.get("pdm_extra_cols", []),
+        "scripts": {
+            "create_table_sql": scripts["create_table_sql"],
+            "insert_sql": scripts["insert_sql"],
+            "validation_sqls": scripts["validation_sqls"],
+        },
+        "xe_result": xe_result,
+        "parse_errors": parse_errors,
+        "auto_save": auto_save,
+        "test_run_record": {
+            "suite_name": f"DRD E2E - {target_schema}.{target_table}",
+            "target_table": f"{target_schema}.{target_table}",
+            "column_count": scripts["column_count"],
+            "xe_verdict": xe_result.get("verdict"),
+            "xe_is_pass": xe_result.get("is_pass", False),
+            "scripts_generated": 3,
+        },
     }
 
 

@@ -12,7 +12,8 @@
         </div>
         <div class="form-group">
             <label>Schema Filter</label>
-            <input class="form-control" id="sb-filter" placeholder="Type to filter schema list" oninput="filterSchemaOptions()">
+            <input class="form-control" id="sb-filter" placeholder="Type to filter schema list" list="sb-filter-dl" autocomplete="off" oninput="filterSchemaOptions()">
+            <datalist id="sb-filter-dl"></datalist>
         </div>
         <div class="form-group">
             <label style="display:flex;align-items:center;gap:8px;">
@@ -49,14 +50,14 @@
         <div class="card-header"><h2>Compare Schemas</h2></div>
         <div class="grid grid-2">
             <div>
-                <div class="form-group"><label>Source DS</label><select class="form-control ds-select" id="cmp-src-ds"></select></div>
-                <div class="form-group"><label>Source Schema</label><input class="form-control" id="cmp-src-schema"></div>
-                <div class="form-group"><label>Source Table</label><input class="form-control" id="cmp-src-table"></div>
+                <div class="form-group"><label>Source DS</label><select class="form-control ds-select" id="cmp-src-ds" onchange="sbCmpDsChanged('src')"></select></div>
+                <div class="form-group"><label>Source Schema</label><input class="form-control" id="cmp-src-schema" list="cmp-src-schema-dl" autocomplete="off"><datalist id="cmp-src-schema-dl"></datalist></div>
+                <div class="form-group"><label>Source Table</label><input class="form-control" id="cmp-src-table" list="cmp-src-table-dl" autocomplete="off" oninput="sbCmpTableSuggest('src')"><datalist id="cmp-src-table-dl"></datalist></div>
             </div>
             <div>
-                <div class="form-group"><label>Target DS</label><select class="form-control ds-select" id="cmp-tgt-ds"></select></div>
-                <div class="form-group"><label>Target Schema</label><input class="form-control" id="cmp-tgt-schema"></div>
-                <div class="form-group"><label>Target Table</label><input class="form-control" id="cmp-tgt-table"></div>
+                <div class="form-group"><label>Target DS</label><select class="form-control ds-select" id="cmp-tgt-ds" onchange="sbCmpDsChanged('tgt')"></select></div>
+                <div class="form-group"><label>Target Schema</label><input class="form-control" id="cmp-tgt-schema" list="cmp-tgt-schema-dl" autocomplete="off"><datalist id="cmp-tgt-schema-dl"></datalist></div>
+                <div class="form-group"><label>Target Table</label><input class="form-control" id="cmp-tgt-table" list="cmp-tgt-table-dl" autocomplete="off" oninput="sbCmpTableSuggest('tgt')"><datalist id="cmp-tgt-table-dl"></datalist></div>
             </div>
         </div>
         <button class="btn btn-primary mt-16" onclick="compareSchemas()">Compare</button>
@@ -68,6 +69,36 @@
     <div class="card-header"><h2>Schema Tree</h2></div>
     <div id="schema-tree" class="empty-state">Select a data source and click Analyze or Refresh</div>
 </div>
+
+<!-- ═══════════════════ TABLE DETAILS CARD (Schema Browser) ═══════════════════ -->
+<div class="card mt-16" id="sb-tbl-details-card" style="display:none">
+    <div style="border:1px solid var(--border);border-radius:8px;background:var(--bg-dark)">
+        <div class="ds-sect-hdr" onclick="toggleDsSection('sb-tbl-details-body','sb-tbl-details-toggle')" style="padding:10px;border-bottom:1px solid var(--border)">
+            <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:16px">&#128196;</span>
+                <strong style="font-size:20px">Table Details</strong>
+            </span>
+            <button class="ds-sect-toggle" id="sb-tbl-details-toggle" type="button">&#9660;</button>
+        </div>
+        <div id="sb-tbl-details-body" class="ds-sect-body" style="padding:10px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                <input class="form-control" id="sb-tbl-details-input" placeholder="SCHEMA.TABLE" list="sb-tbl-details-dl"
+                  autocomplete="off" style="width:260px;font-family:monospace;font-size:12px"
+                  oninput="sbTblDetailsSuggest(this)"
+                  onkeydown="if(event.key==='Enter'){sbOpenTableDetails();event.preventDefault();}">
+                <datalist id="sb-tbl-details-dl"></datalist>
+                <button class="btn btn-primary btn-sm" onclick="sbOpenTableDetails()">&#128269; Inspect</button>
+                <button class="btn btn-outline btn-sm" onclick="sbCloseTblDetails()">Close</button>
+            </div>
+            <!-- Sub-tabs: Columns, Data, Constraints, Statistics, Indexes, SQL -->
+            <div id="sb-tbl-subtabs" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0;flex-wrap:wrap"></div>
+            <div id="sb-tbl-details-content" class="table-wrap" style="height:300px;min-height:160px;max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:0 0 6px 6px;background:var(--bg-dark)">
+                <div class="empty-state">Enter SCHEMA.TABLE above and press Enter or click Inspect.</div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- ═══════════════════ End TABLE DETAILS CARD ═══════════════════ -->
 
 <div class="card mt-16">
     <div class="card-header"><h2>PDM / Local KB Summary</h2></div>
@@ -105,6 +136,15 @@ let sbPdmHistoryVisible = false;
 let sbActiveHistoricalPdmId = null;
 
 const SB_STATE_KEY = 'schema-browser.state.v1';
+
+function toggleDsSection(bodyId, toggleId) {
+    const body = document.getElementById(bodyId);
+    const toggle = document.getElementById(toggleId);
+    if (!body) return;
+    const hidden = body.style.display === 'none';
+    body.style.display = hidden ? '' : 'none';
+    if (toggle) toggle.textContent = hidden ? '\u25B2' : '\u25BC';
+}
 
 function _sbSafeJson(raw, fallback) {
     try { const v = JSON.parse(raw); return v !== null && v !== undefined ? v : fallback; } catch (_) { return fallback; }
@@ -340,6 +380,20 @@ async function initSchemaBrowserPage() {
 
     if (dsSelect.value) {
         await onSchemaBrowserDsChange();
+        // Preload hint tables for table details autocomplete
+        sbCmpDsChanged('src').catch(() => {});
+        sbCmpDsChanged('tgt').catch(() => {});
+        // Also preload for main DS
+        const mainDsId = dsSelect.value;
+        if (mainDsId && !_sbCmpHints[mainDsId]) {
+            try {
+                const [schemaRes, hintRes] = await Promise.all([
+                    API.getDatasourceSchemas(parseInt(mainDsId)),
+                    fetch(`/api/schemas/hint-tables/${encodeURIComponent(mainDsId)}`).then(r => r.ok ? r.json() : {})
+                ]);
+                _sbCmpHints[mainDsId] = { schemas: schemaRes?.schemas || [], tables: hintRes?.tables || {} };
+            } catch (_) {}
+        }
     } else {
         document.getElementById('sb-schema-options').innerHTML =
             '<div class="text-muted">Select a data source to load schemas</div>';
@@ -483,6 +537,7 @@ function renderSchemaOptions(list) {
         </label>
     `).join('');
     syncSchemaSelectAll();
+    _updateSchemaFilterDatalist();
 }
 
 function toggleAllSchemas(checked) {
@@ -535,6 +590,15 @@ async function onSchemaBrowserDsChange() {
     }
     await loadSchemaCatalog();
     await loadTree();
+    // Preload hint tables for table details and comparison autocomplete
+    if (!_sbCmpHints[dsId]) {
+        try {
+            const hintRes = await fetch(`/api/schemas/hint-tables/${encodeURIComponent(dsId)}`).then(r => r.ok ? r.json() : {});
+            _sbCmpHints[dsId] = { schemas: sbSchemas, tables: hintRes?.tables || {} };
+        } catch (_) {
+            _sbCmpHints[dsId] = { schemas: sbSchemas, tables: {} };
+        }
+    }
     if (sbPdmHistoryVisible) {
         await loadPdmHistory();
     }
@@ -721,13 +785,19 @@ async function loadTree() {
         const tree = await API.getSchemaTree(parseInt(dsId));
         const container = document.getElementById('schema-tree');
         if (!tree.length) { container.innerHTML = '<div class="empty-state">No metadata found. Run Analyze first.</div>'; return; }
-        container.innerHTML = tree.map(schema => `
+        // Filter tree to only checked schemas
+        const checkedSchemas = new Set(getSelectedSchemas().map(s => s.toUpperCase()));
+        const filtered = checkedSchemas.size > 0
+            ? tree.filter(schema => checkedSchemas.has((schema.schema || '').toUpperCase()))
+            : tree;
+        if (!filtered.length) { container.innerHTML = '<div class="empty-state">No metadata for checked schemas. Select schemas and run Analyze.</div>'; return; }
+        container.innerHTML = filtered.map(schema => `
             <div class="tree-item">
                 <div class="tree-toggle">${escapeHtml(schema.schema)} (${schema.tables.length} objects)</div>
                 <div class="tree-children">
                     ${schema.tables.map(t => `
                         <div class="tree-item">
-                            <div class="tree-toggle">${escapeHtml(t.name)} <span class="badge badge-muted">${t.type}</span></div>
+                            <div class="tree-toggle sb-tree-table-link" data-schema="${escapeHtml(schema.schema)}" data-table="${escapeHtml(t.name)}">${escapeHtml(t.name)} <span class="badge badge-muted">${t.type}</span></div>
                             <div class="tree-children">
                                 ${t.columns.map(c => `
                                     <div class="tree-leaf">
@@ -742,6 +812,16 @@ async function loadTree() {
                 </div>
             </div>
         `).join('');
+        // Click table name in tree to open table details
+        container.querySelectorAll('.sb-tree-table-link').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const schema = el.dataset.schema;
+                const table = el.dataset.table;
+                document.getElementById('sb-tbl-details-input').value = `${schema}.${table}`;
+                sbOpenTableDetails();
+            });
+        });
     } catch (e) { showToast(e.message, 'error'); }
 }
 
@@ -767,6 +847,227 @@ async function compareSchemas() {
             ${res.type_mismatches.length ? `<p class="text-warning">Type mismatches: ${res.type_mismatches.map(m => m.column + ': ' + m.source_type + ' → ' + m.target_type).join('; ')}</p>` : ''}
         `;
     } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ══════ Compare card autocomplete ══════════════════════════════════════════
+let _sbCmpHints = {};   // dsId → {schemas:[], tables:{}}
+
+async function sbCmpDsChanged(side) {
+    const dsId = document.getElementById(`cmp-${side}-ds`).value;
+    persistSbState();
+    if (!dsId) return;
+    if (!_sbCmpHints[dsId]) {
+        try {
+            const [schemaRes, hintRes] = await Promise.all([
+                API.getDatasourceSchemas(parseInt(dsId)),
+                fetch(`/api/schemas/hint-tables/${encodeURIComponent(dsId)}`).then(r => r.ok ? r.json() : {})
+            ]);
+            _sbCmpHints[dsId] = {
+                schemas: schemaRes?.schemas || [],
+                tables: hintRes?.tables || {}
+            };
+        } catch (_) {
+            _sbCmpHints[dsId] = { schemas: [], tables: {} };
+        }
+    }
+    const hint = _sbCmpHints[dsId];
+    const schemaDl = document.getElementById(`cmp-${side}-schema-dl`);
+    if (schemaDl) {
+        schemaDl.innerHTML = (hint.schemas || []).map(s => `<option value="${escapeHtml(s)}">`).join('');
+    }
+    sbCmpTableSuggest(side);
+}
+
+function sbCmpTableSuggest(side) {
+    const dsId = document.getElementById(`cmp-${side}-ds`).value;
+    const schema = (document.getElementById(`cmp-${side}-schema`).value || '').trim().toUpperCase();
+    const tableInput = (document.getElementById(`cmp-${side}-table`).value || '').trim().toUpperCase();
+    const dl = document.getElementById(`cmp-${side}-table-dl`);
+    if (!dl || !dsId) return;
+    const hint = _sbCmpHints[dsId] || {};
+    const tables = hint.tables || {};
+    const matches = [];
+    for (const key of Object.keys(tables)) {
+        const keyU = key.toUpperCase();
+        if (schema && !keyU.startsWith(schema + '.')) continue;
+        const tablePart = schema ? keyU.substring(schema.length + 1) : keyU;
+        if (!tableInput || tablePart.includes(tableInput)) {
+            matches.push(schema ? key.split('.').slice(1).join('.') : key.split('.').pop());
+        }
+        if (matches.length >= 50) break;
+    }
+    dl.innerHTML = [...new Set(matches)].map(m => `<option value="${escapeHtml(m)}">`).join('');
+}
+
+// ══════ Schema filter datalist ═══════════════════════════════════════════
+function _updateSchemaFilterDatalist() {
+    const dl = document.getElementById('sb-filter-dl');
+    if (!dl) return;
+    dl.innerHTML = sbSchemas.map(s => `<option value="${escapeHtml(s)}">`).join('');
+}
+
+// ══════ Table Details for Schema Browser ═════════════════════════════════
+let _sbTblDetailsState = { schema: '', table: '', subtab: 'columns', data: {}, sortCol: null, sortAsc: true };
+
+function sbTblDetailsSuggest(input) {
+    const raw = String(input.value || '').trim().toUpperCase();
+    const dsId = document.getElementById('sb-ds')?.value;
+    const dl = document.getElementById('sb-tbl-details-dl');
+    if (!dl || !dsId) return;
+    const hint = _sbCmpHints[dsId] || {};
+    const tables = hint.tables || {};
+    const matches = [];
+    for (const key of Object.keys(tables)) {
+        const keyU = key.toUpperCase();
+        if (!raw || keyU.includes(raw)) matches.push(key);
+        if (matches.length >= 50) break;
+    }
+    dl.innerHTML = matches.map(m => `<option value="${escapeHtml(m)}">`).join('');
+}
+
+async function sbOpenTableDetails() {
+    const raw = (document.getElementById('sb-tbl-details-input').value || '').trim();
+    if (!raw) return showToast('Enter SCHEMA.TABLE', 'warning');
+    const dsId = document.getElementById('sb-ds')?.value;
+    if (!dsId) return showToast('Select a data source first', 'warning');
+
+    const dotIdx = raw.indexOf('.');
+    const schema = dotIdx > 0 ? raw.substring(0, dotIdx).trim() : '';
+    const table = dotIdx > 0 ? raw.substring(dotIdx + 1).trim() : raw;
+
+    _sbTblDetailsState = { schema, table, subtab: 'columns', data: {}, sortCol: null, sortAsc: true };
+    document.getElementById('sb-tbl-details-card').style.display = '';
+    _sbRenderSubtabs();
+    await _sbLoadSubtab('columns');
+}
+
+function sbCloseTblDetails() {
+    document.getElementById('sb-tbl-details-card').style.display = 'none';
+    _sbTblDetailsState = { schema: '', table: '', subtab: 'columns', data: {}, sortCol: null, sortAsc: true };
+}
+
+function _sbRenderSubtabs() {
+    const tabs = ['Columns', 'Data', 'Constraints', 'Statistics', 'Indexes', 'SQL'];
+    const container = document.getElementById('sb-tbl-subtabs');
+    container.innerHTML = tabs.map(t => {
+        const key = t.toLowerCase();
+        const active = key === _sbTblDetailsState.subtab;
+        return `<button class="btn btn-sm ${active ? 'btn-primary' : 'btn-outline'}" style="border-radius:0;border-bottom:${active ? '2px solid var(--primary)' : 'none'}" onclick="sbSwitchSubtab('${key}')">${t}</button>`;
+    }).join('');
+}
+
+async function sbSwitchSubtab(key) {
+    _sbTblDetailsState.subtab = key;
+    _sbTblDetailsState.sortCol = null;
+    _sbTblDetailsState.sortAsc = true;
+    _sbRenderSubtabs();
+    await _sbLoadSubtab(key);
+}
+
+function _sbSanitizeIdent(raw) {
+    // Strip everything except letters, digits, underscore, hash, dollar — Oracle identifier safe chars
+    return String(raw || '').replace(/[^A-Za-z0-9_#$]/g, '').toUpperCase();
+}
+
+async function _sbLoadSubtab(subtab) {
+    const dsId = document.getElementById('sb-ds')?.value;
+    const { schema, table } = _sbTblDetailsState;
+    if (!dsId || !table) return;
+    const content = document.getElementById('sb-tbl-details-content');
+    content.innerHTML = '<div style="padding:20px;color:var(--text-muted)"><span class="spinner"></span> Loading…</div>';
+
+    // Sanitize schema/table to prevent SQL injection
+    const safeSchema = _sbSanitizeIdent(schema);
+    const safeTable = _sbSanitizeIdent(table);
+    if (!safeSchema || !safeTable) {
+        content.innerHTML = '<div class="text-danger" style="padding:16px">Invalid schema or table name.</div>';
+        return;
+    }
+
+    let sql = '';
+    if (subtab === 'columns') {
+        sql = `SELECT COLUMN_ID, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER='${safeSchema}' AND TABLE_NAME='${safeTable}' ORDER BY COLUMN_ID`;
+    } else if (subtab === 'data') {
+        sql = `SELECT * FROM ${safeSchema}.${safeTable} WHERE ROWNUM <= 200`;
+    } else if (subtab === 'constraints') {
+        sql = `SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE, SEARCH_CONDITION, R_CONSTRAINT_NAME, STATUS FROM ALL_CONSTRAINTS WHERE OWNER='${safeSchema}' AND TABLE_NAME='${safeTable}'`;
+    } else if (subtab === 'statistics') {
+        sql = `SELECT NUM_ROWS, BLOCKS, AVG_ROW_LEN, LAST_ANALYZED, PARTITIONED, TEMPORARY FROM ALL_TABLES WHERE OWNER='${safeSchema}' AND TABLE_NAME='${safeTable}'`;
+    } else if (subtab === 'indexes') {
+        sql = `SELECT INDEX_NAME, INDEX_TYPE, UNIQUENESS, STATUS, TABLESPACE_NAME FROM ALL_INDEXES WHERE TABLE_OWNER='${safeSchema}' AND TABLE_NAME='${safeTable}'`;
+    } else if (subtab === 'sql') {
+        sql = `SELECT DBMS_METADATA.GET_DDL('TABLE','${safeTable}','${safeSchema}') AS DDL_TEXT FROM DUAL`;
+    }
+
+    try {
+        const res = await API.queryDatasource(parseInt(dsId), { sql, row_limit: 1000 });
+        const rows = res?.rows || [];
+        const cols = res?.columns || (rows.length ? Object.keys(rows[0]) : []);
+        _sbTblDetailsState.data[subtab] = { rows, cols };
+        _sbRenderDetailsGrid(subtab, rows, cols);
+    } catch (e) {
+        content.innerHTML = `<div class="text-danger" style="padding:16px">&#9888; ${escapeHtml(String(e?.message || e))}</div>`;
+    }
+}
+
+function _sbRenderDetailsGrid(subtab, rows, cols) {
+    const content = document.getElementById('sb-tbl-details-content');
+    if (!rows.length) { content.innerHTML = '<div class="empty-state">No rows returned.</div>'; return; }
+
+    if (subtab === 'sql') {
+        const ddl = rows[0]?.DDL_TEXT || rows[0]?.[Object.keys(rows[0])[0]] || '';
+        content.innerHTML = `<pre style="padding:12px;font-family:monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#e2e8f0;margin:0">${escapeHtml(String(ddl))}</pre>`;
+        return;
+    }
+    if (subtab === 'statistics') {
+        const items = rows.map(r => Object.entries(r).map(([k, v]) =>
+            `<tr><td style="color:var(--text-muted);font-weight:600;padding:5px 12px">${escapeHtml(k)}</td><td style="padding:5px 16px;font-family:monospace">${escapeHtml(String(v ?? ''))}</td></tr>`
+        ).join('')).join('');
+        content.innerHTML = `<table class="sql-result-table"><tbody>${items}</tbody></table>`;
+        return;
+    }
+
+    // Sort rows if sort is active
+    let sortedRows = [...rows];
+    const { sortCol, sortAsc } = _sbTblDetailsState;
+    if (sortCol && cols.includes(sortCol)) {
+        sortedRows.sort((a, b) => {
+            const va = a[sortCol], vb = b[sortCol];
+            if (va == null && vb == null) return 0;
+            if (va == null) return sortAsc ? -1 : 1;
+            if (vb == null) return sortAsc ? 1 : -1;
+            if (typeof va === 'number' && typeof vb === 'number') return sortAsc ? va - vb : vb - va;
+            return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+        });
+    }
+
+    const hdr = cols.map(c => {
+        const arrow = sortCol === c ? (sortAsc ? ' ▲' : ' ▼') : '';
+        return `<th class="sql-result-th sb-sortable-th" style="white-space:nowrap;cursor:pointer;user-select:none" data-col="${escapeHtml(c)}">${escapeHtml(c)}${arrow}</th>`;
+    }).join('');
+    const body = sortedRows.map(r => {
+        const cells = cols.map(c => {
+            const v = r[c];
+            const disp = v === null || v === undefined ? '<span style="color:#475569;font-style:italic">null</span>' : escapeHtml(String(v));
+            return `<td class="sql-result-td">${disp}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+    }).join('');
+    content.innerHTML = `<table class="sql-result-table"><thead><tr>${hdr}</tr></thead><tbody>${body}</tbody></table>`;
+
+    // Attach sort handlers
+    content.querySelectorAll('.sb-sortable-th').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            if (_sbTblDetailsState.sortCol === col) {
+                _sbTblDetailsState.sortAsc = !_sbTblDetailsState.sortAsc;
+            } else {
+                _sbTblDetailsState.sortCol = col;
+                _sbTblDetailsState.sortAsc = true;
+            }
+            _sbRenderDetailsGrid(subtab, rows, cols);
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

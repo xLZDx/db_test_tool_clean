@@ -1,10 +1,91 @@
-"""In-memory operation tracking for long-running schema tasks."""
+"""In-memory operation tracking for long-running schema tasks.
 
+Terminal states (completed/failed/stopped) are also persisted to disk so they
+survive server restarts. Call restore_persisted_operations() on startup.
+"""
+
+import json
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any
+from pathlib import Path
+from typing import Dict, Any, Optional
 
 
 _OPERATIONS: Dict[str, Dict[str, Any]] = {}
+
+
+# ── Disk persistence helpers ─────────────────────────────────────────────────
+
+def _history_path() -> Path:
+    """Return path to the JSONL history file, creating the directory if needed."""
+    try:
+        from app.config import BASE_DIR  # lazy import to avoid circular deps
+        p = BASE_DIR / "data" / "local_kb"
+    except Exception:
+        p = Path(__file__).resolve().parents[2] / "data" / "local_kb"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / "operation_history.jsonl"
+
+
+def _serialize_state(state: Dict[str, Any]) -> str:
+    out: Dict[str, Any] = {}
+    for k, v in state.items():
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return json.dumps(out, ensure_ascii=True)
+
+
+def _persist_terminal_state(state: Dict[str, Any]) -> None:
+    """Append a terminal-state snapshot to the history file."""
+    try:
+        line = _serialize_state(state) + "\n"
+        with _history_path().open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
+
+
+def restore_persisted_operations(max_age_hours: int = 48) -> int:
+    """Load recent terminal-state operations from disk into _OPERATIONS.
+
+    Returns the number of operations restored.
+    Called once from main.py startup.
+    """
+    path = _history_path()
+    if not path.exists():
+        return 0
+    cutoff = _now() - timedelta(hours=max_age_hours)
+    loaded = 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in lines[-500:]:  # cap memory: last 500 entries
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                raw = json.loads(line)
+            except Exception:
+                continue
+            # Deserialise datetime strings
+            for key in ("started_at", "updated_at", "finished_at"):
+                val = raw.get(key)
+                if isinstance(val, str) and val:
+                    try:
+                        raw[key] = datetime.fromisoformat(val)
+                    except Exception:
+                        raw[key] = None
+            # Skip entries that are too old
+            updated = raw.get("updated_at")
+            if isinstance(updated, datetime) and updated < cutoff:
+                continue
+            op_id = raw.get("id")
+            if op_id and op_id not in _OPERATIONS:
+                _OPERATIONS[op_id] = raw
+                loaded += 1
+    except Exception:
+        pass
+    return loaded
 
 
 def _now() -> datetime:
@@ -151,6 +232,7 @@ def mark_completed(operation_id: str | None, message: str | None = None) -> None
         state["current"] = max(int(state.get("current", 0)), int(state.get("total", 0)))
     state["finished_at"] = _now()
     state["updated_at"] = _now()
+    _persist_terminal_state(state)
 
 
 def mark_stopped(operation_id: str | None, message: str | None = None) -> None:
@@ -163,6 +245,7 @@ def mark_stopped(operation_id: str | None, message: str | None = None) -> None:
         state["notifications"] = state["notifications"][-30:]
     state["finished_at"] = _now()
     state["updated_at"] = _now()
+    _persist_terminal_state(state)
 
 
 def mark_failed(operation_id: str | None, message: str) -> None:
@@ -175,6 +258,7 @@ def mark_failed(operation_id: str | None, message: str) -> None:
         state["errors"] = state["errors"][-20:]
     state["finished_at"] = _now()
     state["updated_at"] = _now()
+    _persist_terminal_state(state)
 
 
 def request_stop(operation_id: str) -> None:

@@ -4,6 +4,7 @@ Parses CSV/Excel files in enterprise DRD format (like Book3.csv, Book44.csv),
 allows column filtering, and groups column-level mappings into mapping rules.
 """
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -71,7 +72,7 @@ def _column_token_parts(expr: str) -> Tuple[str, str]:
     text = (expr or "").strip().strip('"')
     if not text:
         return "", ""
-    match = re.search(r'(?:(?P<alias>[A-Z0-9_]+)\.)?"?(?P<column>[A-Z0-9_]+)"?$', text.upper())
+    match = re.search(r'(?:(?P<alias>[A-Z0-9_\$#]+)\.)?"?(?P<column>[A-Z0-9_\$#]+)"?$', text.upper())
     if not match:
         return "", ""
     return (match.group("alias") or "").upper(), (match.group("column") or "").upper()
@@ -261,7 +262,13 @@ def validate_column_mappings_with_kb(
             rec["source_table"] = src_tbl.get("table") or rec.get("source_table")
 
         src_col_map = (src_tbl or {}).get("columns", {})
-        src_resolved, src_conf = _resolve_column_with_confidence(src_col_map, src_attr) if src_tbl else (src_attr, 100.0 if src_attr else 0.0)
+        # If the DRD source_attribute already matches a column exactly, keep it
+        # and skip fuzzy resolution to avoid mis-mapping similar column names.
+        src_attr_u = src_attr.upper().strip()
+        if src_col_map and src_attr_u and src_attr_u in src_col_map:
+            src_resolved, src_conf = src_col_map[src_attr_u], 100.0
+        else:
+            src_resolved, src_conf = _resolve_column_with_confidence(src_col_map, src_attr) if src_tbl else (src_attr, 100.0 if src_attr else 0.0)
         if src_resolved:
             rec["source_attribute"] = src_resolved
             validated += 1
@@ -272,7 +279,13 @@ def validate_column_mappings_with_kb(
         confidence_log.append({"field": f"{src_schema}.{src_table}.{src_attr}", "resolved": src_resolved, "confidence": src_conf, "side": "source"})
 
         tgt_candidate = tgt_attr or (logical.upper().replace(" ", "_") if logical else "")
-        tgt_resolved, tgt_conf = _resolve_column_with_confidence(target_col_map, tgt_candidate) if target_col_map else (tgt_candidate, 100.0 if tgt_candidate else 0.0)
+        # If the DRD target column already matches exactly, keep it — don't let
+        # fuzzy matching reassign it to a different column with a similar name.
+        tgt_candidate_u = (tgt_candidate or "").upper().strip()
+        if target_col_map and tgt_candidate_u and tgt_candidate_u in target_col_map:
+            tgt_resolved, tgt_conf = target_col_map[tgt_candidate_u], 100.0
+        else:
+            tgt_resolved, tgt_conf = _resolve_column_with_confidence(target_col_map, tgt_candidate) if target_col_map else (tgt_candidate, 100.0 if tgt_candidate else 0.0)
         if tgt_resolved:
             rec["physical_name"] = tgt_resolved
             validated += 1
@@ -702,6 +715,7 @@ def parse_drd_file(
     target_datasource_id: int = 1,
     default_source_table: str = "",
     sheet_name: Optional[str] = None,
+    exclude_strikethrough: bool = False,
 ) -> Dict[str, Any]:
     """Parse a DRD file and create mapping rules grouped by source table.
 
@@ -714,6 +728,7 @@ def parse_drd_file(
         source_datasource_id: datasource ID for source
         target_datasource_id: datasource ID for target
         default_source_table: fallback table name if not in file (optional)
+        exclude_strikethrough: when True, skip struck-through rows (de-scoped DRD entries)
 
     Returns:
         {
@@ -723,7 +738,7 @@ def parse_drd_file(
             "errors": [...],
         }
     """
-    rows = _read_raw_rows(file_bytes, filename, sheet_name=sheet_name)
+    rows = _read_raw_rows(file_bytes, filename, sheet_name=sheet_name, exclude_strikethrough=exclude_strikethrough)
     if not rows:
         return {"rules": [], "column_mappings": [], "stats": {}, "errors": ["Empty file"]}
 
@@ -752,6 +767,12 @@ def parse_drd_file(
                     record["source_attribute"] = (record.get("physical_name") or "").strip()
                 elif (record.get("logical_name") or "").strip():
                     record["source_attribute"] = (record.get("logical_name") or "").strip().upper().replace(" ", "_")
+
+            # Clean source_table: when a DRD cell contains multiple table names
+            # (newline- or comma-separated), use only the first one as the primary source.
+            _st_raw = (record.get("source_table") or "").strip()
+            if _st_raw and ("\n" in _st_raw or "," in _st_raw):
+                record["source_table"] = _st_raw.split("\n")[0].split(",")[0].strip()
 
             # Apply default source table if not specified in record
             if not record.get("source_table") and default_source_table:
@@ -787,22 +808,171 @@ def parse_drd_file(
     }
 
 
+def generate_e2e_scripts(
+    column_mappings: List[Dict[str, Any]],
+    target_schema: str,
+    target_table: str,
+    test_rows: int = 10,
+    pdm_filter: bool = False,
+    target_datasource_id: int = 1,
+) -> Dict[str, Any]:
+    """Generate CREATE TABLE, INSERT, and validation SQL scripts from DRD column mappings.
+
+    Uses physical_name + target_datatype_oracle + target_nullable_oracle from each record.
+    All scripts are offline-generated (no DB connection required).
+
+    Returns:
+        {
+            "create_table_sql": str,
+            "insert_sql": str,
+            "validation_sqls": [{"label": str, "sql": str}],
+            "column_count": int,
+            "columns": [{"name", "data_type", "nullable"}],
+        }
+    """
+    import random
+    import string
+
+    fq_table = f"{target_schema.upper()}.{target_table.upper()}" if target_schema else target_table.upper()
+
+    # ── Collect distinct columns by physical_name ──────────────────────────
+    seen: set[str] = set()
+    columns: list[dict] = []
+    for rec in column_mappings:
+        pname = (rec.get("physical_name") or "").strip().upper()
+        if not pname or pname in seen:
+            continue
+        seen.add(pname)
+        raw_type = (rec.get("target_datatype_oracle") or "VARCHAR2(255)").strip()
+        nullable_raw = (rec.get("target_nullable_oracle") or "NULL").strip().upper()
+        nullable = (nullable_raw != "NOT NULL")
+        columns.append({"name": pname, "data_type": raw_type, "nullable": nullable})
+
+    # ── PDM filter: keep only columns that exist in the PDM target table ─────
+    pdm_cols: set = set()
+    pdm_extra_cols: list = []
+    if pdm_filter:
+        try:
+            tbl_index = _build_kb_table_index(target_datasource_id)
+            schema_u = target_schema.strip().upper()
+            table_u = target_table.strip().upper()
+            tbl_entry = tbl_index.get((schema_u, table_u))
+            if tbl_entry is None:
+                for (s, t), entry in tbl_index.items():
+                    if t == table_u:
+                        tbl_entry = entry
+                        break
+            if tbl_entry:
+                pdm_cols = set(tbl_entry.get("columns", {}).keys())
+        except Exception as exc:
+            logger.warning("PDM filter lookup failed for %s.%s: %s", target_schema, target_table, exc)
+
+    if pdm_filter and pdm_cols:
+        pdm_extra_cols = [c["name"] for c in columns if c["name"].upper() not in pdm_cols]
+        columns = [c for c in columns if c["name"].upper() in pdm_cols]
+
+    if not columns:
+        return {
+            "create_table_sql": "",
+            "insert_sql": "",
+            "validation_sqls": [],
+            "column_count": 0,
+            "columns": [],
+            "pdm_extra_cols": pdm_extra_cols,
+            "pdm_filtered": pdm_filter,
+        }
+
+    # ── CREATE TABLE ──────────────────────────────────────────────────────
+    col_defs: list[str] = []
+    for c in columns:
+        null_clause = "" if c["nullable"] else " NOT NULL"
+        col_defs.append(f"  {c['name']} {c['data_type']}{null_clause}")
+    create_sql = (
+        f"CREATE TABLE {fq_table} (\n" + ",\n".join(col_defs) + "\n)"
+    )
+
+    # ── INSERT with synthetic literals ────────────────────────────────────
+    def _fake(col_name: str, data_type: str, idx: int) -> str:
+        dt = data_type.upper().split("(")[0].strip()
+        if dt in ("NUMBER", "INTEGER", "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE"):
+            return str(idx + 1)
+        if dt == "DATE":
+            y = 2020 + (idx % 5); m = (idx % 12) + 1
+            return f"DATE '{y:04d}-{m:02d}-01'"
+        if dt.startswith("TIMESTAMP"):
+            y = 2020 + (idx % 5); m = (idx % 12) + 1
+            return f"TIMESTAMP '{y:04d}-{m:02d}-01 00:00:00'"
+        if dt == "CHAR":
+            return f"'C{idx:03d}'"
+        suffix = "".join(random.choices(string.ascii_uppercase, k=4))
+        prefix = col_name[:6]
+        return f"'T_{prefix}_{suffix}'"
+
+    col_names_csv = ", ".join(c["name"] for c in columns)
+    insert_parts: list[str] = []
+    for i in range(test_rows):
+        vals = ", ".join(_fake(c["name"], c["data_type"], i) for c in columns)
+        insert_parts.append(
+            f"INSERT INTO {fq_table} ({col_names_csv})\nVALUES ({vals});"
+        )
+    insert_sql = "\n".join(insert_parts)
+
+    # ── Validation queries ────────────────────────────────────────────────
+    validation_sqls: list[dict] = []
+    # 1. Row count
+    validation_sqls.append({
+        "label": "row_count",
+        "sql": f"SELECT COUNT(*) AS row_count FROM {fq_table};",
+    })
+    # 2. NOT NULL checks (columns declared NOT NULL must have zero NULLs)
+    for c in columns:
+        if not c["nullable"]:
+            validation_sqls.append({
+                "label": f"null_check_{c['name']}",
+                "sql": (
+                    f"SELECT COUNT(*) AS null_violations FROM {fq_table}\n"
+                    f"WHERE {c['name']} IS NULL; -- expect 0"
+                ),
+            })
+    # 3. Spot check per column: distinct count
+    for c in columns:
+        validation_sqls.append({
+            "label": f"distinct_{c['name']}",
+            "sql": f"SELECT COUNT(DISTINCT {c['name']}) AS distinct_vals FROM {fq_table};",
+        })
+
+    return {
+        "create_table_sql": create_sql,
+        "insert_sql": insert_sql,
+        "validation_sqls": validation_sqls,
+        "column_count": len(columns),
+        "columns": columns,
+        "pdm_extra_cols": pdm_extra_cols,
+        "pdm_filtered": pdm_filter,
+    }
+
+
 # ── Internal helpers ────────────────────────────────────────────────────────
 
-def _read_raw_rows(file_bytes: bytes, filename: str, sheet_name: Optional[str] = None) -> List[List[Any]]:
+def _read_raw_rows(
+    file_bytes: bytes,
+    filename: str,
+    sheet_name: Optional[str] = None,
+    exclude_strikethrough: bool = False,
+) -> List[List[Any]]:
     """Read rows from CSV or Excel file.  For xlsx, *sheet_name* selects a specific tab."""
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
 
     if ext == "csv":
         return _read_csv(file_bytes)
     elif ext in ("xlsx", "xls"):
-        return _read_excel(file_bytes, sheet_name=sheet_name)
+        return _read_excel(file_bytes, sheet_name=sheet_name, exclude_strikethrough=exclude_strikethrough)
     else:
         # Try CSV first, then Excel
         try:
             return _read_csv(file_bytes)
         except Exception:
-            return _read_excel(file_bytes, sheet_name=sheet_name)
+            return _read_excel(file_bytes, sheet_name=sheet_name, exclude_strikethrough=exclude_strikethrough)
 
 
 def _read_csv(file_bytes: bytes) -> List[List[Any]]:
@@ -818,15 +988,16 @@ def _read_csv(file_bytes: bytes) -> List[List[Any]]:
 
 
 # ── Workbook cache (one parse per upload) ────────────────────────────────────
-_workbook_cache: Dict[int, Any] = {}  # hash(file_bytes) → openpyxl.Workbook
+_workbook_cache: Dict[str, Any] = {}  # md5(file_bytes) → openpyxl.Workbook
 
 
 def _get_workbook(file_bytes: bytes) -> Any:
-    """Return a read-only workbook, caching by content hash to avoid re-parsing."""
-    key = hash(file_bytes)
+    """Return a workbook, caching by content hash to avoid re-parsing."""
+    key = hashlib.md5(file_bytes).hexdigest()
     wb = _workbook_cache.get(key)
     if wb is None:
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+        # Keep workbook in normal mode so font/style metadata (strike-through) is available.
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
         _workbook_cache[key] = wb
         # Keep cache bounded (LRU-ish: evict oldest if >5)
         if len(_workbook_cache) > 5:
@@ -839,11 +1010,43 @@ def _get_workbook(file_bytes: bytes) -> Any:
     return wb
 
 
-def _read_excel(file_bytes: bytes, sheet_name: Optional[str] = None) -> List[List[Any]]:
+# Source mapping columns in the DRD fixed layout:
+#   Y(24) = Source Schema, Z(25) = Source Table, AA(26) = Source Attribute
+# Only rows struck in THESE columns are deprecated/de-scoped entries.
+# Columns 0-23 and 27+ contain reference/formula cells that are commonly struck
+# for non-structural reasons (formula errors, dated notes, secondary refs) and
+# must NOT trigger row exclusion.
+_SOURCE_COL_INDICES = (24, 25, 26)
+
+
+def _is_row_strikethrough(row) -> bool:
+    """Return True if a source-mapping DRD column (Y/Z/AA) has strike-through font."""
+    cells = list(row)
+    for idx in _SOURCE_COL_INDICES:
+        if idx >= len(cells):
+            continue
+        cell = cells[idx]
+        if cell.value is None:
+            continue
+        font = getattr(cell, "font", None)
+        if font is not None and getattr(font, "strike", False):
+            return True
+    return False
+
+
+def _read_excel(
+    file_bytes: bytes,
+    sheet_name: Optional[str] = None,
+    exclude_strikethrough: bool = False,
+) -> List[List[Any]]:
     """Read Excel file in read-only mode with caching.
 
     When *sheet_name* is given only that sheet is read, otherwise the best
-    DRD data-sheet is auto-detected."""
+    DRD data-sheet is auto-detected.
+
+    When *exclude_strikethrough* is True, any row where at least one non-empty
+    cell has strike-through font is skipped (de-scoped DRD rows).
+    """
     wb = _get_workbook(file_bytes)
 
     if sheet_name and sheet_name in wb.sheetnames:
@@ -853,6 +1056,8 @@ def _read_excel(file_bytes: bytes, sheet_name: Optional[str] = None) -> List[Lis
 
     rows = []
     for row in ws.iter_rows():
+        if exclude_strikethrough and _is_row_strikethrough(row):
+            continue
         rows.append([cell.value for cell in row])
     return rows
 
@@ -860,35 +1065,77 @@ def _read_excel(file_bytes: bytes, sheet_name: Optional[str] = None) -> List[Lis
 def _pick_best_drd_sheet(wb) -> Any:
     """Pick the best DRD data sheet from an openpyxl Workbook.
 
-    Priority:
-    1. Sheet whose name starts with ``Table-View``
-    2. Sheet that contains typical DRD header indicators
-    3. The active (first) sheet
+     Priority:
+     1. Prefer ``Table-View (2)`` style tabs when present
+     2. Among ``Table-View*`` tabs, pick the one with strongest header match
+         and the highest non-empty physical-name coverage in column B below header
+     3. Otherwise pick the sheet with strongest DRD header indicators
+     4. Fallback to active (first) sheet
     """
     _header_indicators = [
         "logical name", "physical name", "target column", "target attribute",
         "source attribute", "source column", "column name", "source table",
         "transformation", "data type",
     ]
-    candidates = []
-    for sn in wb.sheetnames:
-        if sn.lower().startswith("table-view") or sn.lower().startswith("table view"):
-            candidates.append(sn)
-    if len(candidates) == 1:
-        return wb[candidates[0]]
-    # Score each sheet by header indicator matches
-    best_sheet = None
-    best_score = -1
-    for sn in (candidates or wb.sheetnames):
-        ws = wb[sn]
+    def _norm_name(name: str) -> str:
+        return re.sub(r"[\s_\-]+", "", (name or "").lower())
+
+    def _header_score(ws) -> int:
+        best = 0
         for row_vals in ws.iter_rows(min_row=1, max_row=15, values_only=True):
             cells = [str(c).strip().lower() if c else "" for c in row_vals]
             score = sum(1 for ind in _header_indicators if any(ind in c for c in cells))
-            if score > best_score:
-                best_score = score
-                best_sheet = ws
-                if score >= 3:
-                    return ws
+            if score > best:
+                best = score
+        return best
+
+    def _col_b_non_empty_below_header(ws) -> int:
+        rows = [[cell.value for cell in row] for row in ws.iter_rows()]
+        if not rows:
+            return 0
+        header_idx, _headers = _find_header_row(rows)
+        count = 0
+        for row in rows[header_idx + 1:]:
+            # Column B contains physical target name in enterprise DRD template.
+            val = row[1] if len(row) > 1 else None
+            if val is not None and str(val).strip():
+                count += 1
+        return count
+
+    candidates = [
+        sn for sn in wb.sheetnames
+        if _norm_name(sn).startswith("tableview")
+    ]
+
+    if candidates:
+        scored = []
+        for sn in candidates:
+            ws = wb[sn]
+            ns = _norm_name(sn)
+            # Highest priority: exact "tableview" match (i.e. "Table-View") — operator locked
+            exact_match = 1 if ns == "tableview" else 0
+            prefers_tab2 = 1 if "(2)" in sn or ns.endswith("2") else 0
+            scored.append((
+                exact_match,
+                prefers_tab2,
+                _header_score(ws),
+                _col_b_non_empty_below_header(ws),
+                ws,
+            ))
+        scored.sort(key=lambda t: (t[0], t[1], t[2], t[3]), reverse=True)
+        return scored[0][4]
+
+    # Fallback: score each sheet by header indicator matches.
+    best_sheet = None
+    best_score = -1
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        score = _header_score(ws)
+        if score > best_score:
+            best_score = score
+            best_sheet = ws
+            if score >= 3:
+                return ws
     return best_sheet or wb.active
 
 
@@ -1588,22 +1835,68 @@ def generate_drd_tests(
         tgt_base = re.sub(r'\(.*\)', '', tgt_dtype).strip()
         if src_base == tgt_base:
             continue
-        # Generate a descriptive-only test (no SQL for data type comparison — metadata only)
-        tests.append({
-            "name": f"Data Type Check: {target_table}.{target_col} ({src_dtype} → {tgt_dtype})",
-            "test_type": "custom_sql",
-            "source_datasource_id": source_datasource_id,
-            "target_datasource_id": target_datasource_id,
-            "source_query": (
+        # Build a type-appropriate regex pattern for Oracle REGEXP_LIKE.
+        # For numeric target types: count values that do NOT look like numbers.
+        # For date/timestamp types: count values that do NOT match a date-like pattern.
+        # For all other types: metadata-only — no SQL execution (avoids always-PASS SQL).
+        _NUMERIC_BASES = {"NUMBER", "INTEGER", "INT", "FLOAT", "DECIMAL",
+                          "NUMERIC", "DOUBLE", "REAL", "BINARY_FLOAT", "BINARY_DOUBLE"}
+        _DATE_BASES = {"DATE", "TIMESTAMP"}
+        tgt_upper = tgt_base.upper()
+
+        if any(tgt_upper == t or tgt_upper.startswith(t) for t in _NUMERIC_BASES):
+            # Oracle POSIX: not a valid decimal number (including scientific notation)
+            bad_val_pattern = r"^[+-]?[[:digit:]]+(\\.[[:digit:]]+)?([Ee][+-]?[[:digit:]]+)?$"
+            sql_check = (
                 f"-- Data type validation: source={src_dtype}, target={tgt_dtype}\n"
                 f"SELECT /*+ PARALLEL(8) */\n"
                 f"COUNT(*) AS cnt\n"
                 f"FROM {tgt_fq}\n"
                 f"WHERE {target_table}.{target_col} IS NOT NULL\n"
-                f"AND NOT REGEXP_LIKE(TO_CHAR({target_table}.{target_col}), '.*')"
-            ),
+                f"AND NOT REGEXP_LIKE(TO_CHAR({target_table}.{target_col}), '{bad_val_pattern}')"
+            )
+            expected = json.dumps({"cnt": 0})
+        elif any(tgt_upper == t or tgt_upper.startswith(t) for t in _DATE_BASES):
+            # Oracle default date format DD-MON-YY or YYYY-MM-DD
+            bad_val_pattern = r"^[0-9]{{2}}-[A-Z]{{3}}-[0-9]{{2,4}}$|^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}"
+            sql_check = (
+                f"-- Data type validation: source={src_dtype}, target={tgt_dtype}\n"
+                f"SELECT /*+ PARALLEL(8) */\n"
+                f"COUNT(*) AS cnt\n"
+                f"FROM {tgt_fq}\n"
+                f"WHERE {target_table}.{target_col} IS NOT NULL\n"
+                f"AND NOT REGEXP_LIKE(TO_CHAR({target_table}.{target_col}), '{bad_val_pattern}')"
+            )
+            expected = json.dumps({"cnt": 0})
+        else:
+            # Non-numeric/non-date type mismatch: metadata warning only, no SQL
+            tests.append({
+                "name": f"Data Type Check: {target_table}.{target_col} ({src_dtype} -> {tgt_dtype})",
+                "test_type": "info",
+                "source_datasource_id": source_datasource_id,
+                "target_datasource_id": target_datasource_id,
+                "source_query": None,
+                "target_query": None,
+                "expected_result": None,
+                "severity": "low",
+                "description": (
+                    f"Data type mismatch (metadata only): source column has {src_dtype}, "
+                    f"target column {target_col} has {tgt_dtype}. Review if implicit conversion is intended."
+                ),
+                "source_field": cm.get("source_attribute") or "",
+                "target_field": target_col,
+                "mapping_type": "datatype_check",
+            })
+            continue
+
+        tests.append({
+            "name": f"Data Type Check: {target_table}.{target_col} ({src_dtype} -> {tgt_dtype})",
+            "test_type": "custom_sql",
+            "source_datasource_id": source_datasource_id,
+            "target_datasource_id": target_datasource_id,
+            "source_query": sql_check,
             "target_query": None,
-            "expected_result": json.dumps({"cnt": 0}),
+            "expected_result": expected,
             "severity": "low",
             "description": (
                 f"Data type mismatch detected: source column has {src_dtype}, "
@@ -1784,14 +2077,129 @@ def _extract_lookup_spec(
             return False
         if "." in t:
             return True
-        return t.endswith("_DIM") or t.endswith("_MAP") or t.endswith("CL_VAL") or t == "CL_VAL"
+        return (
+            t.endswith("_DIM")
+            or t.endswith("_MAP")
+            or t.endswith("_LKUP")
+            or t.endswith("_LKP")
+            or t.endswith("CL_VAL")
+            or t == "CL_VAL"
+        )
+
+    def _normalize_lookup_table_token(token: str) -> str:
+        t = (token or "").strip().upper()
+        if "." in t:
+            return t
+        if src_schema:
+            return f"{src_schema.upper()}.{t}"
+        return t
 
     # Pattern 0: Explicit LEFT [OUTER] JOIN schema.table alias ON col1 = col2
-    m0 = re.search(r'LEFT\s+(?:OUTER\s+)?JOIN\s+([\w\.]+)\s+\w+\s+ON\s+([\w\.]+)\s*=\s*([\w\.]+)', upper)
+    # Include $ in table/column patterns for Oracle identifiers like J$TXN
+    m0 = re.search(
+        r'LEFT\s+(?:OUTER\s+)?JOIN\s+(?:TO\s+)?'
+        r'([\w\.\$#]+)\s+([A-Z_][A-Z0-9_\$#]*)(?:\s+TABLE)?\s+ON\s+'
+        r'([\w\.\$#]+)\s*=\s*([\w\.\$#]+)',
+        upper,
+    )
     if m0:
         lk_tbl = m0.group(1)
-        _, lk_join_col = _column_token_parts(m0.group(2))
-        _, src_col = _column_token_parts(m0.group(3))
+        lk_alias = m0.group(2)
+        left_token = m0.group(3)
+        right_token = m0.group(4)
+        left_prefix, left_col = _column_token_parts(left_token)
+        right_prefix, right_col = _column_token_parts(right_token)
+
+        # Determine which side of = references the lookup table by alias prefix.
+        lk_bare = lk_tbl.split(".")[-1].upper() if "." in lk_tbl else lk_tbl.upper()
+        left_is_lookup = (left_prefix.upper() in {lk_alias.upper(), lk_bare, lk_tbl.upper()})
+        right_is_lookup = (right_prefix.upper() in {lk_alias.upper(), lk_bare, lk_tbl.upper()})
+
+        if left_is_lookup and not right_is_lookup:
+            lk_join_col = left_col
+            src_col = right_col
+            src_alias = right_prefix
+        elif right_is_lookup and not left_is_lookup:
+            lk_join_col = right_col
+            src_col = left_col
+            src_alias = left_prefix
+        else:
+            # Ambiguous or both match - use positional default (left=lookup)
+            lk_join_col = left_col
+            src_col = right_col
+            src_alias = right_prefix
+
+        extra_filter = _extract_lookup_filters(transformation)
+        _tail = upper[m0.end():]
+        _tail_m = re.match(r'\s*(AND\b[\s\S]+)$', _tail)
+        if _tail_m:
+            _tail_filter = (_tail_m.group(1) or "").strip()
+            if extra_filter:
+                if _tail_filter.upper() != extra_filter.upper():
+                    extra_filter = f"{extra_filter} {_tail_filter}"
+            else:
+                extra_filter = _tail_filter
+
+        # Pattern 0 is explicit JOIN syntax from DRD, so trust the lookup table token.
+        if lk_tbl and lk_join_col and src_col:
+            return {
+                "lookup_table": lk_tbl,
+                "source_lookup_col": src_col,
+                "lookup_join_col": lk_join_col,
+                "lookup_value_col": target_col_u,
+                "extra_filter": extra_filter,
+                "explicit_on_clause": True,
+                "source_alias_hint": src_alias,
+            }
+
+    # Pattern 0b: "LOOK UP USING A.B = C.D"
+    m0b = re.search(r'(?:LOOK\s*UP|LOOKUP)\s+USING\s+([A-Z0-9_\.]+)\s*=\s*([A-Z0-9_\.]+)', upper)
+    if m0b:
+        left_tok = m0b.group(1)
+        right_tok = m0b.group(2)
+        left_tbl, left_col = _column_token_parts(left_tok)
+        right_tbl, right_col = _column_token_parts(right_tok)
+
+        src_table_u = (src_table or "").strip().upper().split(".")[-1]
+        src_schema_u = (src_schema or "").strip().upper()
+
+        def _matches_src(tbl: str) -> bool:
+            t = (tbl or "").strip().upper()
+            if not t:
+                return False
+            if t == src_table_u:
+                return True
+            if src_schema_u and t == f"{src_schema_u}.{src_table_u}":
+                return True
+            return False
+
+        # If one side references the row's source table, treat the other side as driving source.
+        if _matches_src(right_tbl):
+            lk_tbl = right_tbl
+            lk_join_col = right_col
+            src_col = left_col
+        elif _matches_src(left_tbl):
+            lk_tbl = left_tbl
+            lk_join_col = left_col
+            src_col = right_col
+        else:
+            # Fallback: keep non-TXN side as lookup table when possible.
+            left_is_txn = (left_tbl or "").strip().upper().endswith(".TXN") or (left_tbl or "").strip().upper() == "TXN"
+            right_is_txn = (right_tbl or "").strip().upper().endswith(".TXN") or (right_tbl or "").strip().upper() == "TXN"
+            if left_is_txn and not right_is_txn:
+                lk_tbl = right_tbl
+                lk_join_col = right_col
+                src_col = left_col
+            elif right_is_txn and not left_is_txn:
+                lk_tbl = left_tbl
+                lk_join_col = left_col
+                src_col = right_col
+            else:
+                lk_tbl = right_tbl or left_tbl
+                lk_join_col = right_col or left_col
+                src_col = left_col or src_attr_u
+
+        lk_tbl = _normalize_lookup_table_token(lk_tbl)
         if _looks_like_lookup_table(lk_tbl) and lk_join_col and src_col:
             return {
                 "lookup_table": lk_tbl,

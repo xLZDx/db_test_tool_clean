@@ -430,74 +430,133 @@ async def lookup_work_item(item_id: int) -> Dict:
     return {}
 
 
-async def get_test_suites(project: str, plan_id: int, parent_suite_id: int = None) -> List[Dict]:
+async def resolve_plan_project(plan_id: int, preferred_project: str = None) -> Optional[str]:
+    """Find which configured TFS project actually contains a given test plan.
+
+    This is needed because plans fetched via a team-alias URL (e.g. 'Lighthouse')
+    may physically reside in a different Team Project (e.g. 'CDSIntegration').
+    The preferred_project is tried first.
+    """
+    if not settings.TFS_BASE_URL or not settings.TFS_PAT:
+        return preferred_project
+
+    all_projects = _get_projects()
+    projects_to_try = ([preferred_project] if preferred_project and preferred_project in all_projects else []) + \
+                      [p for p in all_projects if p != preferred_project]
+
+    for try_project in projects_to_try:
+        try:
+            url = _api_url(f"test/plans/{plan_id}?api-version=5.0", project=try_project)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=_headers(), ssl=False,
+                                       timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        return try_project
+        except Exception:
+            pass
+    return preferred_project or (all_projects[0] if all_projects else None)
+
+
+async def get_test_suites(project: str, plan_id: int, parent_suite_id: int = None) -> Tuple[List[Dict], str]:
     """Recursively fetch test suites for a plan.
     
     Args:
-        project: TFS project name
+        project: TFS project name (preferred; will try other configured projects on 404)
         plan_id: Test plan ID
         parent_suite_id: Filter to suites under parent (None = root)
     
     Returns:
-        List of dicts: {id, name, parent, testCaseCount, suiteType, ...}
+        Tuple of (suites list, actual_project used) where actual_project may differ
+        from the requested project if a cross-project fallback resolved the plan.
     """
     if not settings.TFS_BASE_URL or not settings.TFS_PAT:
-        return []
-    
-    try:
-        # Azure DevOps API endpoint for test suites
-        url = _api_url(f"test/plans/{plan_id}/suites?api-version=5.0", project=project)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=_headers(), ssl=False, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    logger.error(f"Failed to fetch test suites ({resp.status}): {text}")
-                    return []
-                
-                data = await resp.json()
-                suites = data.get("value", [])
-                
-                # Filter by parent suite if specified
-                if parent_suite_id is not None:
-                    suites = [s for s in suites if s.get("parent", {}).get("id") == parent_suite_id]
-                
-                logger.info(f"Fetched {len(suites)} test suites for plan {plan_id}")
-                return suites
-    
-    except Exception as e:
-        logger.exception(f"Error fetching test suites: {e}")
-        return []
+        return [], project
+
+    # Build ordered list: try requested project first, then others
+    all_projects = _get_projects()
+    projects_to_try = [project] + [p for p in all_projects if p != project]
+
+    for try_project in projects_to_try:
+        try:
+            url = _api_url(f"test/plans/{plan_id}/suites?api-version=5.0", project=try_project)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=_headers(), ssl=False, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 404 and try_project != projects_to_try[-1]:
+                        # Plan not in this project; try next
+                        logger.debug(f"Plan {plan_id} not found in project '{try_project}', trying fallback")
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error(f"Failed to fetch test suites for plan {plan_id} in '{try_project}' ({resp.status}): {text}")
+                        if try_project != projects_to_try[-1]:
+                            continue
+                        return [], project
+
+                    data = await resp.json()
+                    suites = data.get("value", [])
+
+                    if parent_suite_id is not None:
+                        suites = [s for s in suites if s.get("parent", {}).get("id") == parent_suite_id]
+
+                    if try_project != project:
+                        logger.info(f"Resolved plan {plan_id} suites via fallback project '{try_project}' (requested '{project}')")
+                    logger.info(f"Fetched {len(suites)} test suites for plan {plan_id} in '{try_project}'")
+                    return suites, try_project
+
+        except Exception as e:
+            logger.exception(f"Error fetching test suites for plan {plan_id} in '{try_project}': {e}")
+            if try_project != projects_to_try[-1]:
+                continue
+
+    return [], project
 
 
-async def get_test_points(project: str, plan_id: int, suite_id: int) -> List[Dict]:
+async def get_test_points(project: str, plan_id: int, suite_id: int) -> Tuple[List[Dict], str]:
     """Fetch all test points (test cases) in a suite.
-    
+
+    Args:
+        project: TFS project name (preferred; will try other configured projects on 404)
+        plan_id: Test plan ID
+        suite_id: Suite ID
+
     Returns:
-        List of dicts: {testPoint: {id, ...}, testCase: {id, name, description, ...}}
+        Tuple of (test_points list, actual_project used).
     """
     if not settings.TFS_BASE_URL or not settings.TFS_PAT:
-        return []
-    
-    try:
-        # On Azure DevOps Server/TFS, the stable endpoint is `/points` (not `/testpoint`).
-        url = _api_url(f"test/plans/{plan_id}/suites/{suite_id}/points?api-version=5.0", project=project)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=_headers(), ssl=False, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    logger.error(f"Failed to fetch test points ({resp.status}): {text}")
-                    return []
-                
-                data = await resp.json()
-                points = data.get("value", [])
-                logger.info(f"Fetched {len(points)} test points for suite {suite_id}")
-                return points
-    
-    except Exception as e:
-        logger.exception(f"Error fetching test points: {e}")
-        return []
+        return [], project
+
+    all_projects = _get_projects()
+    projects_to_try = [project] + [p for p in all_projects if p != project]
+
+    for try_project in projects_to_try:
+        try:
+            # On Azure DevOps Server/TFS, the stable endpoint is `/points` (not `/testpoint`).
+            url = _api_url(f"test/plans/{plan_id}/suites/{suite_id}/points?api-version=5.0", project=try_project)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=_headers(), ssl=False, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 404 and try_project != projects_to_try[-1]:
+                        logger.debug(f"Suite {suite_id}/plan {plan_id} not found in '{try_project}', trying fallback")
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error(f"Failed to fetch test points for suite {suite_id} in '{try_project}' ({resp.status}): {text}")
+                        if try_project != projects_to_try[-1]:
+                            continue
+                        return [], project
+
+                    data = await resp.json()
+                    points = data.get("value", [])
+                    if try_project != project:
+                        logger.info(f"Resolved suite {suite_id} test points via fallback project '{try_project}' (requested '{project}')")
+                    logger.info(f"Fetched {len(points)} test points for suite {suite_id} in '{try_project}'")
+                    return points, try_project
+
+        except Exception as e:
+            logger.exception(f"Error fetching test points for suite {suite_id} in '{try_project}': {e}")
+            if try_project != projects_to_try[-1]:
+                continue
+
+    return [], project
 
 
 async def get_test_case_details(project: str, test_case_id: int) -> Dict:

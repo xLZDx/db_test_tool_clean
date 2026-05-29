@@ -103,10 +103,22 @@ async function api(method, url, body = null, options = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     if (options && options.signal) opts.signal = options.signal;
-    const res = await fetch(url, opts);
+        const res = await fetch(url, opts).catch(err => {
+            throw new Error(`Network error: ${err.message}`);
+        });
     if (!res.ok) {
         const text = await res.text();
-        throw new Error(`${res.status}: ${text}`);
+        let msg = text;
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === 'object') {
+                const d = parsed.detail;
+                if (typeof d === 'string') msg = d;
+                else if (d && typeof d === 'object') msg = d.error || d.message || JSON.stringify(d);
+                else if (parsed.error) msg = String(parsed.error);
+            }
+        } catch (_) {}
+        throw new Error(`${res.status}: ${msg}`);
     }
     return res.json();
 }
@@ -238,7 +250,14 @@ const API = {
         const res = await fetch('/api/tests/control-table/analyze', { method: 'POST', body: form });
         if (!res.ok) {
             const text = await res.text();
-            throw new Error(`${res.status}: ${text}`);
+            let msg = text;
+            try {
+                const parsed = JSON.parse(text);
+                const d = parsed?.detail;
+                if (typeof d === 'string') msg = d;
+                else if (d && typeof d === 'object') msg = d.error || d.message || JSON.stringify(d);
+            } catch (_) {}
+            throw new Error(`${res.status}: ${msg}`);
         }
         return res.json();
     },
@@ -260,6 +279,26 @@ const API = {
         target_table: targetTable,
         compare_mode: compareMode,
     }),
+    compareControlTableDocs: async (payload) => {
+        const form = new FormData();
+        if (payload?.drd_file) form.append('drd_file', payload.drd_file);
+        if (payload?.odi_file_1) form.append('odi_file_1', payload.odi_file_1);
+        if (payload?.odi_file_2) form.append('odi_file_2', payload.odi_file_2);
+        if (typeof payload?.manual_sql === 'string') form.append('manual_sql', payload.manual_sql);
+        const res = await fetch('/api/tests/control-table/compare-docs', { method: 'POST', body: form });
+        if (!res.ok) {
+            const text = await res.text();
+            let msg = text;
+            try {
+                const parsed = JSON.parse(text);
+                const d = parsed?.detail;
+                if (typeof d === 'string') msg = d;
+                else if (d && typeof d === 'object') msg = d.error || d.message || JSON.stringify(d);
+            } catch (_) {}
+            throw new Error(`${res.status}: ${msg}`);
+        }
+        return res.json();
+    },
     listControlTableTrainingRules: (targetTable) => api('GET', `/api/tests/control-table/training/rules?target_table=${encodeURIComponent(targetTable || '')}`),
     saveControlTableTrainingFeedback: (payload) => api('POST', '/api/tests/control-table/training/feedback', payload),
     listControlTableTrainingFixtures: () => api('GET', '/api/tests/control-table/training/fixtures'),
@@ -644,7 +683,6 @@ function openModal(id) {
     const overlay = document.getElementById(id);
     if (!overlay) return;
     overlay.classList.add('active');
-    prepareModalWindow(overlay);
     // Initialize editors that may have been injected into the modal
     setTimeout(initAllSqlEditors, 50);
 }

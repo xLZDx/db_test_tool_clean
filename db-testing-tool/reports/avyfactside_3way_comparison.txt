@@ -1,0 +1,21 @@
+THREE-WAY COMPARISON: DRD vs LIVE (TRANSACTIONS_OWNER.AVY_FACT_SIDE) vs ODI
+========================================================================================================================
+DRD columns: 373
+Live table columns: 369
+ODI STEP3_STG columns: 297
+
+
+--- IN DRD BUT NOT IN LIVE TABLE (4) ---
+COLUMN                                   DRD TYPE                  IN ODI?   
+---------------------------------------------------------------------------
+SHRT_SALE_EXMPT_CD                       VARCHAR2(1)               NO
+SHRT_SALE_EXMPT_NM                       VARCHAR2(40)              NO
+STEP_IN_OUT_IND_CD                       VARCHAR2(1)               NO
+STEP_IN_OUT_IND_NM                       VARCHAR2(40)              NO
+
+
+--- SUMMARY ---
+Columns matching (DRD & Live): 369
+In DRD not Live: 4
+In Live not DRD (excl ETL): 0
+Type mismatches: 0

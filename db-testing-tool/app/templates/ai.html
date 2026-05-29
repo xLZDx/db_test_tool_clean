@@ -150,6 +150,22 @@ function stopCopilotAutoPoll() {
     }
 }
 
+function renderCopilotLoginInstructions(verificationUri, userCode) {
+    const instructions = document.getElementById('copilot-login-instructions');
+    if (!instructions) return;
+    instructions.style.display = 'block';
+    instructions.innerHTML = `
+        <div><strong>1.</strong> Open <a href="${escapeHtml(verificationUri || 'https://github.com/login/device')}" target="_blank" rel="noopener">${escapeHtml(verificationUri || 'https://github.com/login/device')}</a></div>
+        <div class="mt-8" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <strong>2.</strong>
+            <span>Enter code:</span>
+            <code id="copilot-user-code">${escapeHtml(userCode || '')}</code>
+            <button type="button" class="btn btn-outline btn-sm" onclick="copyCopilotUserCode()">Copy code</button>
+        </div>
+        <div class="mt-8"><strong>3.</strong> Authorize access for GitHub account <code>ikorostelev_RJF</code>.</div>
+    `;
+}
+
 async function loadAiRules() {
     try {
         const rules = await API.getMappings();
@@ -826,7 +842,8 @@ async function sendChat() {
     document.getElementById('chat-send-btn').disabled = true;
 
     try {
-        const provider = copilotConnected ? 'githubcopilot' : '';
+        const selectedAgentIds = getSelectedAgentIds();
+        const provider = copilotConnected ? 'githubcopilot' : (selectedAgentIds.length ? 'local' : '');
         const attachmentContext = chatAttachments.length
             ? `Attached files context:\n${chatAttachments.map(a => (
                 `- ${a.name} (${a.type || 'unknown'}, ${a.size || 0} bytes)${a.note ? ` - ${a.note}` : ''}`
@@ -837,7 +854,7 @@ async function sendChat() {
             chatHistory,
             attachmentContext,
             provider,
-            getSelectedAgentIds(),
+            selectedAgentIds,
             getTaskHint('cross-functional implementation support'),
             chatAttachments
         );
@@ -878,6 +895,7 @@ async function refreshCopilotStatus() {
         const pollBtn = document.getElementById('copilot-poll-btn');
         const disconnectBtn = document.getElementById('copilot-disconnect-btn');
         const modelLabel = document.getElementById('copilot-model-label');
+        const pending = res.pending_device_flow || null;
         if (copilotConnected) {
             badge.className = 'badge badge-success';
             badge.textContent = '● Connected';
@@ -891,7 +909,17 @@ async function refreshCopilotStatus() {
             connectBtn.style.display = 'inline-block';
             disconnectBtn.style.display = 'none';
             if (modelLabel) modelLabel.style.display = 'none';
-            if (!copilotDeviceCode) pollBtn.style.display = 'none';
+            if (pending && pending.verification_uri && pending.user_code) {
+                copilotDeviceCode = pending.device_code || copilotDeviceCode;
+                copilotUserCode = pending.user_code || copilotUserCode;
+                renderCopilotLoginInstructions(pending.verification_uri, pending.user_code);
+                pollBtn.style.display = 'inline-block';
+                if (getCopilotAuthMode() === 'automatic' && copilotDeviceCode && !copilotAutoPollHandle) {
+                    copilotAutoPollHandle = setInterval(() => pollCopilotSignIn(true), 5000);
+                }
+            } else if (!copilotDeviceCode) {
+                pollBtn.style.display = 'none';
+            }
         }
     } catch (e) {
         document.getElementById('copilot-status-badge').className = 'badge badge-danger';
@@ -908,18 +936,7 @@ async function startCopilotSignIn() {
         }
         copilotDeviceCode = res.device_code || '';
         copilotUserCode = res.user_code || '';
-        const instructions = document.getElementById('copilot-login-instructions');
-        instructions.style.display = 'block';
-        instructions.innerHTML = `
-            <div><strong>1.</strong> Open <a href="${escapeHtml(res.verification_uri)}" target="_blank" rel="noopener">${escapeHtml(res.verification_uri)}</a></div>
-            <div class="mt-8" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <strong>2.</strong>
-                <span>Enter code:</span>
-                <code id="copilot-user-code">${escapeHtml(res.user_code || '')}</code>
-                <button type="button" class="btn btn-outline btn-sm" onclick="copyCopilotUserCode()">Copy code</button>
-            </div>
-            <div class="mt-8"><strong>3.</strong> Authorize access for GitHub account <code>ikorostelev_RJF</code>.</div>
-        `;
+        renderCopilotLoginInstructions(res.verification_uri, res.user_code || '');
         document.getElementById('copilot-poll-btn').style.display = 'inline-block';
 
         if (getCopilotAuthMode() === 'automatic') {
@@ -944,7 +961,7 @@ async function pollCopilotSignIn(silent = false) {
         return;
     }
     try {
-        const res = await API.copilotPollDevice(copilotDeviceCode);
+        const res = await API.copilotPollDevice(copilotDeviceCode || '');
         if (res.error) {
             if (!silent) showToast(res.error, 'error');
             return;
