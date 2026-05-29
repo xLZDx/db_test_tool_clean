@@ -496,13 +496,24 @@ def main(in_csv: pathlib.Path, out_csv: pathlib.Path) -> int:
         drd_full = drd_full_map.get(tgt, "")
         if not drd_full and annotated:
             drd_full = annotated.get("drd_rule", "")
-        explanation, recommendation = _classify_and_explain(
-            classify_row, drd_full, apa_cash_filter, apa_security_filter,
-            source_attr_index=source_attr_index,
-        )
         # If the column was annotated but is no longer in fresh mismatches,
         # flag it as "now matched" so operator sees the change.
         was_mismatch_now_matched = bool(annotated) and tgt not in fresh_chain
+        if was_mismatch_now_matched:
+            # Skip the classifier -- the walker has already shifted this row
+            # from REAL_MISMATCH to MATCHED.  Provide a short note pointing
+            # to the walker chain instead.
+            explanation = (
+                "RESOLVED: this column was REAL_MISMATCH in the operator's "
+                "original review but the latest walker / comparator now "
+                "report it as MATCHED.  No further review needed."
+            )
+            recommendation = "RESOLVED -- now MATCHED by walker"
+        else:
+            explanation, recommendation = _classify_and_explain(
+                classify_row, drd_full, apa_cash_filter, apa_security_filter,
+                source_attr_index=source_attr_index,
+            )
         out_rows.append({
             "target_col": tgt if annotated else (fresh_chain.get(tgt) and tgt),
             "mismatch_kind": mismatch_kind,

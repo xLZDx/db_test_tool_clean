@@ -426,7 +426,26 @@ class OdiXmlParser:
             if cls == "STEP_INSERT":
                 n = _step_num(raw)
                 if n is not None:
-                    step_inserts[n] = resolved
+                    # Operator-locked (2026-05-29): ODI emits MULTIPLE
+                    # STEP_INSERT blocks per step number when the load
+                    # has both a base-path and a richer-path variant.
+                    # Keep the LARGER block -- it carries more JOINs and
+                    # column derivations.  Empirical: STEP5 has 2 blocks
+                    # (24598 + 13839 bytes); the 24598 block has the
+                    # BKR_AR_DIM joins that produce BKR_AC_* attribute
+                    # columns; the smaller is a thin restart path.
+                    existing = step_inserts.get(n, "")
+                    if len(resolved) > len(existing):
+                        step_inserts[n] = resolved
+                        notes.append(
+                            f"block_{idx:02d}: STEP{n}_INSERT kept "
+                            f"(len {len(resolved)}, prev {len(existing)})"
+                        )
+                    else:
+                        notes.append(
+                            f"block_{idx:02d}: STEP{n}_INSERT skipped "
+                            f"(len {len(resolved)} < kept {len(existing)})"
+                        )
             elif cls == "MERGE":
                 model.final_select_sql = resolved
                 model.final_insert_columns = _extract_merge_insert_columns(resolved)
