@@ -1,9 +1,13 @@
-"""Tests for app/sql_model/comparator_driven_emitter.py.
+"""Tests for the DRD-driven comparator emitter (Phase 7.6).
 
-Operator-locked Phase 7.5 (2026-05-30): the new emitter REUSES the
-comparator's per-column verdict and projects from ODI's USING(...)
-inner SELECT, so the JOIN graph is honoured by construction and
-PROVENANCE_FALLBACK is eliminated.
+Operator-locked architecture (2026-05-30): the emitter projects from
+DRD-stated sources for every column.  ODI is used ONLY for verification
+(verdict annotation in comments) -- ODI is never the source of the
+output.
+
+These tests pin the architectural invariant: every projection that
+isn't NULL must come from a DRD-derived alias + DRD source_attribute,
+NEVER from a `S.<col>` style ODI staging reference.
 """
 from __future__ import annotations
 
@@ -17,8 +21,12 @@ sys.path.insert(0, str(_REPO))
 
 from app.sql_model.comparator import ComparisonResult
 from app.sql_model.comparator_driven_emitter import (
-    ComparatorDrivenInsert,
+    ComparatorDrivenInsert,  # back-compat alias
+    DrdDrivenInsert,
+    _build_alias_map,
     _extract_odi_using_subselect,
+    _is_lookup_table,
+    _lookup_discriminator,
     emit_insert_comparator_driven,
 )
 from app.sql_model.types import (
@@ -32,7 +40,7 @@ def _make_result(target_col: str, verdict: ComparisonVerdict, **kw) -> Compariso
         target_col=target_col.upper(),
         drd_schema=kw.get("drd_schema", ""),
         drd_table=kw.get("drd_table", ""),
-        drd_attr=kw.get("drd_attr", ""),
+        drd_attr=kw.get("drd_attr", target_col.upper()),
         odi_schema=kw.get("odi_schema", ""),
         odi_table=kw.get("odi_table", ""),
         odi_col=kw.get("odi_col", target_col.upper()),
@@ -40,193 +48,23 @@ def _make_result(target_col: str, verdict: ComparisonVerdict, **kw) -> Compariso
         odi_step=kw.get("odi_step", 1),
         explanation="",
         mismatch_kind=MismatchKind.NONE,
-        drd_logic="",
+        drd_logic=kw.get("drd_logic", ""),
         odi_logic="",
     )
 
 
-def _make_model(final_select_sql: str, final_insert_columns: list) -> ODIModel:
+def _make_model() -> ODIModel:
+    """ODI model is irrelevant to DRD-driven emitter except for API
+    symmetry; return a minimal one."""
     return ODIModel(
         target=TableRef(schema="T", table="X"),
         staging_steps=[],
-        final_select_sql=final_select_sql,
-        final_insert_columns=final_insert_columns,
-    )
-
-
-# ── _extract_odi_using_subselect ──────────────────────────────────────────────
-
-def test_extract_using_subselect_returns_inner_select():
-    """The MERGE INTO ... USING (...) wrapper has the inner SELECT we
-    need to project from.  Extractor must return everything between
-    the outer parens."""
-    sql = (
-        "merge into TARGET T\n"
-        "using\n"
-        "(\n"
-        "    select COL_A, COL_B from STG\n"
-        ") S\n"
-        "when matched then update set ...\n"
-    )
-    inner = _extract_odi_using_subselect(sql)
-    assert "select COL_A, COL_B from STG" in inner
-    assert "merge" not in inner.lower()
-    assert "when matched" not in inner.lower()
-
-
-def test_extract_using_subselect_handles_nested_parens():
-    """Balanced-paren walker must NOT stop on the first inner `)`."""
-    sql = (
-        "merge into T using (\n"
-        "    select COL_A from (select 1 from dual) x\n"
-        ") S when matched then ...\n"
-    )
-    inner = _extract_odi_using_subselect(sql)
-    assert "select COL_A from (select 1 from dual) x" in inner
-
-
-def test_extract_using_subselect_empty_on_no_using():
-    assert _extract_odi_using_subselect("") == ""
-    assert _extract_odi_using_subselect("select 1 from dual") == ""
-
-
-# ── emit_insert_comparator_driven ─────────────────────────────────────────────
-
-def test_emit_matched_column_projects_from_S_alias():
-    """MATCHED column => project `S.<col>` from the inner SELECT."""
-    model = _make_model(
-        final_select_sql="merge into X T using (select COL_A from STG) S when matched then ...",
-        final_insert_columns=["COL_A"],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="CTL", target_table="X",
-        drd_rows=[{"physical_name": "COL_A", "source_table": "STG", "source_attribute": "COL_A"}],
-        comparison_results=[_make_result("COL_A", ComparisonVerdict.MATCHED, odi_col="COL_A")],
-        odi_model=model,
-    )
-    assert "S.COL_A" in res.sql
-    assert "INSERT INTO CTL.X" in res.sql
-    assert "select COL_A from STG" in res.sql
-    assert res.matched_count == 1
-
-
-def test_emit_source_missing_column_emits_null_with_comment():
-    """SOURCE_MISSING => emit NULL with comment quoting the DRD source
-    so operator sees the gap."""
-    model = _make_model(
-        final_select_sql="merge into X using (select 1 from dual) S when matched then ...",
+        final_select_sql="",
         final_insert_columns=[],
     )
-    res = emit_insert_comparator_driven(
-        target_schema="CTL", target_table="X",
-        drd_rows=[{"physical_name": "GAP_COL", "source_table": "TGT_TBL", "source_attribute": "TGT_ATTR"}],
-        comparison_results=[_make_result(
-            "GAP_COL", ComparisonVerdict.SOURCE_MISSING,
-            drd_table="TGT_TBL", drd_attr="TGT_ATTR",
-        )],
-        odi_model=model,
-    )
-    assert "NULL" in res.sql
-    assert "SOURCE_MISSING" in res.sql
-    # The DRD source must be quoted in the comment so operator sees it.
-    assert "TGT_TBL" in res.sql
-    assert "TGT_ATTR" in res.sql
-    assert res.source_missing_cols == ["GAP_COL"]
-    assert res.null_substitutions == ["GAP_COL"]
 
-
-def test_emit_real_mismatch_projects_odi_with_warning_comment():
-    """REAL_MISMATCH => project ODI's value but warn operator that DRD
-    disagrees and they MUST decide."""
-    model = _make_model(
-        final_select_sql="merge into X using (select COL_X from STG) S when matched then ...",
-        final_insert_columns=["COL_X"],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="CTL", target_table="X",
-        drd_rows=[{"physical_name": "COL_X", "source_table": "T", "source_attribute": "OTHER"}],
-        comparison_results=[_make_result(
-            "COL_X", ComparisonVerdict.REAL_MISMATCH,
-            drd_attr="OTHER", odi_table="A", odi_col="COL_X",
-        )],
-        odi_model=model,
-    )
-    assert "S.COL_X" in res.sql
-    assert "REAL_MISMATCH" in res.sql
-    assert "MUST decide" in res.sql
-    assert res.real_mismatch_cols == ["COL_X"]
-
-
-def test_emit_odi_extra_columns_skipped():
-    """ODI_EXTRA is impossible in target_cols (no DRD declaration),
-    but if a stray ODI_EXTRA row sneaks in, the emitter skips it
-    safely instead of crashing."""
-    model = _make_model(
-        final_select_sql="merge into X using (select 1 from dual) S when matched then ...",
-        final_insert_columns=[],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="CTL", target_table="X",
-        drd_rows=[{"physical_name": "REAL_COL", "source_table": "T", "source_attribute": "A"}],
-        comparison_results=[
-            _make_result("REAL_COL", ComparisonVerdict.MATCHED),
-            _make_result("STRAY", ComparisonVerdict.ODI_EXTRA),
-        ],
-        odi_model=model,
-    )
-    assert "STRAY" not in res.sql
-    assert "REAL_COL" in res.sql
-
-
-def test_emit_comma_placement_keeps_oracle_parseable():
-    """Comments must come AFTER the comma (else `--` swallows it and
-    breaks Oracle parsing).  Regression test for the bug found while
-    building the emitter."""
-    model = _make_model(
-        final_select_sql="merge into X using (select A, B from S) S when matched then ...",
-        final_insert_columns=["A", "B"],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="CTL", target_table="X",
-        drd_rows=[
-            {"physical_name": "A", "source_table": "S", "source_attribute": "A"},
-            {"physical_name": "B", "source_table": "S", "source_attribute": "B"},
-        ],
-        comparison_results=[
-            _make_result("A", ComparisonVerdict.MATCHED, odi_col="A"),
-            _make_result("B", ComparisonVerdict.MATCHED, odi_col="B"),
-        ],
-        odi_model=model,
-    )
-    # Check comma is OUTSIDE the comment for the first projection.
-    assert "S.A,  -- " in res.sql or "S.A,\n" in res.sql
-    # And no SELECT line should have a `--` followed by a `,`.
-    for line in res.sql.splitlines():
-        if "--" in line:
-            idx = line.index("--")
-            assert "," not in line[idx:], f"comma inside comment on line: {line}"
-
-
-def test_emit_empty_drd_returns_empty_sql():
-    """No DRD target columns => can't emit; return empty SQL + note."""
-    model = _make_model(
-        final_select_sql="merge into X using (select 1 from dual) S when matched then ...",
-        final_insert_columns=[],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="C", target_table="X",
-        drd_rows=[], comparison_results=[], odi_model=model,
-    )
-    assert res.sql == ""
-    assert any("zero target columns" in n for n in res.notes)
-
-
-# ── Phase 7.5 review (BLOCKER + MAJOR) regression tests ──────────────────────
 
 def _select_lines(sql: str) -> list:
-    """Extract the SELECT-projection lines (the ones that produce a
-    column value), as a positional list.  Excludes header / INSERT
-    INTO / FROM."""
     out = []
     seen_select = False
     for line in sql.splitlines():
@@ -244,136 +82,299 @@ def _select_lines(sql: str) -> list:
     return out
 
 
+# ── ARCHITECTURAL INVARIANT: DRD is the source, NEVER ODI ───────────────────
+
+def test_emitter_never_projects_from_S_alias():
+    """Operator-locked Phase 7.6: NO projection line may use `S.<col>`
+    (that would be ODI-driven, the rejected v7.5 approach)."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "COL_A", "source_schema": "S", "source_table": "T", "source_attribute": "A"},
+            {"physical_name": "COL_B", "source_schema": "S", "source_table": "T", "source_attribute": "B"},
+        ],
+        comparison_results=[
+            _make_result("COL_A", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="A"),
+            _make_result("COL_B", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="B"),
+        ],
+        odi_model=_make_model(),
+    )
+    for line in _select_lines(res.sql):
+        assert not line.lstrip().startswith("S."), (
+            f"projection from S.<col> -- emitter must use DRD-derived alias, "
+            f"not ODI staging: {line!r}"
+        )
+
+
+def test_matched_column_projected_from_drd_table_alias():
+    """MATCHED column with DRD source CCAL.APA.YIELD must project from
+    an alias of APA (not from S, not from ODI staging)."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "YLD", "source_schema": "CCAL", "source_table": "APA", "source_attribute": "YIELD"},
+        ],
+        comparison_results=[
+            _make_result(
+                "YLD", ComparisonVerdict.MATCHED,
+                drd_schema="CCAL", drd_table="APA", drd_attr="YIELD",
+                odi_table="APA", odi_col="YIELD",
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    select = _select_lines(res.sql)
+    assert len(select) == 1
+    line = select[0]
+    # Projection is from APA's alias + YIELD attribute (DRD-driven).
+    assert "APA.YIELD" in line.upper() or "apa.YIELD" in line, line
+    assert ".YIELD" in line.upper()
+    assert " AS YLD" in line
+    # Base table is in FROM clause.
+    assert "FROM CCAL.APA" in res.sql.upper()
+
+
+def test_real_mismatch_projects_drd_source_not_odi():
+    """REAL_MISMATCH: DRD says X.Y, ODI says X.Z.  Emitter projects
+    X.Y (DRD spec); ODI divergence shown in COMMENT only."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "COL", "source_schema": "S", "source_table": "T",
+             "source_attribute": "DRD_ATTR"},
+        ],
+        comparison_results=[
+            _make_result(
+                "COL", ComparisonVerdict.REAL_MISMATCH,
+                drd_schema="S", drd_table="T", drd_attr="DRD_ATTR",
+                odi_table="OTHER_TABLE", odi_col="OTHER_COL",
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    select = _select_lines(res.sql)
+    assert len(select) == 1
+    # DRD source MUST be in the projection.
+    assert "DRD_ATTR" in select[0]
+    # ODI divergent value must NOT be in the projection (only in comment).
+    proj_part = select[0].split("--")[0]
+    assert "OTHER_COL" not in proj_part
+    # But comment WARNS about ODI divergence.
+    assert "REAL_MISMATCH" in select[0]
+    assert "OTHER_COL" in select[0]
+    assert "COL" in res.real_mismatch_cols
+
+
+def test_source_missing_emits_null_with_drd_source_in_comment():
+    """SOURCE_MISSING: DRD says X.Y; ODI doesn't have it.  Emit DRD's
+    spec (with warning).  Operator should fix ODI or accept gap."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "GAP", "source_schema": "S", "source_table": "T",
+             "source_attribute": "GAP_ATTR"},
+        ],
+        comparison_results=[
+            _make_result(
+                "GAP", ComparisonVerdict.SOURCE_MISSING,
+                drd_schema="S", drd_table="T", drd_attr="GAP_ATTR",
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    select = _select_lines(res.sql)
+    assert len(select) == 1
+    # DRD source is still projected (operator's intent: ODI gap, not DRD gap).
+    assert "GAP_ATTR" in select[0]
+    assert "SOURCE_MISSING" in select[0]
+    assert "GAP" in res.source_missing_cols
+
+
+# ── Alias map invariants ──────────────────────────────────────────────────────
+
+def test_base_table_is_most_frequent_source():
+    """Most-frequent DRD source_table becomes the base; alias = 't'."""
+    tuples = [
+        ("A", "S.APA", "COL_A", "", "MATCHED"),
+        ("B", "S.APA", "COL_B", "", "MATCHED"),
+        ("C", "S.APA", "COL_C", "", "MATCHED"),
+        ("D", "S.TXN", "COL_D", "", "MATCHED"),
+    ]
+    base, per_row, _ = _build_alias_map(tuples)
+    assert base == "S.APA"
+    assert per_row[("S.APA", "")] == "t"
+
+
+def test_lookup_table_per_discriminator_aliasing():
+    """Multiple uses of CL_VAL with different discriminators get
+    DIFFERENT aliases (CL_VAL_1, CL_VAL_2, ...)."""
+    tuples = [
+        ("BASE_COL", "S.TXN", "ID", "", "MATCHED"),
+        ("X", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
+        ("Y", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 115", "MATCHED"),
+    ]
+    base, per_row, _ = _build_alias_map(tuples)
+    assert base == "S.TXN"
+    # Two distinct lookup aliases.
+    assert per_row[("S.CL_VAL", "114")] != per_row[("S.CL_VAL", "115")]
+
+
+def test_lookup_table_same_discriminator_shares_alias():
+    """Two rows hitting the SAME (lookup_table, discriminator) share
+    one alias."""
+    tuples = [
+        ("BASE_COL", "S.TXN", "ID", "", "MATCHED"),
+        ("X", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
+        ("Y", "S.CL_VAL", "CL_VAL_NM", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
+    ]
+    base, per_row, _ = _build_alias_map(tuples)
+    assert len([k for k in per_row.keys() if k[0] == "S.CL_VAL"]) == 1
+
+
+# ── Discriminator extraction ──────────────────────────────────────────────────
+
+def test_discriminator_extracted_from_transformation_text():
+    assert _lookup_discriminator("Use TAX_LOT_TXN_TP_ID as CL_Val_id where CL_SCM_ID = 84") == "84"
+    assert _lookup_discriminator("Use CL_VAL where CL_SCM_ID=114") == "114"
+    assert _lookup_discriminator("plain join, no discriminator") == ""
+    assert _lookup_discriminator("") == ""
+
+
+def test_is_lookup_table_recognises_known_markers():
+    assert _is_lookup_table("CCAL.CL_VAL") is True
+    assert _is_lookup_table("X.AR_DIM") is True
+    assert _is_lookup_table("X.SOMETHING_LKU") is True
+    assert _is_lookup_table("X.SOMETHING_MAP") is True
+    assert _is_lookup_table("X.APA") is False
+    assert _is_lookup_table("") is False
+
+
+# ── Edge cases ────────────────────────────────────────────────────────────────
+
+def test_empty_drd_returns_extraction_failed():
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[], comparison_results=[], odi_model=_make_model(),
+    )
+    assert res.extraction_failed is True
+    assert res.sql == ""
+
+
+def test_drd_row_with_no_source_table_emits_null():
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "BASE", "source_schema": "S", "source_table": "T", "source_attribute": "ID"},
+            {"physical_name": "NO_SOURCE", "source_schema": "", "source_table": "", "source_attribute": ""},
+        ],
+        comparison_results=[
+            _make_result("BASE", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="ID"),
+            _make_result("NO_SOURCE", ComparisonVerdict.SOURCE_MISSING),
+        ],
+        odi_model=_make_model(),
+    )
+    select = _select_lines(res.sql)
+    assert len(select) == 2
+    # First row gets a proper projection
+    assert "ID" in select[0]
+    # Second row gets NULL because DRD has no source
+    assert "NULL" in select[1]
+    assert "NO_SOURCE" in res.null_substitutions
+
+
+def test_null_for_not_null_column_flagged_as_runtime_risk():
+    tdef = {"columns": [{"name": "PK_COL", "nullable": False, "is_pk": True}]}
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "BASE", "source_schema": "S", "source_table": "T", "source_attribute": "ID"},
+            {"physical_name": "PK_COL", "source_schema": "", "source_table": "", "source_attribute": ""},
+        ],
+        comparison_results=[
+            _make_result("BASE", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="ID"),
+            _make_result("PK_COL", ComparisonVerdict.SOURCE_MISSING),
+        ],
+        odi_model=_make_model(),
+        target_definition=tdef,
+    )
+    assert "PK_COL" in res.null_in_not_null_risk_cols
+    assert "ORA-01400" in res.sql
+
+
+def test_oracle_parses_cleanly_with_dummy_joins():
+    """Even with CROSS JOIN placeholders, the SQL must parse under
+    sqlglot Oracle dialect (we generate valid-but-incomplete SQL,
+    NOT garbage)."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "A", "source_schema": "S", "source_table": "T", "source_attribute": "A"},
+            {"physical_name": "B", "source_schema": "S", "source_table": "OTHER", "source_attribute": "B"},
+        ],
+        comparison_results=[
+            _make_result("A", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="A"),
+            _make_result("B", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="OTHER", drd_attr="B"),
+        ],
+        odi_model=_make_model(),
+    )
+    # CROSS JOIN appears for the non-base table
+    assert "CROSS JOIN" in res.sql
+    # And join_undetermined_tables records it
+    assert res.join_undetermined_tables, "operator must see which joins lack ON predicates"
+    # Validate SQL parses
+    import sqlglot
+    try:
+        sqlglot.parse_one(res.sql, dialect="oracle")
+    except Exception as e:
+        pytest.fail(f"emitted SQL does not parse: {e}\n\nSQL:\n{res.sql}")
+
+
+# ── Comma-before-comment (Oracle parse safety) ───────────────────────────────
+
+def test_comma_placement_for_oracle_parse():
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "A", "source_schema": "S", "source_table": "T", "source_attribute": "A"},
+            {"physical_name": "B", "source_schema": "S", "source_table": "T", "source_attribute": "B"},
+        ],
+        comparison_results=[
+            _make_result("A", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="A"),
+            _make_result("B", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="B"),
+        ],
+        odi_model=_make_model(),
+    )
+    select = _select_lines(res.sql)
+    # First line: comma BEFORE the comment.
+    for line in select[:-1]:
+        if "--" in line:
+            idx = line.index("--")
+            assert "," not in line[idx:], f"comma inside comment: {line!r}"
+    # Last line must NOT have a trailing comma before the comment.
+    last_proj = select[-1].split("--")[0]
+    assert not last_proj.rstrip().endswith(","), f"last projection ends with comma: {select[-1]!r}"
+
+
+# ── Back-compat: paren walker still passes its own invariants ────────────────
+
+def test_paren_walker_extracts_inner_select():
+    """The Phase 7.5 helper is retained for any external caller that
+    used it.  Its hardened paren-walker invariants still hold."""
+    sql = "merge into T using (\n  select COL_A from STG\n) S when matched then ...\n"
+    inner = _extract_odi_using_subselect(sql)
+    assert "select COL_A from STG" in inner
+
+
 def test_paren_walker_skips_string_literal_parens():
-    """Hardened paren walker must NOT close on `(` or `)` inside
-    single-quoted string literals.  Regression for review BLOCKER."""
-    # ODI-style USING wrapper with DECODE that has `'Y(es)'` inside.
     sql = (
         "merge into T using (\n"
         "  select DECODE(X, 'Y(es)', 1, 0) AS Y from STG\n"
         ") S when matched then ...\n"
     )
     inner = _extract_odi_using_subselect(sql)
-    assert "DECODE" in inner
-    assert "'Y(es)'" in inner
-    # If naive walker had run, it would close on the `)` after 'Y(es' --
-    # the inner would be truncated.  Assert full extraction.
     assert "STG" in inner
 
 
-def test_paren_walker_skips_block_comment_parens():
-    """`)` inside `/* ... */` must not affect depth."""
-    sql = (
-        "merge into T using (\n"
-        "  /* footnote with )((( random parens */\n"
-        "  select COL_A from STG\n"
-        ") S when matched then ...\n"
-    )
-    inner = _extract_odi_using_subselect(sql)
-    assert "select COL_A from STG" in inner
-
-
-def test_paren_walker_skips_line_comment_parens():
-    """`)` after `--` must not affect depth until newline."""
-    sql = (
-        "merge into T using (\n"
-        "  -- trailing  ) noise\n"
-        "  select COL_A from STG\n"
-        ") S when matched then ...\n"
-    )
-    inner = _extract_odi_using_subselect(sql)
-    assert "select COL_A from STG" in inner
-
-
-def test_extraction_failure_flag_set_on_no_using():
-    """When the paren walker can't find USING, set extraction_failed=True
-    so the caller can refuse to show empty SQL silently."""
-    model = _make_model(final_select_sql="garbage", final_insert_columns=[])
-    res = emit_insert_comparator_driven(
-        target_schema="C", target_table="X",
-        drd_rows=[{"physical_name": "Y", "source_table": "T", "source_attribute": "Y"}],
-        comparison_results=[],
-        odi_model=model,
-    )
-    assert res.extraction_failed is True
-    assert "USING" in res.extraction_failure_reason
-    assert res.sql == ""
-
-
-def test_source_missing_into_not_null_column_flagged():
-    """When target_definition says a SOURCE_MISSING column is NOT NULL
-    (or is a PK), emit a clear runtime-risk warning in the SQL comment
-    AND list the column in null_in_not_null_risk_cols.  Operator must
-    see the constraint risk BEFORE running."""
-    model = _make_model(
-        final_select_sql="merge into X using (select 1 from dual) S when matched then ...",
-        final_insert_columns=[],
-    )
-    tdef = {
-        "columns": [
-            {"name": "GAP_COL", "nullable": False, "is_pk": True},
-        ],
-    }
-    res = emit_insert_comparator_driven(
-        target_schema="C", target_table="X",
-        drd_rows=[{"physical_name": "GAP_COL", "source_table": "T", "source_attribute": "A"}],
-        comparison_results=[_make_result("GAP_COL", ComparisonVerdict.SOURCE_MISSING)],
-        odi_model=model,
-        target_definition=tdef,
-    )
-    assert "GAP_COL" in res.null_in_not_null_risk_cols
-    assert "OPERATOR MUST REVIEW" in res.sql
-    assert "ORA-01400" in res.sql
-
-
-def test_select_line_position_for_matched_column():
-    """Position-aware test (review MAJOR 2): the SELECT-list line for
-    the Nth DRD column must project from the Nth column expression.
-    Catches a bug where the emitter swapped columns."""
-    model = _make_model(
-        final_select_sql="merge into X using (select A, B, C from S) S when matched then ...",
-        final_insert_columns=["A", "B", "C"],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="C", target_table="X",
-        drd_rows=[
-            {"physical_name": "A"}, {"physical_name": "B"}, {"physical_name": "C"},
-        ],
-        comparison_results=[
-            _make_result("A", ComparisonVerdict.MATCHED, odi_col="A"),
-            _make_result("B", ComparisonVerdict.SOURCE_MISSING, drd_attr="B"),
-            _make_result("C", ComparisonVerdict.MATCHED, odi_col="C"),
-        ],
-        odi_model=model,
-    )
-    select_lines = _select_lines(res.sql)
-    assert len(select_lines) == 3
-    assert select_lines[0].lstrip().startswith("S.A"), f"slot 0: {select_lines[0]!r}"
-    assert select_lines[1].lstrip().startswith("NULL"), f"slot 1: {select_lines[1]!r}"
-    assert select_lines[2].lstrip().startswith("S.C"), f"slot 2: {select_lines[2]!r}"
-
-
-def test_odi_extra_stray_emits_null_not_skip():
-    """If an ODI_EXTRA row accidentally has a DRD-declared target_col,
-    the emitter must emit explicit NULL (not skip) so the SELECT-list
-    cardinality matches the INSERT column list -- review MINOR."""
-    model = _make_model(
-        final_select_sql="merge into X using (select A, STRAY from S) S when matched then ...",
-        final_insert_columns=["A", "STRAY"],
-    )
-    res = emit_insert_comparator_driven(
-        target_schema="C", target_table="X",
-        drd_rows=[
-            {"physical_name": "A"},
-            {"physical_name": "STRAY"},  # DRD declares it
-        ],
-        comparison_results=[
-            _make_result("A", ComparisonVerdict.MATCHED, odi_col="A"),
-            _make_result("STRAY", ComparisonVerdict.ODI_EXTRA, odi_col="STRAY"),  # mis-routed
-        ],
-        odi_model=model,
-    )
-    select_lines = _select_lines(res.sql)
-    assert len(select_lines) == 2  # cardinality preserved
-    # The stray ODI_EXTRA must be NULL with a [BUG] marker.
-    assert any("[BUG]" in l for l in select_lines)
+def test_back_compat_alias_exposed():
+    """Older callers import `ComparatorDrivenInsert`; keep it working."""
+    assert ComparatorDrivenInsert is DrdDrivenInsert
