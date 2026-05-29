@@ -510,25 +510,25 @@ def main() -> int:
     # comparator's verdict alone would hide.  Caught: TXN_CCY STEP3
     # NULL + STEP5 CCY.CCY_NM overwrite.
     #
-    # Operator-locked verdict policy (2026-05-29 Phase 6.5):
-    # When a chain anomaly hits a column that has a CLEAR DRD source
-    # rule (drd source_attribute non-empty), the column is REAL_MISMATCH
-    # with mismatch_kind=IMPLEMENTATION_DRIFT_FROM_DRD -- not a soft
-    # "warning".  Operator: "if DRD has a clear rule, why is this a
-    # warning and not a mismatch?".  Reserve CHAIN_WARNING for cases
-    # where there is no DRD source to compare against.
-    chain_safety_count_real = 0
-    chain_safety_count_warning = 0
+    # Verdict policy (operator-locked 2026-05-29 Phase 6.6):
+    # The FINAL value in the target table matches DRD's expected
+    # source (last-writer-wins in ODI's chain).  So this is NOT a
+    # value mismatch -- it's an implementation curiosity worth
+    # surfacing as a soft warning so operator can decide whether to
+    # accept the multi-step pattern or fix it in ODI.  Operator:
+    # "тоесть в итоге он пишет правильное значение, даже если
+    # сначало NULL?" -- yes, value is correct; warning level only.
+    chain_warning_count = 0
     for tgt, chain in model.column_derivations.items():
         tgt_up = tgt.upper()
         if tgt_up in _SKIP_AUDIT_COLS:
             continue
         if any(r["target_col"] == tgt_up for r in out_rows):
-            continue  # already surfaced in another bucket
+            continue
         chain_warnings = _scan_chain_for_warnings(tgt_up, chain)
         for w in chain_warnings:
+            chain_warning_count += 1
             drd_row = drd_by_col.get(tgt_up, {})
-            drd_attr = (drd_row.get("source_attribute", "") or "").strip()
             drd_src = (
                 f"{drd_row.get('source_schema','')}."
                 f"{drd_row.get('source_table','')}."
@@ -537,59 +537,21 @@ def main() -> int:
             drd_full = drd_full_map.get(
                 tgt_up, drd_row.get("transformation") or "",
             )
-            has_drd_rule = bool(drd_attr)
-            if has_drd_rule:
-                # DRD has a clear rule -> the NULL injection IS a
-                # mismatch with DRD's stated implementation, even if
-                # the final value happens to land on the right source.
-                chain_safety_count_real += 1
-                out_rows.append({
-                    "verdict": "REAL_MISMATCH",
-                    "target_col": tgt_up,
-                    "mismatch_kind": "IMPLEMENTATION_DRIFT_FROM_DRD",
-                    "drd_source": drd_src,
-                    "drd_rule_full": drd_full,
-                    "odi_authoritative_step": (
-                        f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
-                    ),
-                    "odi_authoritative_expr": w["real_expr"],
-                    "odi_full_chain": _compact_chain(chain),
-                    "category": w["kind"],
-                    "recommendation": (
-                        f"REAL_MISMATCH (implementation drift) -- "
-                        f"DRD spec sources '{tgt_up}' from "
-                        f"'{drd_src}'.  ODI emits NULL at "
-                        f"{w['null_step']} and only obtains the real "
-                        f"value at {w['real_step']} via "
-                        f"'{w['real_expr']}'.  The final value matches "
-                        f"DRD's expected source, but ODI does NOT "
-                        f"implement DRD's rule directly -- the NULL "
-                        f"placeholder is a structural divergence.  "
-                        f"Operator must decide: (a) remove the NULL in "
-                        f"{w['null_step']} and put the real source there, "
-                        f"or (b) accept the multi-step pattern."
-                    ),
-                })
-            else:
-                chain_safety_count_warning += 1
-                out_rows.append({
-                    "verdict": "CHAIN_WARNING",
-                    "target_col": tgt_up,
-                    "mismatch_kind": w["kind"],
-                    "drd_source": drd_src,
-                    "drd_rule_full": drd_full,
-                    "odi_authoritative_step": (
-                        f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
-                    ),
-                    "odi_authoritative_expr": w["real_expr"],
-                    "odi_full_chain": _compact_chain(chain),
-                    "category": w["kind"],
-                    "recommendation": w["recommendation"],
-                })
-    print(
-        f"Chain safety scan: REAL_MISMATCH (implementation drift)={chain_safety_count_real}, "
-        f"CHAIN_WARNING (no DRD rule)={chain_safety_count_warning}"
-    )
+            out_rows.append({
+                "verdict": "CHAIN_WARNING",
+                "target_col": tgt_up,
+                "mismatch_kind": w["kind"],
+                "drd_source": drd_src,
+                "drd_rule_full": drd_full,
+                "odi_authoritative_step": (
+                    f"{w['null_step']} (NULL) -> {w['real_step']} (real)"
+                ),
+                "odi_authoritative_expr": w["real_expr"],
+                "odi_full_chain": _compact_chain(chain),
+                "category": w["kind"],
+                "recommendation": w["recommendation"],
+            })
+    print(f"CHAIN_WARNING rows:   {chain_warning_count}")
 
     # Operator-locked rule (2026-05-29): EVERY .md report MUST be
     # accompanied by a CSV of identical content (Excel-friendly).
@@ -678,11 +640,7 @@ def main() -> int:
         md_lines.append("")
         if verdict_name == "REAL_MISMATCH":
             md_lines.append(
-                "DRD has a clear rule but ODI's implementation does not "
-                "match it -- either the source attribute name differs "
-                "(NAME_DRIFT_*) or the implementation injects a NULL / "
-                "literal before the real derivation "
-                "(IMPLEMENTATION_DRIFT_FROM_DRD)."
+                "DRD source attribute name differs from ODI's projection."
             )
         elif verdict_name == "UNRESOLVABLE":
             md_lines.append(
@@ -703,12 +661,16 @@ def main() -> int:
             )
         else:  # CHAIN_WARNING
             md_lines.append(
-                "Final verdict is MATCHED but the ODI step chain has a "
-                "safety-relevant inconsistency: an early STEP explicitly "
-                "writes NULL (or a hardcoded literal) and a LATER STEP "
-                "overwrites with the real source.  If the later STEP is "
-                "removed or its join fails, the column will leak the "
-                "NULL/literal value."
+                "**Final value in the target table is CORRECT** (matches "
+                "DRD's expected source) -- this is NOT a value mismatch.  "
+                "But the ODI chain has a safety-relevant inconsistency: "
+                "an early STEP explicitly writes NULL (or a hardcoded "
+                "literal) and a LATER STEP overwrites with the real "
+                "source.  Surfaced as a WARNING so operator can decide "
+                "whether to (a) accept the multi-step pattern, or (b) "
+                "fix ODI to put the real source directly in the early "
+                "STEP.  If the later STEP is removed or its join fails, "
+                "the column would leak the NULL/literal value."
             )
         md_lines.append("")
         md_lines.append("| Target | Kind | DRD attr | ODI projection | Category |")
