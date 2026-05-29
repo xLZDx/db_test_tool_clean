@@ -556,6 +556,102 @@ def test_base_table_exempt_from_multi_role_routing():
     assert ".TRD_NUM" in res.sql.upper()
 
 
+def test_out_of_scope_targets_skipped_from_insert():
+    """De-scoped target columns (e.g. struck-through DRD rows) must be
+    DROPPED entirely from the INSERT column list AND the SELECT projection.
+    Generic, no business names."""
+    tdef = _td(("KEEP_ME", "NUMBER"), ("SKIP_ME", "NUMBER"), ("ALSO_KEEP", "VARCHAR2(50)"))
+    rows = [
+        {"column": "KEEP_ME", "source_table": "SRC", "source_attribute": "KEEP_ME"},
+        {"column": "ALSO_KEEP", "source_table": "SRC", "source_attribute": "ALSO_KEEP"},
+    ]
+    res = emit_insert_drd_first(
+        target_schema="X", target_table="Y",
+        target_definition=tdef, analysis_rows=rows,
+        out_of_scope_targets={"SKIP_ME"},
+    )
+    # SKIP_ME absent from INSERT col list AND SELECT projection.
+    assert "SKIP_ME" not in res.sql
+    # KEEP_ME and ALSO_KEEP present.
+    assert "KEEP_ME" in res.sql
+    assert "ALSO_KEEP" in res.sql
+    assert res.column_count == 2  # only the two kept
+
+
+def test_substring_parse_emits_case_when_filter():
+    """When DRD prose describes SUBSTR-based parse with a filter condition,
+    the emitter must produce a CASE WHEN ... THEN SUBSTR ... ELSE NULL END
+    expression with the filter alias rewritten to the base alias."""
+    tdef = _td(("PARSED_VAL", "VARCHAR2(20)"))
+    rows = [{
+        "column": "PARSED_VAL",
+        "source_schema": "MYS", "source_table": "SRC",
+        "source_attribute": "RAW_FIELD",
+        "transformation": "For SRC.STREAM_ID = 60, use RAW_FIELD.  "
+                         "Parse to extract first three chars.",
+    }]
+    res = emit_insert_drd_first(
+        target_schema="MYS", target_table="TGT",
+        target_definition=tdef, analysis_rows=rows,
+    )
+    assert res.provenance_summary.get("DRD_SUBSTR_PARSE", 0) == 1
+    assert "SUBSTR(" in res.sql
+    assert "CASE WHEN" in res.sql
+    # Filter alias rewritten from SRC.STREAM_ID to base-alias.STREAM_ID
+    # (whatever alias _detect_base_table picks; never the bare table name).
+    assert "SRC.STREAM_ID" not in res.sql
+
+
+def test_substring_parse_skipped_when_source_not_base_table():
+    """SUBSTR rule must NOT fire when source_table is a secondary lookup
+    -- those need either DRD AD join or NULL_UNIMPLEMENTED_PROSE."""
+    tdef = _td(("OTHER", "NUMBER"), ("OTHER2", "NUMBER"), ("OTHER3", "NUMBER"),
+               ("LOOKUP_VAL", "VARCHAR2(20)"))
+    rows = [
+        # Anchor rows so BASE wins the base-detection vote.
+        {"column": "OTHER", "source_table": "BASE", "source_attribute": "X"},
+        {"column": "OTHER2", "source_table": "BASE", "source_attribute": "Y"},
+        {"column": "OTHER3", "source_table": "BASE", "source_attribute": "Z"},
+        {
+            "column": "LOOKUP_VAL",
+            "source_schema": "MYS", "source_table": "LOOKUP",  # NOT base!
+            "source_attribute": "CODE",
+            "transformation": "Parse to extract first three chars.",
+        },
+    ]
+    res = emit_insert_drd_first(
+        target_schema="MYS", target_table="TGT",
+        target_definition=tdef, analysis_rows=rows,
+    )
+    # SUBSTR should NOT have fired -- LOOKUP is not the base table.
+    assert res.provenance_summary.get("DRD_SUBSTR_PARSE", 0) == 0
+
+
+def test_dedupe_predicates_collapses_alias_variants():
+    """Semantically-identical predicates across DRD rows must collapse to
+    one in the ON clause.  Composite-key joins (distinct bare-col pairs)
+    must be preserved."""
+    from app.sql_model.drd_first_emitter import _dedupe_predicates
+    # Same predicate, different case + operand order.
+    inp = ["T.X = LK.Y", "t.x = lk.y", "LK.Y = T.X"]
+    assert _dedupe_predicates(inp) == ["T.X = LK.Y"]
+    # Composite-key join (two genuinely different pairs) preserved.
+    inp2 = ["T.X = LK.Y", "T.A = LK.B"]
+    assert _dedupe_predicates(inp2) == ["T.X = LK.Y", "T.A = LK.B"]
+    # Empty / None tolerated.
+    assert _dedupe_predicates([]) == []
+    assert _dedupe_predicates(["", "T.X = LK.Y"]) == ["T.X = LK.Y"]
+
+
+def test_canonical_predicate_key_alias_insensitive():
+    """Same bare-column-pair under any alias casing = same key."""
+    from app.sql_model.drd_first_emitter import _canonical_predicate_key
+    assert _canonical_predicate_key("T.X = LK.Y") == _canonical_predicate_key("t.x = lk.y")
+    assert _canonical_predicate_key("T.X = LK.Y") == _canonical_predicate_key("LK.Y = T.X")
+    # Different bare-column pairs -> different keys.
+    assert _canonical_predicate_key("T.X = LK.Y") != _canonical_predicate_key("T.X = LK.Z")
+
+
 def test_oracle_outer_marker_stripped_from_ansi_joins():
     """Operator-locked 2026-05-29: mixing ``(+)`` with ``LEFT JOIN ... ON`` is
     invalid Oracle.  The emitter MUST strip ``(+)`` from every ON predicate."""

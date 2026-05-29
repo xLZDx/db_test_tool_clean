@@ -334,6 +334,129 @@ def is_unimplementable_prose_rule(text: str) -> bool:
     return _UNIMPLEMENTABLE_RULE_RE.search(text) is not None
 
 
+# ── SUBSTR-based parse detector ──────────────────────────────────────────────
+#
+# Some DRD cells describe a parse-and-emit operation that IS auto-generatable
+# as an Oracle ``SUBSTR(...)`` (with optional concat-prefix for century-year).
+# Examples (generic, no business names):
+#
+#     "For T.SRC_STM_ID = 60, use TRADE_NUMBER.  Parse to extract first three
+#      chars / characters / digits."
+#     -> CASE WHEN T.SRC_STM_ID = 60 THEN SUBSTR(<col>, 1, 3) ELSE NULL END
+#
+#     "Last two digits, add century part"
+#     -> '20' || SUBSTR(<col>, LENGTH(<col>)-1, 2)
+#
+# When BOTH a filter condition (``For X.Y = Z``) AND a parse rule are present,
+# the emitted expression wraps the SUBSTR in a CASE WHEN ... ELSE NULL END.
+
+_CARDINAL_MAP = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def _cardinal_to_int(token: str) -> Optional[int]:
+    if not token:
+        return None
+    t = token.strip().lower()
+    if t.isdigit():
+        return int(t)
+    return _CARDINAL_MAP.get(t)
+
+
+_SUBSTR_FIRST_RE = re.compile(
+    r"\bfirst\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:chars|characters|digits)\b",
+    re.IGNORECASE,
+)
+_SUBSTR_LAST_RE = re.compile(
+    r"\blast\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:chars|characters|digits)\b",
+    re.IGNORECASE,
+)
+_ADD_CENTURY_RE = re.compile(r"\badd\s+century\s+part\b", re.IGNORECASE)
+
+# "For <ALIAS>.<COL> = <VALUE>" / "When <ALIAS>.<COL> = <VALUE>"
+_FILTER_COND_RE = re.compile(
+    r"\b(?:for|when)\s+"
+    rf"({_IDENT}\.{_IDENT})\s*"
+    r"=\s*"
+    r"(\d+|'[^']*'|[A-Z][A-Z0-9_]+)",
+    re.IGNORECASE,
+)
+
+
+def extract_substring_parse_spec(text: str) -> Optional[Dict[str, Any]]:
+    """Detect a SUBSTR-based parse rule in DRD prose.
+
+    Returns a dict ``{kind, length, add_century, filter_alias_col,
+    filter_value, raw}`` when a match is found, ``None`` otherwise.
+
+    ``kind`` is ``"first"`` or ``"last"``.  When ``add_century`` is True the
+    composer prepends ``'20' ||`` to the SUBSTR.  Filter is optional.
+
+    Generic -- no business-domain identifiers in the patterns.
+    """
+    if not text:
+        return None
+    first_m = _SUBSTR_FIRST_RE.search(text)
+    last_m = _SUBSTR_LAST_RE.search(text)
+    if not first_m and not last_m:
+        return None
+    if first_m:
+        kind = "first"
+        length = _cardinal_to_int(first_m.group(1))
+        raw = first_m.group(0)
+    else:
+        kind = "last"
+        length = _cardinal_to_int(last_m.group(1))
+        raw = last_m.group(0)
+    if not length or length <= 0 or length > 50:
+        return None
+    add_century = bool(_ADD_CENTURY_RE.search(text))
+    spec: Dict[str, Any] = {
+        "kind": kind,
+        "length": length,
+        "add_century": add_century,
+        "filter_alias_col": None,
+        "filter_value": None,
+        "raw": raw,
+    }
+    fm = _FILTER_COND_RE.search(text)
+    if fm:
+        spec["filter_alias_col"] = fm.group(1)
+        val = fm.group(2)
+        spec["filter_value"] = val
+    return spec
+
+
+def compose_substring_parse_expr(spec: Dict[str, Any], base_col: str) -> str:
+    """Build ``[CASE WHEN <filter>] [<century>||] SUBSTR(<base_col>, ...) [END]``.
+
+    Pure string formatting -- caller supplies the fully-qualified base column
+    reference (e.g. ``t.TRD_NUM``) that has been already alias-rewritten to
+    fit the surrounding query.
+    """
+    length = int(spec["length"])
+    if spec["kind"] == "first":
+        substr = f"SUBSTR({base_col}, 1, {length})"
+    else:
+        # "last N chars" -- prefer LENGTH-based form so the column may be
+        # variable-length without breaking.
+        substr = f"SUBSTR({base_col}, LENGTH({base_col}) - {length - 1}, {length})"
+    body = f"'20' || {substr}" if spec.get("add_century") else substr
+    filt = spec.get("filter_alias_col")
+    val = spec.get("filter_value")
+    if filt and val is not None:
+        # Quote string values; keep numeric literals as-is.
+        val_s = str(val)
+        if val_s and val_s[0] not in "'-" and not val_s.replace(".", "", 1).isdigit():
+            val_s = f"'{val_s}'"
+        return f"CASE WHEN {filt} = {val_s} THEN {body} ELSE NULL END"
+    return body
+
+
 # ── T-alias hint detector ────────────────────────────────────────────────────
 #
 # DRD source_attribute cells sometimes carry a trailing parenthetical hint that

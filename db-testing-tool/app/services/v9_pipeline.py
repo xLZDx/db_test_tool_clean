@@ -47,9 +47,13 @@ def generate_v9(
     target_datasource_id: int = 3,
 ) -> V9Result:
     """End-to-end v9 generation.  Same inputs -> same SQL byte-for-byte."""
-    # 1) Parse DRD xlsx (raw -> rows)
+    # 1) Parse DRD xlsx (raw -> rows).  We parse TWICE so we can compute
+    # the set of struck-through target columns (rows where Y/Z/AA have
+    # strike-through font in Excel).  These are de-scoped by the DRD author
+    # and must be DROPPED entirely from the emitted INSERT -- not kept as
+    # NULL placeholders (operator-locked 2026-05-29).
     from app.services.drd_import_service import parse_drd_file
-    parse_result = parse_drd_file(
+    _common_kwargs = dict(
         file_bytes=drd_bytes,
         filename=drd_filename or "drd.xlsx",
         selected_fields=[
@@ -60,10 +64,23 @@ def generate_v9(
         target_table=target_table,
         source_datasource_id=source_datasource_id,
         target_datasource_id=target_datasource_id,
-        exclude_strikethrough=True,
     )
+    parse_result = parse_drd_file(**_common_kwargs, exclude_strikethrough=True)
     drd_rows = parse_result.get("column_mappings", [])
     drd_errors = parse_result.get("errors", [])
+    # Compute the de-scoped target set (struck-through rows).
+    _all_targets_result = parse_drd_file(**_common_kwargs, exclude_strikethrough=False)
+    _all_targets = {
+        (r.get("physical_name") or "").strip().upper()
+        for r in _all_targets_result.get("column_mappings", [])
+        if r.get("physical_name")
+    }
+    _kept_targets = {
+        (r.get("physical_name") or "").strip().upper()
+        for r in drd_rows
+        if r.get("physical_name")
+    }
+    out_of_scope_targets = {t for t in (_all_targets - _kept_targets) if t}
 
     # 2) Parse ODI XML
     from app.sql_model.odi_parser import OdiXmlParser
@@ -119,6 +136,7 @@ def generate_v9(
         target_definition=tdef, analysis_rows=aug,
         odi_model=model, comparison_results=cmp_results,
         all_etl_notes_text=all_etl_text,
+        out_of_scope_targets=out_of_scope_targets,
         # NOTE: no etl_column_defaults override -- both paths use generic
         # DEFAULT_ETL_COLUMN_VALUES so the output is byte-identical regardless
         # of caller (operator-locked 2026-05-29).

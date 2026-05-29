@@ -116,8 +116,10 @@ from app.sql_model.drd_rules import (
     DEFAULT_ETL_COLUMN_VALUES,
     compose_case_when_expr,
     compose_exists_case_expr,
+    compose_substring_parse_expr,
     extract_applicable_only_code,
     extract_exists_derived_flag,
+    extract_substring_parse_spec,
     extract_t_alias_hint,
     find_discriminator_for_code,
     is_unimplementable_prose_rule,
@@ -515,6 +517,59 @@ def _extract_alias_for_col(odi_expr: str, col: str) -> Optional[str]:
     return None
 
 
+# ── ON-predicate deduplication (alias-insensitive, order-insensitive) ───────
+#
+# When the same JOIN target is referenced by multiple DRD rows that each
+# spell their predicate slightly differently (case, alias case, operand
+# order), the harvest collects all of them.  Semantically these are the
+# same predicate; emitting them as ``A AND B AND C`` is verbose and noisy.
+# The dedupe normalises each predicate to its bare-column-pair canonical
+# form and keeps the FIRST verbatim occurrence per canonical form -- so
+# composite-key joins (TWO DIFFERENT bare-column-pairs) are preserved,
+# while pure repetitions collapse to one.
+
+_PRED_PAIR_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9_$#]*(?:\.[A-Za-z][A-Za-z0-9_$#]*)?)\s*"
+    r"=\s*"
+    r"([A-Za-z][A-Za-z0-9_$#]*(?:\.[A-Za-z][A-Za-z0-9_$#]*)?)",
+)
+
+
+def _canonical_predicate_key(pred: str) -> str:
+    """Reduce one equality predicate to a canonical bare-column-pair key
+    (uppercase, alias-stripped, operand-order-insensitive).  Non-equality
+    predicates fall back to whitespace-collapsed upper-case form.
+    """
+    if not pred:
+        return ""
+    text = pred.strip()
+    m = _PRED_PAIR_RE.search(text)
+    if m:
+        left = m.group(1).split(".")[-1].upper()
+        right = m.group(2).split(".")[-1].upper()
+        # Sort so A=B and B=A produce the same key.
+        a, b = sorted((left, right))
+        return f"{a}={b}"
+    # Non-equality predicate: collapse whitespace + upper-case.
+    return re.sub(r"\s+", " ", text).upper()
+
+
+def _dedupe_predicates(preds: List[str]) -> List[str]:
+    """Return predicates with semantic duplicates removed.  Preserves the
+    first verbatim occurrence per canonical key (order-stable)."""
+    out: List[str] = []
+    seen: set = set()
+    for p in preds:
+        if not p:
+            continue
+        key = _canonical_predicate_key(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
 _OUTER_JOIN_MARKER_RE = re.compile(r"\s*\(\s*\+\s*\)")
 
 
@@ -758,6 +813,50 @@ def _plan_column(
                   f"set '{exists_spec_early['set_value']}'){etl_note}",
         )
 
+    # 0.6) Generic SUBSTR-based parse rule (e.g. "first three chars", "last
+    # two digits + add century part").  Only fires when the row's
+    # source_attribute is a real identifier on the BASE table -- the parse
+    # source must be reachable via the base alias.  When the source is a
+    # secondary lookup (multi-role fq), the unimplementable-prose path in
+    # Path 1/2 catches it instead.
+    substring_spec = extract_substring_parse_spec(transformation)
+    if (
+        substring_spec is not None
+        and source_attr
+        and _IDENT_RE.match(source_attr)
+        and source_table
+        and f"{source_schema}.{source_table}".upper().rstrip(".") == base_fq.upper().lstrip(".")
+    ):
+        # Rewrite the DRD-stated filter alias (e.g. ``TXN.SRC_STM_ID``)
+        # to the canonical base alias (e.g. ``t.SRC_STM_ID``) so the
+        # CASE WHEN is valid Oracle -- once a FROM clause aliases the
+        # table, the physical name is no longer addressable.
+        base_table_bare = base_fq.split(".")[-1].upper()
+        rewritten_spec = dict(substring_spec)
+        fac = substring_spec.get("filter_alias_col") or ""
+        if "." in fac:
+            tbl_part, col_part = fac.split(".", 1)
+            if tbl_part.upper() == base_table_bare or tbl_part.upper() == base_alias.upper():
+                rewritten_spec["filter_alias_col"] = f"{base_alias}.{col_part}"
+        base_col_ref = f"{base_alias}.{source_attr}"
+        parsed_expr = compose_substring_parse_expr(rewritten_spec, base_col_ref)
+        substring_spec = rewritten_spec  # for the notes below
+        century_note = " (+century)" if substring_spec.get("add_century") else ""
+        filter_note = (
+            f" filter={substring_spec.get('filter_alias_col')}={substring_spec.get('filter_value')}"
+            if substring_spec.get("filter_alias_col") else ""
+        )
+        return _ColumnPlan(
+            target_col=target,
+            source_expr=parsed_expr,
+            provenance="DRD_SUBSTR_PARSE",
+            notes=(
+                f"DRD-prose SUBSTR parse: kind={substring_spec['kind']} "
+                f"length={substring_spec['length']}{century_note}{filter_note}"
+                f" base={base_col_ref}{etl_note}"
+            ),
+        )
+
     # Detect "Applicable only for <CODE>" + discover discriminator from the
     # referenced ETL block.  When BOTH are present, wrap the projection in a
     # CASE so it only fires for the named code -- matching ODI's typical
@@ -972,6 +1071,7 @@ def emit_insert_drd_first(
     parallel_degree: int = 8,
     all_etl_notes_text: str = "",
     etl_column_defaults: Optional[Dict[str, str]] = None,
+    out_of_scope_targets: Optional[set] = None,
 ) -> DrdFirstInsertResult:
     """Build a complete INSERT INTO <target> covering every target column.
 
@@ -1055,12 +1155,19 @@ def emit_insert_drd_first(
     # surfaced 2026-05-29.  Per-row alias picking restores one JOIN per role.
     multi_role_fqs: Dict[str, List[Tuple[str, str]]] = _collect_multi_role_fqs(odi_model)
 
+    # Operator-locked: out-of-scope targets are dropped from the INSERT
+    # column list AND the SELECT projection entirely (no NULL placeholder).
+    # Source: struck-through Y/Z/AA columns in the DRD signal "de-scoped".
+    oos_set = {t.strip().upper() for t in (out_of_scope_targets or set()) if t}
+
     plans: List[_ColumnPlan] = []
     provenance_counts: Dict[str, int] = {}
     for col_def in target_definition.get("columns", []) or []:
         target = (col_def.get("name") or "").strip().upper()
         if not target:
             continue
+        if target in oos_set:
+            continue  # de-scoped (struck-through in DRD) -- omit completely
         row = by_target.get(target, {})
         cmp = by_target_cmp.get(target)
         plan = _plan_column(
@@ -1212,7 +1319,13 @@ def emit_insert_drd_first(
     join_lines = []
     for jn in joins_by_key.values():
         if jn.on_predicates:
-            on_text = " AND ".join(jn.on_predicates)
+            # Dedupe predicates by canonical bare-column-pair set so the
+            # ON clause doesn't accumulate semantically-identical predicates
+            # (e.g. ``T.X = LK.Y`` and ``t.x = lk.y`` and ``LK.Y = T.X``).
+            # Order is preserved from first occurrence.  Single-pred dupes
+            # collapse to one; genuine composite-key joins keep their pairs.
+            deduped = _dedupe_predicates(jn.on_predicates)
+            on_text = " AND ".join(deduped)
         else:
             on_text = "1=0 /* TODO: no DRD AD ON clause; patch manually */"
         join_lines.append(f"LEFT JOIN {jn.fq_table} {jn.alias} ON {on_text}")

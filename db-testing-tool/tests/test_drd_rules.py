@@ -13,9 +13,11 @@ from app.sql_model.drd_rules import (
     DEFAULT_ETL_COLUMN_VALUES,
     compose_case_when_expr,
     compose_exists_case_expr,
+    compose_substring_parse_expr,
     compute_drd_expected_expr,
     extract_applicable_only_code,
     extract_exists_derived_flag,
+    extract_substring_parse_spec,
     extract_t_alias_hint,
     find_discriminator_for_code,
     is_unimplementable_prose_rule,
@@ -259,6 +261,67 @@ def test_unimplementable_returns_false_for_normal_join():
         "left join WIDGETS w ON w.id = t.widget_id\n"
         "use w.NAME"
     )
+
+
+# ── SUBSTR parse spec (Fix #3) ───────────────────────────────────────────────
+
+def test_substr_first_digits_with_filter():
+    spec = extract_substring_parse_spec(
+        "For T.X = 60, use WIDGET_FIELD.  Parse to extract first three digits."
+    )
+    assert spec is not None
+    assert spec["kind"] == "first"
+    assert spec["length"] == 3
+    assert spec["add_century"] is False
+    assert spec["filter_alias_col"] == "T.X"
+    assert spec["filter_value"] == "60"
+
+
+def test_substr_last_with_century():
+    spec = extract_substring_parse_spec(
+        "Parse to extract last two digits and add century part."
+    )
+    assert spec is not None
+    assert spec["kind"] == "last"
+    assert spec["length"] == 2
+    assert spec["add_century"] is True
+
+
+def test_substr_returns_none_for_plain_passthrough():
+    assert extract_substring_parse_spec("Just take WIDGET.NAME") is None
+    assert extract_substring_parse_spec("") is None
+    assert extract_substring_parse_spec(None) is None  # type: ignore[arg-type]
+
+
+def test_substr_first_digits_digit_form():
+    spec = extract_substring_parse_spec("Parse to extract first 5 chars")
+    assert spec is not None
+    assert spec["kind"] == "first"
+    assert spec["length"] == 5
+
+
+def test_compose_substring_parse_expr_first_no_filter():
+    spec = {"kind": "first", "length": 3, "add_century": False,
+            "filter_alias_col": None, "filter_value": None}
+    out = compose_substring_parse_expr(spec, "t.WIDGET_FIELD")
+    assert out == "SUBSTR(t.WIDGET_FIELD, 1, 3)"
+
+
+def test_compose_substring_parse_expr_last_with_century_and_filter():
+    spec = {"kind": "last", "length": 2, "add_century": True,
+            "filter_alias_col": "t.X", "filter_value": "60"}
+    out = compose_substring_parse_expr(spec, "t.GADGET_FIELD")
+    assert out == (
+        "CASE WHEN t.X = 60 THEN '20' || "
+        "SUBSTR(t.GADGET_FIELD, LENGTH(t.GADGET_FIELD) - 1, 2) ELSE NULL END"
+    )
+
+
+def test_compose_substring_parse_expr_quotes_string_filter_value():
+    spec = {"kind": "first", "length": 4, "add_century": False,
+            "filter_alias_col": "t.CODE", "filter_value": "WIDGET01"}
+    out = compose_substring_parse_expr(spec, "t.RAW")
+    assert "t.CODE = 'WIDGET01'" in out
 
 
 def test_default_etl_columns_contains_audit_columns():
