@@ -124,8 +124,44 @@ def generate_v9(
         ]}
 
     # 6) Comparator (shared rule engine)
-    from app.sql_model.comparator import compare_drd_rows_to_model, comparison_summary
+    from app.sql_model.comparator import (
+        compare_drd_rows_to_model, comparison_summary, ComparisonResult,
+    )
+    from app.sql_model.types import ComparisonVerdict, MismatchKind
     cmp_results = compare_drd_rows_to_model(aug, model)
+
+    # 6b) ODI_EXTRA detection (operator 2026-05-29 Phase 7.3):
+    # Surface columns that ODI projects into the final INSERT but DRD
+    # has no rule for.  Set difference between final_insert_columns and
+    # DRD target columns.  Each appended as a synthetic ComparisonResult
+    # so the GUI summary + grid + filter dropdown all pick it up.
+    drd_cols_upper = {
+        (r.get("physical_name") or r.get("column") or "").strip().upper()
+        for r in aug
+    }
+    drd_cols_upper.discard("")
+    # Snapshot existing target_col set BEFORE the loop so we don't end up
+    # scanning the list as it grows (Phase 7.3 review finding).
+    existing_targets = {res.target_col for res in cmp_results}
+    for odi_col in (model.final_insert_columns or []):
+        c = (odi_col or "").strip().upper()
+        if not c or c in drd_cols_upper or c in existing_targets:
+            continue
+        existing_targets.add(c)
+        cmp_results.append(ComparisonResult(
+            verdict=ComparisonVerdict.ODI_EXTRA,
+            target_col=c,
+            drd_schema="", drd_table="", drd_attr="",
+            odi_schema=model.target.schema, odi_table=model.target.table,
+            odi_col=c, odi_expr_sql="", odi_step=99,
+            explanation=(
+                f"ODI_EXTRA: ODI projects '{c}' into the final INSERT but DRD "
+                "has no rule for it.  Decide: (a) add DRD rule, (b) remove "
+                "from ODI, or (c) accept as known extra."
+            ),
+            mismatch_kind=MismatchKind.NONE,
+            drd_logic="", odi_logic="",
+        ))
     cmp_summary = comparison_summary(cmp_results)
 
     # 7) DRD-first emitter

@@ -1927,8 +1927,14 @@ def comparison_summary(results: list[ComparisonResult]) -> dict:
         "real_mismatch": by_verdict.get("REAL_MISMATCH", 0),
         "unresolvable": by_verdict.get("UNRESOLVABLE", 0),
         "source_missing": by_verdict.get("SOURCE_MISSING", 0),
+        "odi_extra": by_verdict.get("ODI_EXTRA", 0),
         "ok_count": by_verdict.get("MATCHED", 0) + by_verdict.get("ALIAS_DRIFT_ONLY", 0),
-        "error_count": by_verdict.get("REAL_MISMATCH", 0) + by_verdict.get("UNRESOLVABLE", 0) + by_verdict.get("SOURCE_MISSING", 0),
+        "error_count": (
+            by_verdict.get("REAL_MISMATCH", 0)
+            + by_verdict.get("UNRESOLVABLE", 0)
+            + by_verdict.get("SOURCE_MISSING", 0)
+            + by_verdict.get("ODI_EXTRA", 0)
+        ),
         "pdm_confirmed_count": pdm_confirmed_count,
         "pdm_target_confirmed_count": pdm_target_confirmed_count,
         "mismatch_targets": [r.target_col for r in mismatches],

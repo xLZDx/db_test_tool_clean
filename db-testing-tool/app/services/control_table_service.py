@@ -26,6 +26,45 @@ from app.services.schema_kb_service import load_schema_kb_payload
 from app.config import DATA_DIR
 
 
+def _load_confirmed_name_pairs() -> tuple:
+    """Read operator-confirmed PDM abbreviation pairs from
+    data/comparator_config.json so the PDM diagnostic does not flag
+    spec-name <-> physical-name pairs as missing.  Robust to missing /
+    malformed / semantically-invalid config: returns empty tuple in
+    that case.  Caches the result for the process lifetime.
+    """
+    global _CONFIRMED_PAIRS_CACHE
+    if _CONFIRMED_PAIRS_CACHE is not None:
+        return _CONFIRMED_PAIRS_CACHE
+    import json as _json
+    from pathlib import Path as _Path
+    try:
+        cfg_path = _Path(__file__).resolve().parent.parent.parent / "data" / "comparator_config.json"
+        if not cfg_path.exists():
+            _CONFIRMED_PAIRS_CACHE = ()
+            return _CONFIRMED_PAIRS_CACHE
+        cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        pairs = cfg.get("confirmed_name_pairs") if isinstance(cfg, dict) else None
+        if not isinstance(pairs, list):
+            _CONFIRMED_PAIRS_CACHE = ()
+            return _CONFIRMED_PAIRS_CACHE
+        out = []
+        for p in pairs:
+            if isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(x, str) for x in p):
+                out.append((p[0].upper(), p[1].upper()))
+        _CONFIRMED_PAIRS_CACHE = tuple(out)
+        return _CONFIRMED_PAIRS_CACHE
+    except Exception:
+        # Includes OSError, JSONDecodeError, ValueError, TypeError --
+        # any semantic / format problem -> safe empty fallback so the
+        # PDM diagnostic keeps working without the name-pair feature.
+        _CONFIRMED_PAIRS_CACHE = ()
+        return _CONFIRMED_PAIRS_CACHE
+
+
+_CONFIRMED_PAIRS_CACHE: Optional[tuple] = None
+
+
 DEFAULT_DRD_FIELDS = [
     "logical_name",
     "physical_name",
@@ -164,7 +203,37 @@ def analyze_control_table(
         source_schema_index=source_index,
         etl_block_index=etl_block_index,
     )
-    ddl_sql = build_control_table_ddl(control_schema, target_table, target_def)
+    # Operator-locked (2026-05-29 Phase 7.3, Issue 1):
+    # The DDL must include EVERY DRD-declared target column.  PDM may be
+    # incomplete (4 SOURCE_MISSING columns in the AVY_FACT_SIDE case),
+    # so we augment target_def with any DRD physical_name that isn't
+    # already in target_def["columns"].  Without this, the generated
+    # CT is missing columns the INSERT tries to write -> ORA-00904.
+    augmented_target_def = dict(target_def)
+    existing_cols = {
+        (c.get("name") or "").strip().upper()
+        for c in (target_def.get("columns") or [])
+    }
+    drd_extra_cols = []
+    for r in rows:
+        col_name = (r.get("physical_name") or r.get("column") or "").strip().upper()
+        if col_name and col_name not in existing_cols:
+            existing_cols.add(col_name)
+            drd_extra_cols.append({
+                "name": col_name,
+                "data_type": "VARCHAR2(4000)",  # safe default; operator overrides via PDM
+                "nullable": True,
+                "_origin": "DRD_NOT_IN_PDM",
+            })
+    if drd_extra_cols:
+        augmented_target_def["columns"] = (
+            list(target_def.get("columns") or []) + drd_extra_cols
+        )
+        kb_validation.setdefault("ddl_augmentations", []).extend(
+            f"{c['name']} (DRD-declared, missing in PDM; defaulted to VARCHAR2(4000))"
+            for c in drd_extra_cols
+        )
+    ddl_sql = build_control_table_ddl(control_schema, target_table, augmented_target_def)
     insert_sql = build_control_insert_sql(
         control_schema=control_schema,
         target_table=target_table,
@@ -1004,7 +1073,16 @@ def build_control_insert_sql(
                     for _undef_a in _undef_aliases
                 )
                 if _hits_pdm_miss:
-                    expr = "NULL /* PDM_MISS */"
+                    # Operator-locked (2026-05-29 Phase 7.3 Issue 5):
+                    # Surface which DRD source the emitter could not
+                    # resolve so operator can spot-fix (add to PDM, fix
+                    # DRD source_table, or add manual override).
+                    _undef_listing = ", ".join(sorted(set(_undef_aliases))[:3])
+                    expr = (
+                        f"NULL /* PDM_MISS: cannot resolve alias(es) "
+                        f"{_undef_listing} for {col_name} -- add to PDM "
+                        f"or correct DRD source_table */"
+                    )
                 elif not _col_def.get("nullable", True):
                     _is_pk = col_name in pk_cols or bool(_col_def.get("is_pk"))
                     expr = fallback_non_nullable_expression(col_name, (_col_def.get("data_type") or "").upper(), is_pk=_is_pk)
@@ -2647,19 +2725,27 @@ def _validate_control_table_requirements(
     missing_source_columns = []
     missing_target_columns = sorted([c for c in drd_target_cols if c and c not in target_cols])
 
+    # Operator-locked PDM diagnostic fix (2026-05-29 Phase 7.3):
+    #   1. Multi-line source_attribute (e.g. "BKR_AR_ID\nAR_ID" -- two
+    #      acceptable physical candidates) was previously concatenated
+    #      with whitespace -> reported as missing column "BKR_AR_ID AR_ID".
+    #      Now we split on newlines + commas + " OR " and check each
+    #      candidate independently; if ANY candidate is in PDM, the row
+    #      is not flagged.
+    #   2. Apply operator-confirmed name-pair config (YIELD<->YLD etc.)
+    #      so DRD spec names that have a known PDM alias are NOT
+    #      reported as missing.
+    confirmed_pairs = _load_confirmed_name_pairs()
+
     seen_source_tables = set()
     for row in rows:
         src_schema = (row.get("source_schema") or "").strip().upper()
         src_table = (row.get("source_table") or "").strip().upper()
-        src_attr = (row.get("source_attribute") or "").strip().upper()
+        src_attr_raw = (row.get("source_attribute") or "").strip().upper()
         if not src_table:
             continue
-        # Strip DRD annotations like "(FROM T2)", "(FROM TX)", etc.
-        src_attr = re.sub(r"\s*\(FROM\s+\w+\)\s*$", "", src_attr, flags=re.IGNORECASE).strip()
-        if not src_attr:
+        if not src_attr_raw:
             continue
-        # Skip lookup / dimension tables in source column validation —
-        # they are referenced for JOIN output only, not as staging input.
         if _is_lookup_table_name(src_table):
             continue
         table_key = (src_schema, src_table)
@@ -2670,11 +2756,52 @@ def _validate_control_table_requirements(
                 continue
 
         src_entry = find_table(source_index, src_schema, src_table)
-        if src_entry and src_attr and src_attr not in {"NULL", "NONE", "N/A"}:
-            col_map = src_entry.get("columns", {})
-            # Try exact match first, then fuzzy match via PDM column resolver
-            if src_attr not in col_map and not _resolve_column_name(col_map, src_attr):
-                missing_source_columns.append(f"{src_schema}.{src_table}.{src_attr}" if src_schema else f"{src_table}.{src_attr}")
+        if not src_entry:
+            continue
+        col_map = src_entry.get("columns", {})
+        # Split multi-candidate source_attribute strings.  Newlines are
+        # the DRD convention for "any of these source columns is
+        # acceptable"; commas / " OR " also occur.
+        # Bounded whitespace pattern (no catastrophic backtracking risk).
+        candidates_raw = re.split(r"[\n,]|[ \t]+OR[ \t]+", src_attr_raw)
+        candidates: list[str] = []
+        for c in candidates_raw:
+            c = re.sub(r"\s*\(FROM\s+\w+\)\s*$", "", c, flags=re.IGNORECASE).strip()
+            if c and c not in {"NULL", "NONE", "N/A"}:
+                candidates.append(c)
+        if not candidates:
+            continue
+        # A row is missing only if EVERY candidate fails both the exact
+        # check, the fuzzy resolver, AND the operator-confirmed
+        # name-pair table.
+        any_found = False
+        for cand in candidates:
+            if cand in col_map or _resolve_column_name(col_map, cand):
+                any_found = True
+                break
+            # Name-pair check: spec_name -> physical_name (or vice versa)
+            mapped = None
+            for spec, phys in confirmed_pairs:
+                if cand == spec:
+                    mapped = phys
+                    break
+                if cand == phys:
+                    mapped = spec
+                    break
+            if mapped and (mapped in col_map or _resolve_column_name(col_map, mapped)):
+                any_found = True
+                break
+        if not any_found:
+            # Report each unresolved candidate independently for
+            # actionable operator feedback (rather than concatenated).
+            for cand in candidates:
+                if cand in col_map or _resolve_column_name(col_map, cand):
+                    continue
+                qualified = (
+                    f"{src_schema}.{src_table}.{cand}"
+                    if src_schema else f"{src_table}.{cand}"
+                )
+                missing_source_columns.append(qualified)
 
     if missing_source_tables:
         # Don't hard-block: source tables may live in schemas not yet in the PDM.

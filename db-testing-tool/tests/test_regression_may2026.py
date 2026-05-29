@@ -431,4 +431,7 @@ def test_build_control_insert_sql_pdm_missing_join_becomes_null_marker():
     )
 
     assert "TXN_SRC_TAX_CODE_LKUP" not in sql
-    assert "NULL /* PDM_MISS */ AS COL_A" in sql
+    # Phase 7.3 (Issue 5): PDM_MISS comment now includes the unresolved
+    # alias + remediation hint so the operator can spot-fix the source.
+    assert "NULL /* PDM_MISS:" in sql and "AS COL_A" in sql
+    assert "add to PDM or correct DRD source_table" in sql

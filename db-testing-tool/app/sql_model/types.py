@@ -254,7 +254,8 @@ class ComparisonVerdict(Enum):
     ALIAS_DRIFT_ONLY = "ALIAS_DRIFT_ONLY"  # same physical column, different surface alias
     REAL_MISMATCH = "REAL_MISMATCH"      # genuinely different column/logic
     UNRESOLVABLE = "UNRESOLVABLE"        # one+ side failed to resolve (unclear rule)
-    SOURCE_MISSING = "SOURCE_MISSING"    # one of the compared sources produced nothing
+    SOURCE_MISSING = "SOURCE_MISSING"    # DRD names a column, ODI does not project it
+    ODI_EXTRA = "ODI_EXTRA"              # ODI projects a column, DRD has no rule for it
 
 
 class MismatchKind(Enum):
