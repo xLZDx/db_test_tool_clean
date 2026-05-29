@@ -18,6 +18,7 @@ from app.sql_model.drd_rules import (
     extract_exists_derived_flag,
     extract_t_alias_hint,
     find_discriminator_for_code,
+    is_unimplementable_prose_rule,
 )
 
 
@@ -201,6 +202,63 @@ def test_t_alias_hint_requires_from_keyword():
 def test_t_alias_hint_only_anchors_at_end():
     # Hint must be at end of string; mid-string FROM mentions are ignored.
     assert extract_t_alias_hint("(FROM T2) and then X") is None
+
+
+# ── is_unimplementable_prose_rule (Fix #2) ───────────────────────────────────
+
+def test_unimplementable_parse_to_extract():
+    assert is_unimplementable_prose_rule(
+        "For X.Y = 60, use SOME_FIELD.  Parse to extract Widget Type."
+    )
+
+
+def test_unimplementable_lookup_does_not_exist():
+    assert is_unimplementable_prose_rule(
+        "Lookup GADGET_CODE (does not exist today).  Map via translation table."
+    )
+
+
+def test_unimplementable_does_not_exist_yet():
+    assert is_unimplementable_prose_rule("Reference table does not exist yet")
+
+
+def test_unimplementable_translation_table_required():
+    assert is_unimplementable_prose_rule("Translation table required from operator")
+
+
+def test_unimplementable_manual_mapping_required():
+    assert is_unimplementable_prose_rule("Manual mapping required for this column")
+
+
+def test_unimplementable_substring_of():
+    assert is_unimplementable_prose_rule("Take substring of FIELD starting at offset 3")
+
+
+def test_unimplementable_first_three_digits():
+    assert is_unimplementable_prose_rule("Use first three digits of TRADE_NUMBER")
+
+
+def test_unimplementable_last_two_digits():
+    assert is_unimplementable_prose_rule("Last two digits of WIDGET_NO")
+
+
+def test_unimplementable_add_century_part():
+    assert is_unimplementable_prose_rule("Concatenate year + add century part")
+
+
+def test_unimplementable_returns_false_for_plain_pass_through():
+    assert not is_unimplementable_prose_rule("Just take WIDGETS.NAME")
+    assert not is_unimplementable_prose_rule("Plain column reference")
+    assert not is_unimplementable_prose_rule("")
+    assert not is_unimplementable_prose_rule(None)  # type: ignore[arg-type]
+
+
+def test_unimplementable_returns_false_for_normal_join():
+    # A typical DRD AD cell with a JOIN is implementable; no unimpl marker.
+    assert not is_unimplementable_prose_rule(
+        "left join WIDGETS w ON w.id = t.widget_id\n"
+        "use w.NAME"
+    )
 
 
 def test_default_etl_columns_contains_audit_columns():

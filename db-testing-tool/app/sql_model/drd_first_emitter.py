@@ -120,6 +120,7 @@ from app.sql_model.drd_rules import (
     extract_exists_derived_flag,
     extract_t_alias_hint,
     find_discriminator_for_code,
+    is_unimplementable_prose_rule,
 )
 
 # Generic system-managed column defaults (callers may override via the
@@ -354,6 +355,131 @@ def _rewrite_predicate(
     return _IDENT_DOT_RE.sub(_sub, on_sql)
 
 
+# ── Multi-role fq detection (lookup tables with N distinct ODI aliases) ─────
+#
+# Some physical tables (e.g. generic lookup / code-value tables) are joined
+# more than once in the same ODI staging chain, each time with a different
+# alias and a different ON predicate -- one alias per logical "role".  When
+# the DRD-author reuses ONE alias across all such rows (a common shortcut),
+# the naive harvest collapses every row's ON predicate onto the same alias
+# under AND, producing an impossible compound JOIN that matches zero rows
+# in production (the silent NULL bug).
+#
+# This detector is content-agnostic: it surfaces ANY fq that appears with
+# >= 2 distinct aliases in ANY staging step.  Generic for any DRD / table.
+
+def _collect_multi_role_fqs(
+    odi_model: Optional[ODIModel],
+) -> Dict[str, List[Tuple[str, str]]]:
+    """Return ``{fq_table_upper: [(odi_alias_upper, on_sql_normalized), ...]}``
+    for every fq that ODI joins under more than one distinct alias.  Each
+    tuple captures one ODI ROLE for that fq.  Single-role fqs are excluded.
+    Generic -- no hardcoded names; works for any schema."""
+    if odi_model is None:
+        return {}
+    fq_to_roles: Dict[str, List[Tuple[str, str]]] = {}
+    seen_pairs: Dict[str, set] = {}
+    for step in odi_model.staging_steps:
+        for edge in step.join_graph:
+            ref = edge.joined.ref if edge.joined else None
+            if ref is None:
+                continue
+            fq = ref.fq.upper() if ref.fq else ""
+            alias = (edge.joined.alias or "").upper()
+            if not fq or not alias:
+                continue
+            stripped_on = _strip_oracle_outer_marker(edge.on_sql or "")
+            pair = (alias, stripped_on)
+            seen_pairs.setdefault(fq, set())
+            if pair in seen_pairs[fq]:
+                continue
+            seen_pairs[fq].add(pair)
+            fq_to_roles.setdefault(fq, []).append(pair)
+    # Keep only fqs that have >=2 distinct aliases
+    return {
+        fq: roles
+        for fq, roles in fq_to_roles.items()
+        if len({alias for alias, _on in roles}) >= 2
+    }
+
+
+def _match_drd_predicate_to_odi_role(
+    drd_predicates: List["DrdAdJoinPredicate"],
+    odi_roles: List[Tuple[str, str]],
+) -> Optional[str]:
+    """Return the ODI alias whose ON predicate matches one of the DRD-author
+    predicates (bare-column-pair, alias-insensitive, order-insensitive).
+    ``None`` when no ODI role matches.  Pure structural -- generic for any
+    column names."""
+    from app.sql_model.drd_ad_parser import predicate_matches
+    for p in drd_predicates:
+        for alias, on_sql in odi_roles:
+            if predicate_matches(p, on_sql):
+                return alias
+    return None
+
+
+# Common code/name/desc suffixes used by data-architecture teams to derive
+# column names from the underlying lookup role.  Stripping them recovers the
+# "role root" used to match against ODI alias names.  Generic -- no business
+# domain identifiers, just trailing-token shapes.
+_TARGET_COL_SUFFIXES = (
+    "_CODE", "_DESC", "_DSC", "_NAME", "_NM", "_CD",
+    "_ID", "_NO", "_NUM", "_AMT", "_PCT", "_QTY", "_RATE",
+    "_DT", "_TS", "_TIME", "_F", "_FLAG", "_IND",
+)
+
+
+def _target_col_role_root(target: str) -> str:
+    """Strip trailing semantic suffixes from a target column to recover the
+    role-root used to match against ODI alias names.  Returns upper-case.
+
+    Examples (generic):
+        ``WIDGET_TP_CD``    -> ``WIDGET_TP``
+        ``GADGET_NM``       -> ``GADGET``
+        ``ZED_F``           -> ``ZED``
+        ``DRVD_TRD_CPCTY_CD`` -> ``DRVD_TRD_CPCTY``
+    """
+    if not target:
+        return ""
+    up = target.strip().upper()
+    for suf in _TARGET_COL_SUFFIXES:
+        if up.endswith(suf) and len(up) > len(suf):
+            return up[: -len(suf)]
+    return up
+
+
+def _match_target_to_odi_role(
+    target: str,
+    odi_roles: List[Tuple[str, str]],
+) -> Optional[str]:
+    """When a row has no DRD AD join to match, fall back to matching the
+    target column's ROLE ROOT against ODI alias names.  Returns the ODI alias
+    that best matches.  Pure structural -- no domain names hardcoded.
+
+    Match strategy (in priority order):
+      1. ODI alias == role_root  exactly       (DRVD_TRD_CPCTY_CD -> DRVD_TRD_CPCTY)
+      2. role_root starts with ODI alias       (e.g. ``WIDGET_TP_DSC`` root ``WIDGET_TP`` matches alias ``WIDGET``)
+      3. ODI alias starts with role_root       (alias ``WIDGET_TYPE_LK`` matches root ``WIDGET_TYPE``)
+    Returns ``None`` when none of these match.
+    """
+    root = _target_col_role_root(target)
+    if not root:
+        return None
+    aliases = [alias.upper() for alias, _on in odi_roles]
+    if root in aliases:
+        return root
+    # Try prefix matches (longest first to avoid weak partial collisions)
+    candidates = sorted(aliases, key=len, reverse=True)
+    for alias in candidates:
+        if alias and root.startswith(alias + "_"):
+            return alias
+    for alias in candidates:
+        if alias and alias.startswith(root + "_"):
+            return alias
+    return None
+
+
 # ── Alias extraction from ODI projection text ────────────────────────────────
 #
 # When DRD signals a T-alias hint, we look at ODI's projection expression to
@@ -478,6 +604,7 @@ def _plan_column(
     used_aliases: set,
     cte_assignments: Dict[str, _CteNeed],
     joins_by_key: Optional["OrderedDict[Tuple[str, str], _JoinNeed]"] = None,
+    multi_role_fqs: Optional[Dict[str, List[Tuple[str, str]]]] = None,
 ) -> _ColumnPlan:
     """Resolve the per-column source expression.
 
@@ -524,6 +651,11 @@ def _plan_column(
     if etl_block_ref and etl_block_body:
         etl_note = f" /* see ETL block {etl_block_ref} in header */"
 
+    # Per-row alias overrides (filled by the multi-role harvest below).  Path
+    # 1 / Path 2 consult this BEFORE alias_assignments[fq] so projections on
+    # multi-role lookup tables land on the row-specific alias.
+    row_alias_for_fq: Dict[str, str] = {}
+
     # Register inline DRD col-AD joins (the "and below logic" the operator
     # wants captured).  Aliases are rewritten to our canonical scheme so the
     # ON predicates stay consistent across rows.
@@ -540,16 +672,54 @@ def _plan_column(
                 fq = j.fq_table.upper()
                 if fq == base_fq.upper():
                     continue
-                # Canonical alias from alias_assignments (pre-allocated)
-                canonical = alias_assignments.get(fq)
-                if canonical is None:
-                    canonical = _alias_from_table(fq, used_aliases)
-                    alias_assignments[fq] = canonical
+
+                # Decide alias: multi-role fqs get a row-specific alias so
+                # each row's predicate lives in its OWN JOIN clause.
+                is_multi_role = bool(multi_role_fqs) and fq in (multi_role_fqs or {})
+                if is_multi_role:
+                    # Prefer the ODI role alias whose ON predicate matches THIS
+                    # row's predicate -- that's the authoritative role mapping.
+                    matched_odi_alias = _match_drd_predicate_to_odi_role(
+                        j.predicates, (multi_role_fqs or {}).get(fq, []),
+                    )
+                    if matched_odi_alias and matched_odi_alias not in used_aliases:
+                        canonical = matched_odi_alias.lower()
+                        used_aliases.add(matched_odi_alias)
+                    elif matched_odi_alias:
+                        # Already used elsewhere -- reuse it (its predicates
+                        # already match this row's role).
+                        canonical = matched_odi_alias.lower()
+                    else:
+                        # No ODI match -- generate a row-unique alias derived
+                        # from the target column root so the role is visible.
+                        bare = fq.split(".")[-1].lower()
+                        target_root = target.lower().split("_")[0] or "x"
+                        candidate = f"{bare[:3]}_{target_root}"
+                        n = 1
+                        while candidate.upper() in used_aliases:
+                            n += 1
+                            candidate = f"{bare[:3]}_{target_root}{n}"
+                        canonical = candidate
+                        used_aliases.add(canonical.upper())
+                    row_alias_for_fq[fq] = canonical
+                else:
+                    # Single-role fq: keep existing canonical alias.
+                    canonical = alias_assignments.get(fq)
+                    if canonical is None:
+                        canonical = _alias_from_table(fq, used_aliases)
+                        alias_assignments[fq] = canonical
+
                 # Rewrite ON predicates to canonical aliases.  Strip any
                 # Oracle 9i (+) markers -- they are invalid inside ANSI joins.
+                # For multi-role we need an extra rewrite of the DRD-author's
+                # local alias (e.g. ``cv``) to the new canonical alias so the
+                # predicate stays sane.
+                drd_local_alias_to_canonical = dict(alias_assignments)
+                if is_multi_role:
+                    drd_local_alias_to_canonical[fq] = canonical
                 rewritten = [
                     _strip_oracle_outer_marker(
-                        _rewrite_predicate(p.raw, drd_alias_to_fq, alias_assignments)
+                        _rewrite_predicate(p.raw, drd_alias_to_fq, drd_local_alias_to_canonical)
                     )
                     for p in j.predicates if p.raw
                 ]
@@ -657,7 +827,46 @@ def _plan_column(
                         alias = hinted_alias
             if alias is None:
                 key = fq
-                alias = alias_assignments.get(key)
+                # Multi-role lookup tables: prefer the row-specific alias the
+                # DRD AD harvest just registered, so the projection lands on
+                # the join that actually matches this column's role.  The
+                # base table is exempt -- it's always reachable via base_alias.
+                is_mr_secondary = (
+                    multi_role_fqs
+                    and key in multi_role_fqs
+                    and key != base_fq.upper()
+                )
+                if key in row_alias_for_fq:
+                    alias = row_alias_for_fq[key]
+                elif is_mr_secondary:
+                    # No DRD AD join for this row -- match by target column
+                    # role-root against ODI alias names.  Generic heuristic.
+                    matched = _match_target_to_odi_role(
+                        target, multi_role_fqs[key],
+                    )
+                    if matched:
+                        alias = matched.lower()
+                        row_alias_for_fq[key] = alias
+                    elif is_unimplementable_prose_rule(transformation):
+                        # Multi-role fallback would route to the wrong role
+                        # AND the DRD prose explicitly describes a parse /
+                        # lookup-not-implemented rule.  Emit NULL with a note
+                        # rather than poisoning the projection.
+                        return _ColumnPlan(
+                            target_col=target,
+                            source_expr="NULL",
+                            provenance="NULL_UNIMPLEMENTED_PROSE",
+                            notes=(
+                                f"DRD prose describes a derivation that is "
+                                f"not auto-generatable from {fq} (multi-role "
+                                f"lookup; no matching role for target {target}). "
+                                f"Source DRD rule needs operator implementation.{etl_note}"
+                            ),
+                        )
+                    else:
+                        alias = alias_assignments.get(key)
+                else:
+                    alias = alias_assignments.get(key)
                 if alias is None:
                     if key == base_fq.upper():
                         alias = base_alias
@@ -682,7 +891,39 @@ def _plan_column(
     if source_attr and source_table and _IDENT_RE.match(source_attr):
         fq = f"{source_schema}.{source_table}" if source_schema else source_table
         key = fq.upper()
-        alias = alias_assignments.get(key)
+        # Multi-role: prefer row-specific alias when DRD AD established one.
+        # Otherwise fall back to target-column-name role matching.
+        # SPECIAL CASE: when fq == base_fq, the base FROM clause already
+        # provides the canonical alias -- no role-pick needed (the base
+        # table is always trivially reachable).
+        alias = row_alias_for_fq.get(key)
+        is_mr_secondary = (
+            bool(multi_role_fqs)
+            and key in (multi_role_fqs or {})
+            and key != base_fq.upper()
+        )
+        if alias is None and is_mr_secondary:
+            matched = _match_target_to_odi_role(target, multi_role_fqs[key])
+            if matched:
+                alias = matched.lower()
+                row_alias_for_fq[key] = alias
+            elif is_unimplementable_prose_rule(transformation):
+                # Multi-role lookup + no matching role + prose says
+                # "Parse / lookup not implemented".  Emit NULL with note
+                # rather than fall back to the wrong role's alias.
+                return _ColumnPlan(
+                    target_col=target,
+                    source_expr="NULL",
+                    provenance="NULL_UNIMPLEMENTED_PROSE",
+                    notes=(
+                        f"DRD prose describes a derivation that is not "
+                        f"auto-generatable from {fq} (multi-role lookup; "
+                        f"no matching role for target {target}). "
+                        f"Source DRD rule needs operator implementation.{etl_note}"
+                    ),
+                )
+        if alias is None:
+            alias = alias_assignments.get(key)
         if alias is None:
             if key == base_fq.upper():
                 alias = base_alias
@@ -807,6 +1048,13 @@ def emit_insert_drd_first(
         used_aliases=used_aliases,
     )
 
+    # Detect multi-role lookup tables (same fq joined under >=2 aliases in
+    # ODI).  When a DRD-author reuses ONE alias for all such rows, the naive
+    # harvest would AND every row's ON predicate onto the same alias and
+    # produce an impossible JOIN that returns no rows -- the silent NULL bug
+    # surfaced 2026-05-29.  Per-row alias picking restores one JOIN per role.
+    multi_role_fqs: Dict[str, List[Tuple[str, str]]] = _collect_multi_role_fqs(odi_model)
+
     plans: List[_ColumnPlan] = []
     provenance_counts: Dict[str, int] = {}
     for col_def in target_definition.get("columns", []) or []:
@@ -826,6 +1074,7 @@ def emit_insert_drd_first(
             used_aliases=used_aliases,
             cte_assignments=cte_assignments,
             joins_by_key=joins_by_key,
+            multi_role_fqs=multi_role_fqs,
         )
         plans.append(plan)
         provenance_counts[plan.provenance] = provenance_counts.get(plan.provenance, 0) + 1

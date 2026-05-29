@@ -277,6 +277,63 @@ def compose_exists_case_expr(spec: Dict[str, Any], else_value: str = "NULL") -> 
     )
 
 
+# ── Unimplementable-rule prose detector ──────────────────────────────────────
+#
+# Some DRD cells describe a derivation that the spec author has explicitly
+# called out as not auto-generatable from the source schema as-is.  Common
+# wording (no business names hardcoded):
+#
+#     "Parse to extract <thing>"
+#     "Lookup <X> (does not exist today)"
+#     "Translation table required (TBD)"
+#     "Manual mapping required"
+#     "Derive based on <prose...>"  (only when no JOIN is given)
+#
+# When these markers are present, the emitter must NOT fall through to a
+# DRD_PHYSICAL pass-through of the row's stated source_table.column_attr --
+# that would generate SQL that compiles but returns garbage / NULL.  Better
+# to emit NULL with the operator-visible note.
+
+# Accept either digits ("first 3 chars") OR spelled-out cardinals
+# ("first three chars").  Cardinals capped at "ten" to keep the regex tight.
+_CARDINAL_OR_DIGITS = (
+    r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+)
+
+_UNIMPLEMENTABLE_RULE_RE = re.compile(
+    r"(?:"
+    r"\bparse\s+(?:to\s+)?extract\b"             # "parse to extract ..."
+    r"|\bdoes\s+not\s+exist\s+(?:today|yet)\b"    # "does not exist today"
+    r"|\btranslation\s+table\s+required\b"
+    r"|\bmanual\s+(?:mapping|translation)\s+required\b"
+    r"|\btbd\b\s*[,;:.]?\s*(?:manual|lookup|translation)?"
+    r"|\bsubstring\s+of\s+"                       # "substring of <X>"
+    r"|\bfirst\s+" + _CARDINAL_OR_DIGITS + r"\s+(?:chars|characters|digits)\b"
+    r"|\blast\s+" + _CARDINAL_OR_DIGITS + r"\s+(?:chars|characters|digits)\b"
+    r"|\badd\s+century\s+part\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_unimplementable_prose_rule(text: str) -> bool:
+    """Return True if the DRD transformation cell contains markers that
+    indicate the rule CANNOT be auto-generated from the source schema as-is.
+    Generic patterns, no business-domain identifiers.
+
+    Examples (all generic):
+        "Parse to extract <X>"                       -> True
+        "Lookup <X> (does not exist today)"           -> True
+        "First three digits of <X>"                   -> True
+        "Add century part"                            -> True
+        "Manual mapping required"                     -> True
+        "Just take TABLE.COLUMN"                      -> False
+    """
+    if not text:
+        return False
+    return _UNIMPLEMENTABLE_RULE_RE.search(text) is not None
+
+
 # ── T-alias hint detector ────────────────────────────────────────────────────
 #
 # DRD source_attribute cells sometimes carry a trailing parenthetical hint that
