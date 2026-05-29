@@ -1,23 +1,4 @@
 "verdict","target_col","mismatch_kind","drd_source","drd_rule_full","odi_authoritative_step","odi_authoritative_expr","odi_full_chain","category","recommendation"
-"REAL_MISMATCH","CASH_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APACSH logic from 'ETL Notes' tab.
-
-[ETL Notes block]:
-Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
-For a Transaction, 
-If only one record exists then consider that record.
-If 2 records exists ( 
-     If (one record is 'APACSH04' & other is 'APACSH11') 
-          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
-          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
-          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
-     else Drop those 2 records exception entire transaction
-)
-
-APASEC :
-Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
-
-iAPASEC/iAPACSH:
-Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_CASH.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.CASH_ALT_DSC_TRAILER_2","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'ALT_DSC' and ODI projected column 'ALT_DSC_TRAILER_2' are DIFFERENT physical columns.  The 'ALT_DSC_TRAILER_2' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
 "REAL_MISMATCH","CASH_APA_TP_CD","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use APACSH logic from 'ETL Notes' tab.
 
 [ETL Notes block]:
@@ -56,79 +37,6 @@ Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' recor
 
 iAPASEC/iAPACSH:
 Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.APA_TP_NM","*STEP3[column_ref]: APA_CASH.APA_TP_NM ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_APA_TP_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_APA_TP_NM ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_APA_TP_NM ->  MERGE[column_ref]: S.CASH_APA_TP_NM","DENORMALIZED_LOOKUP","DENORMALIZED_LOOKUP -- DRD wants JOIN to CL_VAL lookup (CL_VAL_NM); ODI denormalises and stores the pre-resolved value directly in APA_CASH.APA_TP_NM.  Different physical columns; VALUES are likely equivalent (the denormalised code/name should match the lookup result).  Operator must confirm against PDM + sample data."
-"REAL_MISMATCH","CASH_DSC_TRAILER_1","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.APA_DSC","Use APACSH logic from 'ETL Notes' tab.
-
-[ETL Notes block]:
-Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
-For a Transaction, 
-If only one record exists then consider that record.
-If 2 records exists ( 
-     If (one record is 'APACSH04' & other is 'APACSH11') 
-          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
-          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
-          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
-     else Drop those 2 records exception entire transaction
-)
-
-APASEC :
-Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
-
-iAPASEC/iAPACSH:
-Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.DSC_TRAILER_1","*STEP3[column_ref]: APA_CASH.DSC_TRAILER_1 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_DSC_TRAILER_1 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE[column_ref]: S.CASH_DSC_TRAILER_1","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'APA_DSC' and ODI projected column 'DSC_TRAILER_1' are DIFFERENT physical columns.  The 'DSC_TRAILER_1' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
-"REAL_MISMATCH","CASH_SBC_AMT","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT","Use APACSH logic from 'ETL Notes' tab.
-For a Transaction, If 2 APACSH records exists
-     If (one record is 'APACSH04' & other is 'APACSH11') 
-          then skip 'APACSH04' record and load 'APACSH11' but use the values to
-          calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
-	 else exception entire transaction
-
-[ETL Notes block]:
-Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
-For a Transaction, 
-If only one record exists then consider that record.
-If 2 records exists ( 
-     If (one record is 'APACSH04' & other is 'APACSH11') 
-          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
-          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
-          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
-     else Drop those 2 records exception entire transaction
-)
-
-APASEC :
-Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
-
-iAPASEC/iAPACSH:
-Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.SBC_AMT","*STEP3[column_ref]: APA_CASH.SBC_AMT ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_SBC_AMT ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_SBC_AMT ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_SBC_AMT ->  MERGE[column_ref]: S.CASH_SBC_AMT","NAME_DRIFT_LIKELY","NAME_DRIFT_LIKELY -- DRD spec column 'STM_BASE_CCY_AMT' vs ODI physical column 'SBC_AMT'.  Probable abbreviation but not in the operator-confirmed list; cross-check with PDM to confirm same data."
-"REAL_MISMATCH","SEC_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APASEC logic from 'ETL Notes' tab.
-
-[ETL Notes block]:
-(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
-If there is atleast 1 APASEC, consider above fields from that APASEC
-If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
-
-Source Effective Date:
-If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
-If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
-Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
-CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
-PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
-CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
-CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
-CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
-CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
-PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
-CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
-CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
-CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
-Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_SECURITY.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.SEC_ALT_DSC_TRAILER_2","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'ALT_DSC' and ODI projected column 'ALT_DSC_TRAILER_2' are DIFFERENT physical columns.  The 'ALT_DSC_TRAILER_2' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
 "REAL_MISMATCH","SCR_APA_TP_CD","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use APASEC logic from 'ETL Notes' tab.
 
 [ETL Notes block]:
@@ -189,6 +97,74 @@ CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
 Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.APA_TP_NM","*STEP3[column_ref]: APA_SECURITY.APA_TP_NM ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SCR_APA_TP_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SCR_APA_TP_NM ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SCR_APA_TP_NM ->  MERGE[column_ref]: S.SCR_APA_TP_NM","DENORMALIZED_LOOKUP","DENORMALIZED_LOOKUP -- DRD wants JOIN to CL_VAL lookup (CL_VAL_NM); ODI denormalises and stores the pre-resolved value directly in APA_SECURITY.APA_TP_NM.  Different physical columns; VALUES are likely equivalent (the denormalised code/name should match the lookup result).  Operator must confirm against PDM + sample data."
+"REAL_MISMATCH","CASH_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_CASH.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.CASH_ALT_DSC_TRAILER_2","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'ALT_DSC' and ODI projected column 'ALT_DSC_TRAILER_2' are DIFFERENT physical columns.  The 'ALT_DSC_TRAILER_2' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
+"REAL_MISMATCH","CASH_DSC_TRAILER_1","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.APA_DSC","Use APACSH logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.DSC_TRAILER_1","*STEP3[column_ref]: APA_CASH.DSC_TRAILER_1 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_DSC_TRAILER_1 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_DSC_TRAILER_1 ->  MERGE[column_ref]: S.CASH_DSC_TRAILER_1","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'APA_DSC' and ODI projected column 'DSC_TRAILER_1' are DIFFERENT physical columns.  The 'DSC_TRAILER_1' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
+"REAL_MISMATCH","SEC_ALT_DSC_TRAILER_2","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.ALT_DSC","Use APASEC logic from 'ETL Notes' tab.
+
+[ETL Notes block]:
+(Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+Source Effective Date:
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+Updates from below user names should be skipped by main process (Product Backlog Item 1937973: Skip Activity updates from additional usernames)
+CCAL_PKG_TXN_RECON_REPL (EOD CCAL Recon Replay)
+PERF_MAP_CF_MASTER_STG_PROC (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON_STS_UPD (EOD CCAL Recon)
+CCAL_PERF_PKG_CF_MSTR_LOAD_RJTRST  (Cash Flow Generation)
+CCAL_PKG_TXN_POS_RECON (EOD CCAL Recon)
+CCAL_PKG_TXN_RECON_RJTRUST_1 (EOD CCAL Recon)
+PERF_PKG_CF_MSTR_LOAD (Cash Flow Generation)
+CCAL_PKG_TXN_RECON_SHADOW_1 (EOD CCAL Recon)
+CCAL_PKG_LOAD_TXN_AY_CL_1 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_2 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_3 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_4 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_5 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_6 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_7 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
+CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
+Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.ALT_DSC_TRAILER_2","*STEP3[column_ref]: APA_SECURITY.ALT_DSC_TRAILER_2 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_ALT_DSC_TRAILER_2 ->  MERGE[column_ref]: S.SEC_ALT_DSC_TRAILER_2","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'ALT_DSC' and ODI projected column 'ALT_DSC_TRAILER_2' are DIFFERENT physical columns.  The 'ALT_DSC_TRAILER_2' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
 "REAL_MISMATCH","SEC_DSC_TRAILER_1","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.APA_DSC","Use APASEC logic from 'ETL Notes' tab.
 
 [ETL Notes block]:
@@ -219,6 +195,33 @@ CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
 Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.DSC_TRAILER_1","*STEP3[column_ref]: APA_SECURITY.DSC_TRAILER_1 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_DSC_TRAILER_1 ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_DSC_TRAILER_1 ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_DSC_TRAILER_1 ->  MERGE[column_ref]: S.SEC_DSC_TRAILER_1","DIFFERENT_COLUMN","DIFFERENT_COLUMN -- DRD spec column 'APA_DSC' and ODI projected column 'DSC_TRAILER_1' are DIFFERENT physical columns.  The 'DSC_TRAILER_1' name implies a trailer / variant of the description; verify against PDM whether this is the intended column."
+"REAL_MISMATCH","YLD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD","value to be picked from APASEC","STEP1","APA.YLD","*STEP1[column_ref]: APA.YLD ->  STEP3[column_ref]: APA_SECURITY.YLD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YLD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YLD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YLD ->  MERGE[column_ref]: S.YLD","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD'; ODI uses physical column 'YLD'.  Same data; operator already confirmed this is the accepted abbreviation."
+"REAL_MISMATCH","YTW","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST","value to be picked from APASEC","STEP1","APA.YTW","*STEP1[column_ref]: APA.YTW ->  STEP3[column_ref]: APA_SECURITY.YTW ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW ->  MERGE[column_ref]: S.YTW","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD_TO_WORST'; ODI uses physical column 'YTW'.  Same data; operator already confirmed this is the accepted abbreviation."
+"REAL_MISMATCH","YTW_CD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST_CD","value to be picked from APASEC","STEP1","APA.YTW_CD","*STEP1[column_ref]: APA.YTW_CD ->  STEP3[column_ref]: APA_SECURITY.YTW_CD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW_CD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW_CD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW_CD ->  MERGE[column_ref]: S.YTW_CD","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD_TO_WORST_CD'; ODI uses physical column 'YTW_CD'.  Same data; operator already confirmed this is the accepted abbreviation."
+"REAL_MISMATCH","CASH_SBC_AMT","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT","Use APACSH logic from 'ETL Notes' tab.
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+	 else exception entire transaction
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","STEP3","APA_CASH.SBC_AMT","*STEP3[column_ref]: APA_CASH.SBC_AMT ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.CASH_SBC_AMT ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.CASH_SBC_AMT ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.CASH_SBC_AMT ->  MERGE[column_ref]: S.CASH_SBC_AMT","NAME_DRIFT_LIKELY","NAME_DRIFT_LIKELY -- DRD spec column 'STM_BASE_CCY_AMT' vs ODI physical column 'SBC_AMT'.  Probable abbreviation but not in the operator-confirmed list; cross-check with PDM to confirm same data."
 "REAL_MISMATCH","SEC_SBC_AMT","TRANSFORMATION_DRIFT","CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT","Use APASEC logic from 'ETL Notes' tab.
 
 [ETL Notes block]:
@@ -249,32 +252,9 @@ CCAL_PKG_LOAD_TXN_AY_CL_8 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_9 (Activity Reclassification)
 CCAL_PKG_LOAD_TXN_AY_CL_10 (Activity Reclassification)
 Update Trade Cancelled Flag on original trade when cancellation arrives (Product Backlog Item 2030710: Add columns available in DWH and missing in Lighthouse for Trade Activity)","STEP3","APA_SECURITY.SBC_AMT","*STEP3[column_ref]: APA_SECURITY.SBC_AMT ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SEC_SBC_AMT ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SEC_SBC_AMT ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SEC_SBC_AMT ->  MERGE[column_ref]: S.SEC_SBC_AMT","NAME_DRIFT_LIKELY","NAME_DRIFT_LIKELY -- DRD spec column 'STM_BASE_CCY_AMT' vs ODI physical column 'SBC_AMT'.  Probable abbreviation but not in the operator-confirmed list; cross-check with PDM to confirm same data."
-"REAL_MISMATCH","YLD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD","value to be picked from APASEC","STEP1","APA.YLD","*STEP1[column_ref]: APA.YLD ->  STEP3[column_ref]: APA_SECURITY.YLD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YLD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YLD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YLD ->  MERGE[column_ref]: S.YLD","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD'; ODI uses physical column 'YLD'.  Same data; operator already confirmed this is the accepted abbreviation."
-"REAL_MISMATCH","YTW","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST","value to be picked from APASEC","STEP1","APA.YTW","*STEP1[column_ref]: APA.YTW ->  STEP3[column_ref]: APA_SECURITY.YTW ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW ->  MERGE[column_ref]: S.YTW","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD_TO_WORST'; ODI uses physical column 'YTW'.  Same data; operator already confirmed this is the accepted abbreviation."
-"REAL_MISMATCH","YTW_CD","COLUMN_MISMATCH","CCAL_REPL_OWNER.APA.YIELD_TO_WORST_CD","value to be picked from APASEC","STEP1","APA.YTW_CD","*STEP1[column_ref]: APA.YTW_CD ->  STEP3[column_ref]: APA_SECURITY.YTW_CD ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.YTW_CD ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.YTW_CD ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.YTW_CD ->  MERGE[column_ref]: S.YTW_CD","NAME_DRIFT_CONFIRMED","NAME_DRIFT_CONFIRMED -- DRD spec uses 'YIELD_TO_WORST_CD'; ODI uses physical column 'YTW_CD'.  Same data; operator already confirmed this is the accepted abbreviation."
-"UNRESOLVABLE","LAST_UDT_USR_NM","COMPLEX_EXPRESSION","LAST_UDT_USR_NM.None.Audit column. DEFAULT sysdate","Audit column. DEFAULT sysdate","STEP3","'SESS_NAME'","*STEP3[literal]: 'SESS_NAME' ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.LAST_UDT_USR_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.LAST_UDT_USR_NM ->  MERGE_USING[literal]: 'SESS_NAME' ->  MERGE[column_ref]: S.LAST_UDT_USR_NM","AUDIT_COLUMN_DRIFT","AUDIT_COLUMN_DRIFT -- DRD describes audit/default-value behaviour ('Audit column. DEFAULT sysdate'); ODI emits ""'SESS_NAME'"".  Audit columns are usually auto-populated; verify that ODI's expression honours the intent of the DRD audit clause."
 "UNRESOLVABLE","LAST_UDT_DTM","COMPLEX_EXPRESSION","LAST_UDT_USR_NM.None.Audit column. DEFAULT USER","Audit column. DEFAULT USER","STEP3","SYSDATE","*STEP3[function]: SYSDATE ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.LAST_UDT_DTM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.LAST_UDT_DTM ->  MERGE_USING[function]: SYSDATE ->  MERGE[column_ref]: S.LAST_UDT_DTM","AUDIT_COLUMN_DRIFT","AUDIT_COLUMN_DRIFT -- DRD describes audit/default-value behaviour ('Audit column. DEFAULT USER'); ODI emits 'SYSDATE'.  Audit columns are usually auto-populated; verify that ODI's expression honours the intent of the DRD audit clause."
+"UNRESOLVABLE","LAST_UDT_USR_NM","COMPLEX_EXPRESSION","LAST_UDT_USR_NM.None.Audit column. DEFAULT sysdate","Audit column. DEFAULT sysdate","STEP3","'SESS_NAME'","*STEP3[literal]: 'SESS_NAME' ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.LAST_UDT_USR_NM ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.LAST_UDT_USR_NM ->  MERGE_USING[literal]: 'SESS_NAME' ->  MERGE[column_ref]: S.LAST_UDT_USR_NM","AUDIT_COLUMN_DRIFT","AUDIT_COLUMN_DRIFT -- DRD describes audit/default-value behaviour ('Audit column. DEFAULT sysdate'); ODI emits ""'SESS_NAME'"".  Audit columns are usually auto-populated; verify that ODI's expression honours the intent of the DRD audit clause."
 "UNRESOLVABLE","SESS_NO","COMPLEX_EXPRESSION","SESS_NO.None.123456","123456","STEP1","0","*STEP1[literal]: 0 ->  STEP2[passthrough]: AVY_FACT_STEP1_STG.SESS_NO ->  STEP3[literal]: 0 ->  STEP4[passthrough]: AVY_FACT_STEP3_STG_RT.SESS_NO ->  STEP5[passthrough]: AVY_FACT_STEP4_STG_RT.SESS_NO ->  MERGE_USING[passthrough]: AVY_FACT_STEP5_STG_RT.SESS_NO ->  MERGE[column_ref]: S.SESS_NO","LITERAL_CONSTANT_DRIFT","LITERAL_CONSTANT_DRIFT -- DRD spec wants constant '123456'; ODI emits constant '0'.  Both are literals; operator must decide which value is correct."
-"SOURCE_MISSING","STEP_IN_OUT_IND_CD","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_CODE
-
-[ETL Notes block]:
-Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
-For a Transaction, 
-If only one record exists then consider that record.
-If 2 records exists ( 
-     If (one record is 'APACSH04' & other is 'APACSH11') 
-          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
-          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
-          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
-     else Drop those 2 records exception entire transaction
-)
-
-APASEC :
-Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
-
-iAPASEC/iAPACSH:
-Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","(absent)","(absent)","Column 'STEP_IN_OUT_IND_CD' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'STEP_IN_OUT_IND_CD' to be sourced from lookup table 'CL_VAL.CL_VAL_CODE'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."
-"SOURCE_MISSING","STEP_IN_OUT_IND_NM","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM","Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_NM","(absent)","(absent)","Column 'STEP_IN_OUT_IND_NM' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'STEP_IN_OUT_IND_NM' to be sourced from lookup table 'CL_VAL.CL_VAL_NM'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."
 "SOURCE_MISSING","SHRT_SALE_EXMPT_CD","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_CODE
 
 [ETL Notes block]:
@@ -295,3 +275,23 @@ Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' recor
 iAPASEC/iAPACSH:
 Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","(absent)","(absent)","Column 'SHRT_SALE_EXMPT_CD' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'SHRT_SALE_EXMPT_CD' to be sourced from lookup table 'CL_VAL.CL_VAL_CODE'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."
 "SOURCE_MISSING","SHRT_SALE_EXMPT_NM","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM","Use CL_VAL_ID =   , check in CL_VAL table where CL_SCM_ID = 115 and use CL_VAL_NM","(absent)","(absent)","Column 'SHRT_SALE_EXMPT_NM' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'SHRT_SALE_EXMPT_NM' to be sourced from lookup table 'CL_VAL.CL_VAL_NM'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."
+"SOURCE_MISSING","STEP_IN_OUT_IND_CD","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE","Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_CODE
+
+[ETL Notes block]:
+Check for regexp_like(cv.cl_val_code,'^APACSH[0-7][0-9]')
+For a Transaction, 
+If only one record exists then consider that record.
+If 2 records exists ( 
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then consider skip 'APACSH04' record and load 'APACSH11' but use the values to
+          (1) calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+          (2) populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else Drop those 2 records exception entire transaction
+)
+
+APASEC :
+Check for cl_val_Code like '^APASEC[0-7][0-9]' THEN consider as 'Security' record.
+
+iAPASEC/iAPACSH:
+Refer to below section for further filter criteria on iAPASEC/iAPACSH. Applicable to both iAPACSH and iAPASEC.","(absent)","(absent)","Column 'STEP_IN_OUT_IND_CD' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'STEP_IN_OUT_IND_CD' to be sourced from lookup table 'CL_VAL.CL_VAL_CODE'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."
+"SOURCE_MISSING","STEP_IN_OUT_IND_NM","MISSING_IN_ODI","CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM","Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_NM","(absent)","(absent)","Column 'STEP_IN_OUT_IND_NM' not found in any ODI staging step or MERGE block","MISSING_IN_ODI","MISSING_IN_ODI -- DRD spec expects 'STEP_IN_OUT_IND_NM' to be sourced from lookup table 'CL_VAL.CL_VAL_NM'.  ODI does NOT project this target column anywhere (no STEP, no MERGE).  Either ODI is incomplete or the target column is deprecated -- operator must reconcile against PDM + target table definition."

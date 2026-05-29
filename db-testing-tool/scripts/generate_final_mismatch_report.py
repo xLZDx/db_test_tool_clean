@@ -386,27 +386,44 @@ def main() -> int:
             "recommendation": recommendation,
         })
 
-    # ── CSV ──
+    # Operator-locked rule (2026-05-29): EVERY .md report MUST be
+    # accompanied by a CSV of identical content (Excel-friendly).
+    # `_write_csv` falls back to a timestamped sibling if Excel holds
+    # the canonical file open, and prints a loud WARNING so the
+    # operator knows to close Excel.
+
+    def _write_csv(path: pathlib.Path, rows: list, fields: list) -> pathlib.Path:
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_ALL)
+                w.writeheader()
+                w.writerows(rows)
+            return path
+        except PermissionError:
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+            alt = path.with_name(f"{path.stem}_{ts}{path.suffix}")
+            with open(alt, "w", encoding="utf-8", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_ALL)
+                w.writeheader()
+                w.writerows(rows)
+            print(
+                f"  !! WARNING: {path.name} was locked (Excel?); wrote "
+                f"to {alt.name} instead.  Close Excel and re-run to "
+                f"refresh the canonical file."
+            )
+            return alt
+
+    # ── Compact CSV (one row per column, ~10 fields) ──
     field_order = [
         "verdict", "target_col", "mismatch_kind", "drd_source",
         "drd_rule_full", "odi_authoritative_step",
         "odi_authoritative_expr", "odi_full_chain",
         "category", "recommendation",
     ]
-    csv_path = ROOT / "data" / "MISMATCH_FINAL.csv"
-    try:
-        with open(csv_path, "w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=field_order, quoting=csv.QUOTE_ALL)
-            w.writeheader()
-            w.writerows(out_rows)
-    except PermissionError:
-        from datetime import datetime
-        ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-        csv_path = csv_path.with_name(f"MISMATCH_FINAL_{ts}.csv")
-        with open(csv_path, "w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=field_order, quoting=csv.QUOTE_ALL)
-            w.writeheader()
-            w.writerows(out_rows)
+    csv_path = _write_csv(
+        ROOT / "data" / "MISMATCH_FINAL.csv", out_rows, field_order,
+    )
     print(f"Wrote {csv_path} ({len(out_rows)} rows)")
 
     # ── Compact markdown table ──
@@ -520,6 +537,21 @@ def main() -> int:
         "\n".join(det), encoding="utf-8",
     )
     print(f"Wrote {ROOT / 'data' / 'MISMATCH_FINAL_DETAIL.md'} ({len(det)} lines)")
+
+    # ── DETAIL CSV (sorted same as DETAIL.md) ──
+    # Operator rule: every .md report has a CSV twin.
+    detail_rows = sorted(
+        out_rows,
+        key=lambda x: (
+            _verdict_order.get(x["verdict"], 99),
+            x["category"], x["target_col"],
+        ),
+    )
+    detail_csv_path = _write_csv(
+        ROOT / "data" / "MISMATCH_FINAL_DETAIL.csv",
+        detail_rows, field_order,
+    )
+    print(f"Wrote {detail_csv_path} ({len(detail_rows)} rows)")
 
     # Print summary
     print()
