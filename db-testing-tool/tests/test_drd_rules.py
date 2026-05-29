@@ -16,6 +16,7 @@ from app.sql_model.drd_rules import (
     compute_drd_expected_expr,
     extract_applicable_only_code,
     extract_exists_derived_flag,
+    extract_t_alias_hint,
     find_discriminator_for_code,
 )
 
@@ -157,6 +158,49 @@ def test_compose_exists_case_expr_with_explicit_else_value():
     spec = {"table": "T", "predicates": ["a = 1"], "set_value": "Y"}
     sql = compose_exists_case_expr(spec, else_value="'N'")
     assert "THEN 'Y' ELSE 'N' END" in sql
+
+
+# ── extract_t_alias_hint (G feature) ─────────────────────────────────────────
+
+def test_t_alias_hint_uppercase():
+    assert extract_t_alias_hint("WIDGET_COL (FROM T2)") == "T2"
+
+
+def test_t_alias_hint_lowercase_from_keyword():
+    # Operator cells often have mixed case; detector is case-insensitive.
+    assert extract_t_alias_hint("widget_col (from T2)") == "T2"
+    assert extract_t_alias_hint("X (From T1)") == "T1"
+
+
+def test_t_alias_hint_named_alias():
+    assert extract_t_alias_hint("GADGET (FROM T_RELATED)") == "T_RELATED"
+    assert extract_t_alias_hint("Y (FROM ZED99)") == "ZED99"
+
+
+def test_t_alias_hint_returns_none_when_absent():
+    assert extract_t_alias_hint("X.Y") is None
+    assert extract_t_alias_hint("widget_col") is None
+    assert extract_t_alias_hint("") is None
+    assert extract_t_alias_hint(None) is None  # type: ignore[arg-type]
+
+
+def test_t_alias_hint_does_not_match_oracle_functions():
+    # Oracle function calls have no leading space + non-identifier chars inside;
+    # they must NOT be confused with FROM-hints.
+    assert extract_t_alias_hint("TO_DATE(LOAD_DT,'YYYYMMDD')") is None
+    assert extract_t_alias_hint("SUBSTR(X, 1, 3)") is None
+    assert extract_t_alias_hint("NVL(t.X, 0)") is None
+
+
+def test_t_alias_hint_requires_from_keyword():
+    # A trailing "(NOTE)" or "(T2)" without FROM is NOT a hint.
+    assert extract_t_alias_hint("X (NOTE)") is None
+    assert extract_t_alias_hint("X (T2)") is None
+
+
+def test_t_alias_hint_only_anchors_at_end():
+    # Hint must be at end of string; mid-string FROM mentions are ignored.
+    assert extract_t_alias_hint("(FROM T2) and then X") is None
 
 
 def test_default_etl_columns_contains_audit_columns():

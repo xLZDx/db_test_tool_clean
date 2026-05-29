@@ -144,10 +144,22 @@ def classify_row(
     transformation = (drd_row.get("transformation") or "")
     raw_source_attr = (drd_row.get("source_attribute") or "").strip()
     # Apply the same PAREN-NOTE strip the comparator uses (drops "(FROM T2)",
-    # "(FROM T)" alias-hint annotations) so the classifier sees the same bare
-    # column the comparator does.
+    # "(from T2)" etc. alias-hint annotations) so the classifier sees the same
+    # bare column the comparator does.  Case-insensitive so "from"/"FROM" both
+    # match.  Also: when the DRD cell contains alternates on separate lines
+    # ("FOO\nBAR"), the FIRST line is the primary projection -- the rest are
+    # operator-declared alternates for conditional logic (handled by E
+    # generator).  All downstream column-name checks compare against the
+    # primary, so we take .split("\n")[0] before .upper().
     import re as _re
-    drd_source_attr = _re.sub(r"\s+\([A-Z0-9_ ]+\)\s*$", "", raw_source_attr).upper()
+    primary_line = raw_source_attr.split("\n")[0].strip()
+    drd_source_attr = _re.sub(r"\s+\([A-Za-z0-9_ ]+\)\s*$", "", primary_line).upper()
+    # Keep all candidate lines (primary + alternates) for E-feature detection.
+    drd_source_attr_alts: list = [
+        _re.sub(r"\s+\([A-Za-z0-9_ ]+\)\s*$", "", ln.strip()).upper()
+        for ln in raw_source_attr.split("\n")
+        if ln.strip()
+    ]
     drd_source_table = (drd_row.get("source_table") or "").strip().upper().split("\n")[0]
     drd_source_schema = (drd_row.get("source_schema") or "").strip().upper()
     etl_ref = (drd_row.get("etl_block_ref") or "").strip().upper()

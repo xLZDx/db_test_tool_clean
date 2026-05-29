@@ -179,6 +179,102 @@ def test_generic_no_hardcoded_business_names():
     assert "INV.WIDGETS" in res.sql
 
 
+def test_extract_alias_for_col_picks_real_alias_not_keyword():
+    """The alias-extractor must skip SQL keywords (CASE, SUM, NVL, MAX, ...)
+    so a wrapped expression yields the underlying alias.  Generic, no
+    business-name constants."""
+    from app.sql_model.drd_first_emitter import _extract_alias_for_col
+    assert _extract_alias_for_col("ALPHA_REL_BETA.WIDGET_COL", "WIDGET_COL") == "ALPHA_REL_BETA"
+    assert _extract_alias_for_col("NVL(zed.X, 0)", "X") == "zed"
+    assert _extract_alias_for_col("CASE WHEN zed.A = 1 THEN beta.B END", "B") == "beta"
+    assert _extract_alias_for_col("SUM(x.AMT)", "AMT") == "x"
+    assert _extract_alias_for_col("", "X") is None
+    assert _extract_alias_for_col("x.Y", "Z") is None
+
+
+def test_t_alias_hint_routes_to_odi_self_join_alias():
+    """G feature: DRD source_attribute hint "(FROM T2)" + an ODI staging-step
+    expression that uses a distinct alias for the same physical table makes
+    the emitter project from THAT alias verbatim (instead of the canonical
+    base alias).  Operator-locked: REL_<COL>-style self-join cases must land
+    on the second alias.  Pure generic -- arbitrary names used here."""
+    # Build a minimal ODI model with a self-join on ALPHA (base + ALPHA_REL).
+    from app.sql_model.types import (
+        AliasBinding, JoinEdge, JoinType, ODIModel, StagingStep, TableRef,
+    )
+    base = TableRef(schema="MYS", table="ALPHA")
+    rel_tbl = TableRef(schema="MYS", table="ALPHA_REL")
+    second_alpha = TableRef(schema="MYS", table="ALPHA")
+    step = StagingStep(
+        step_id=1,
+        name="STG1",
+        select_sql="SELECT a.X, alpha_rel.Y, alpha_rel_alpha.X AS REL_X FROM MYS.ALPHA a "
+                   "LEFT JOIN MYS.ALPHA_REL alpha_rel ON a.ID = alpha_rel.SRC_ID "
+                   "LEFT JOIN MYS.ALPHA alpha_rel_alpha ON alpha_rel.TGT_ID = alpha_rel_alpha.ID",
+        source_bindings=[
+            AliasBinding(alias="a", ref=base),
+            AliasBinding(alias="alpha_rel", ref=rel_tbl),
+            AliasBinding(alias="alpha_rel_alpha", ref=second_alpha),
+        ],
+        join_graph=[
+            JoinEdge(
+                join_type=JoinType.LEFT,
+                driving=AliasBinding(alias="a", ref=base),
+                joined=AliasBinding(alias="alpha_rel", ref=rel_tbl),
+                on_sql="a.ID = alpha_rel.SRC_ID",
+            ),
+            JoinEdge(
+                join_type=JoinType.LEFT,
+                driving=AliasBinding(alias="alpha_rel", ref=rel_tbl),
+                joined=AliasBinding(alias="alpha_rel_alpha", ref=second_alpha),
+                on_sql="alpha_rel.TGT_ID = alpha_rel_alpha.ID",
+            ),
+        ],
+    )
+    model = ODIModel(
+        target=TableRef(schema="MYS", table="TARGET"),
+        staging_steps=[step],
+    )
+    # DRD row: source_attribute has "(FROM T2)" hint -> route to the second alias.
+    tdef = _td(("REL_X", "NUMBER"))
+    rows = [{
+        "column": "REL_X",
+        "source_schema": "MYS",
+        "source_table": "ALPHA",
+        "source_attribute": "X (FROM T2)",  # G hint
+    }]
+    cmp = [ComparisonResult(
+        verdict=ComparisonVerdict.MATCHED,
+        target_col="REL_X",
+        drd_schema="MYS", drd_table="ALPHA", drd_attr="X",
+        odi_schema="MYS", odi_table="ALPHA", odi_col="X",
+        odi_expr_sql="alpha_rel_alpha.X",
+        odi_step=1,
+        explanation="MATCHED via self-join",
+        odi_logic="alpha_rel_alpha.X",
+    )]
+    res = emit_insert_drd_first(
+        target_schema="MYS", target_table="TARGET",
+        target_definition=tdef, analysis_rows=rows,
+        odi_model=model,
+        comparison_results=cmp,
+    )
+    # Projection lands on the SECOND alias, NOT the base.
+    assert "alpha_rel_alpha.X" in res.sql, (
+        f"Expected second-alias projection 'alpha_rel_alpha.X' in:\n{res.sql}"
+    )
+    # And the self-join must be present in the FROM/JOIN tree.
+    assert "LEFT JOIN MYS.ALPHA" in res.sql.upper().replace("MYS.ALPHA_REL", "")
+    # Provenance is the G-specific marker.
+    assert res.provenance_summary.get("ODI_T_ALIAS", 0) == 1
+
+
+def test_t_alias_hint_lowercase_from_also_detected():
+    """Operator cells commonly mix case; lowercase 'from' must work too."""
+    from app.sql_model.drd_rules import extract_t_alias_hint
+    assert extract_t_alias_hint("widget_col (from t2)") == "T2"
+
+
 def test_oracle_outer_marker_stripped_from_ansi_joins():
     """Operator-locked 2026-05-29: mixing ``(+)`` with ``LEFT JOIN ... ON`` is
     invalid Oracle.  The emitter MUST strip ``(+)`` from every ON predicate."""

@@ -118,6 +118,7 @@ from app.sql_model.drd_rules import (
     compose_exists_case_expr,
     extract_applicable_only_code,
     extract_exists_derived_flag,
+    extract_t_alias_hint,
     find_discriminator_for_code,
 )
 
@@ -353,6 +354,41 @@ def _rewrite_predicate(
     return _IDENT_DOT_RE.sub(_sub, on_sql)
 
 
+# ── Alias extraction from ODI projection text ────────────────────────────────
+#
+# When DRD signals a T-alias hint, we look at ODI's projection expression to
+# find which alias the column actually projects from.  Pure pattern detection;
+# no hard-coded names.
+
+_ALIAS_DOT_COL_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z0-9_$#]*)\.([A-Za-z][A-Za-z0-9_$#]*)\b",
+)
+
+
+def _extract_alias_for_col(odi_expr: str, col: str) -> Optional[str]:
+    """Return the alias of a ``<alias>.<col>`` reference inside ``odi_expr``
+    where ``<col>`` matches the requested column (case-insensitive).  ``None``
+    if no such reference appears.  Pure structural -- no SQL keywords are
+    treated as aliases."""
+    if not odi_expr or not col:
+        return None
+    target = col.strip().upper()
+    # Reject SQL keywords used as bare prefixes (avoid CASE/SUM/NVL/MAX/etc.)
+    _SQL_KW = {
+        "CASE", "WHEN", "THEN", "ELSE", "END", "SUM", "MAX", "MIN", "AVG",
+        "COUNT", "NVL", "COALESCE", "DECODE", "TO_DATE", "TO_CHAR",
+        "TO_NUMBER", "TRIM", "SUBSTR", "CAST", "EXTRACT", "EXISTS", "IN",
+        "AND", "OR", "NOT", "NULL", "IS", "FROM", "WHERE", "ON",
+    }
+    for m in _ALIAS_DOT_COL_RE.finditer(odi_expr):
+        alias, ref_col = m.group(1), m.group(2)
+        if alias.upper() in _SQL_KW:
+            continue
+        if ref_col.upper() == target:
+            return alias
+    return None
+
+
 _OUTER_JOIN_MARKER_RE = re.compile(r"\s*\(\s*\+\s*\)")
 
 
@@ -397,10 +433,14 @@ def _harvest_odi_joins(
                 continue
             # Use ODI's own alias for stability with its ON predicates.
             odi_alias = edge.joined.alias.upper()
-            # Map alias <-> our scheme: if this fq_table is the base, reuse
-            # the base alias.  Otherwise keep ODI's alias (unique in graph).
-            if fq == base_fq.upper():
-                continue  # the base table is already in FROM
+            # Self-join handling: when the joined fq matches the base table,
+            # only skip if ODI also used the BASE alias for it -- that's a
+            # genuine duplicate FROM entry.  When ODI introduces a SECOND
+            # alias for the same physical table (e.g. for T2-style related-row
+            # joins), keep the join so its ON predicates land in the SQL and
+            # the second-reference projection lands on the right alias.
+            if fq == base_fq.upper() and odi_alias.upper() == base_alias.upper():
+                continue
             key = (fq, odi_alias)
             stripped_on = _strip_oracle_outer_marker(edge.on_sql or "")
             if key in joins:
@@ -409,7 +449,15 @@ def _harvest_odi_joins(
                 if stripped_on and stripped_on not in existing.on_predicates:
                     existing.on_predicates.append(stripped_on)
                 continue
-            alias_assignments[fq] = odi_alias
+            # Only set the alias_assignments entry for this fq if it isn't
+            # already mapped.  In particular, when fq == base_fq the base
+            # alias must keep priority -- this self-join's alternative alias
+            # is only used by the T-alias-hint path in _plan_column.  The
+            # alternative alias is still tracked in used_aliases (so future
+            # alias generation doesn't collide) and in the joins dict (so the
+            # LEFT JOIN clause is emitted).
+            if fq not in alias_assignments:
+                alias_assignments[fq] = odi_alias
             used_aliases.add(odi_alias)
             joins[key] = _JoinNeed(
                 fq_table=fq,
@@ -462,7 +510,11 @@ def _plan_column(
         return s.strip()
 
     target = (target or "").strip().upper()
-    source_attr = _first_token(row.get("source_attribute") or "").upper()
+    raw_source_attr = (row.get("source_attribute") or "")
+    # Preserve the full raw cell for T-alias-hint detection BEFORE we strip
+    # to the first token (which would drop a trailing "(FROM T2)" annotation).
+    t_alias_hint = extract_t_alias_hint(raw_source_attr)
+    source_attr = _first_token(raw_source_attr).upper()
     source_table = _first_token(row.get("source_table") or "").upper()
     source_schema = _first_token(row.get("source_schema") or "").upper()
     transformation = (row.get("transformation") or "")
@@ -583,23 +635,47 @@ def _plan_column(
         )
         # Require clean identifier-shaped col before emitting
         if not is_staging and odi_col_clean and _IDENT_RE.match(odi_col_clean):
-            key = fq
-            alias = alias_assignments.get(key)
+            # T-alias hint (e.g. "(FROM T2)") overrides the canonical alias
+            # mapping when ODI's expression uses a distinct alias for the
+            # same physical fq.  Extract the alias verbatim from ODI's
+            # expression so the projection lands on the correct self-join
+            # target (the JOIN itself is harvested by _harvest_odi_joins
+            # since it no longer skips self-joins under distinct aliases).
+            alias: Optional[str] = None
+            if t_alias_hint and comp_result.odi_expr_sql:
+                hinted_alias = _extract_alias_for_col(
+                    comp_result.odi_expr_sql, odi_col_clean,
+                )
+                if hinted_alias and hinted_alias.upper() != base_alias.upper():
+                    # Confirm the join graph actually carries this alias
+                    # (otherwise the projection would reference an
+                    # unjoined relation -> Oracle ORA-00942).
+                    if joins_by_key is not None and any(
+                        jn.alias.upper() == hinted_alias.upper()
+                        for jn in joins_by_key.values()
+                    ):
+                        alias = hinted_alias
             if alias is None:
-                if key == base_fq.upper():
-                    alias = base_alias
-                else:
-                    alias = _alias_from_table(fq, used_aliases)
-                alias_assignments[key] = alias
+                key = fq
+                alias = alias_assignments.get(key)
+                if alias is None:
+                    if key == base_fq.upper():
+                        alias = base_alias
+                    else:
+                        alias = _alias_from_table(fq, used_aliases)
+                    alias_assignments[key] = alias
             base_expr = f"{alias}.{odi_col_clean}"
             wrapped = _maybe_case_wrap(base_expr)
             prov = "ODI_CASE_FILTERED" if wrapped != base_expr else "ODI"
+            if t_alias_hint and alias.upper() != base_alias.upper():
+                prov = "ODI_T_ALIAS"
             note_extra = f" (applicable only for {applicable_code})" if applicable_code else ""
+            t_hint_note = f" (T-alias hint: {t_alias_hint})" if t_alias_hint else ""
             return _ColumnPlan(
                 target_col=target,
                 source_expr=wrapped,
                 provenance=prov,
-                notes=f"ODI staging chain -> {fq}.{odi_col_clean}{note_extra}{etl_note}",
+                notes=f"ODI staging chain -> {fq}.{odi_col_clean}{note_extra}{t_hint_note}{etl_note}",
             )
 
     # 2) DRD physical pass-through: row has explicit source_table + attribute.

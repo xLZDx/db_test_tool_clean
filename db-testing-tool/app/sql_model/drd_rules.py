@@ -277,6 +277,50 @@ def compose_exists_case_expr(spec: Dict[str, Any], else_value: str = "NULL") -> 
     )
 
 
+# ── T-alias hint detector ────────────────────────────────────────────────────
+#
+# DRD source_attribute cells sometimes carry a trailing parenthetical hint that
+# disambiguates self-joins, e.g.:
+#
+#     TXN.SRC_STM_ID (FROM T2)
+#     SUM_AMT (FROM T1)
+#     CCY_CD (FROM T_RELATED)
+#
+# The hint says: "this column projects from the Nth reference to the source
+# table (or from a specific alias), not the base reference."  We don't care
+# WHICH alias — only that the cell signals a non-base reference.  The emitter
+# uses this signal to prefer the ODI staging chain's alias verbatim instead of
+# re-aliasing to the canonical base.
+#
+# Generic shape: ``(FROM <ident>)`` at end of cell, with ``ident`` being any
+# alphanumeric token (``T2``, ``T_RELATED``, ``TRGT``, etc.).
+
+_T_ALIAS_HINT_RE = re.compile(
+    r"\(\s*FROM\s+(" + _IDENT + r")\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def extract_t_alias_hint(text: str) -> Optional[str]:
+    """Return the captured alias-hint token (upper-cased), or ``None``.
+
+    Examples:
+        "TXN.SRC_STM_ID (FROM T2)"       -> "T2"
+        "CCY_CD (FROM T_RELATED)"         -> "T_RELATED"
+        "AMT (from t1)"                   -> "T1"
+        "X.Y"                             -> None
+        "SUM(CASE WHEN ... )"             -> None  (not a trailing FROM-hint)
+
+    The detector is anchored at end-of-string and requires ``FROM`` as the
+    parenthetical's first token, so Oracle function calls like
+    ``TO_DATE(LOAD_DT,'YYYYMMDD')`` are NOT matched.
+    """
+    if not text:
+        return None
+    m = _T_ALIAS_HINT_RE.search(text)
+    return m.group(1).upper() if m else None
+
+
 # ── Generic ETL-default placeholder map (operator-overridable) ───────────────
 #
 # Conventional system-managed audit columns.  This is a DEFAULT; callers can

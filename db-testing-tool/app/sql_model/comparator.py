@@ -50,11 +50,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Trailing parenthetical notes in DRD source_attribute cells, e.g. "SRC_STM_ID (FROM T2)".
-# Requires a space before '(' and only allows A-Z 0-9 _ and spaces inside — so Oracle
-# function calls like TO_DATE(LOAD_DT,'YYYYMMDD') are NOT stripped (no leading space,
-# contains commas/quotes).
-_PAREN_NOTE_RE = re.compile(r"\s+\([A-Z0-9_ ]+\)\s*$")
+# Trailing parenthetical notes in DRD source_attribute cells, e.g.
+# "SRC_STM_ID (FROM T2)" / "AMT (from t1)" / "CCY (From T_REL)".
+# Requires a space before '(' and only allows letters / digits / _ / space inside
+# -- so Oracle function calls like TO_DATE(LOAD_DT,'YYYYMMDD') are NOT stripped
+# (no leading space, contains commas/quotes).  Case-insensitive on the body so
+# operator-written cells with mixed case ("from T2") still get stripped.
+_PAREN_NOTE_RE = re.compile(r"\s+\([A-Za-z0-9_ ]+\)\s*$")
 
 
 # ── Generic DRD-rule complexity / ODI expression heuristics ────────────────────
