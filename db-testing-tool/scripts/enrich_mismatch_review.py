@@ -131,6 +131,7 @@ def _classify_and_explain(
     drd_full: str,
     apa_cash_filter: str,
     apa_security_filter: str,
+    source_attr_index: Optional[Dict[str, list]] = None,
 ) -> Tuple[str, str]:
     """Return (human_explanation, recommendation) for one row.
 
@@ -167,6 +168,10 @@ def _classify_and_explain(
             f"SEMANTIC_MATCH -- ODI step {src_match_step} projects "
             f"{src_match_ref} which IS the DRD's source attribute",
         )
+
+    # CROSS-COLUMN source-attribute lookup moved AFTER the more specific
+    # patterns (APA_CASH/APA_SECURITY/PDM name-drift).  See pattern N
+    # below near the end of the function.
 
     # ── Pattern 1: known PDM abbreviation drift ──────────────────────────
     # Operator already confirmed YLD/YTW/YTW_CD/TM_PRC_DISCRETION_F are
@@ -313,16 +318,56 @@ def _classify_and_explain(
         real_gap = False
         break
     if real_gap and chain.strip():
+        # Before flagging as REAL_ODI_GAP, do the CROSS-COLUMN source check:
+        # does the DRD source attribute appear under a DIFFERENT target
+        # column elsewhere in ODI?  If yes, refine the explanation -- ODI
+        # has the source data, just doesn't bind the role-specific table
+        # for this target.  If no, plain REAL_ODI_GAP.
+        siblings = []
+        if drd_attr_up and source_attr_index:
+            siblings = source_attr_index.get(drd_attr_up, [])
+            if not siblings:
+                # Prefix-modulo lookup (e.g. drd says AR_CGY_CD; index has
+                # BKR_AR_CGY_CD)
+                for key, vals in source_attr_index.items():
+                    if key == drd_attr_up:
+                        continue
+                    if key.endswith("_" + drd_attr_up) or drd_attr_up.endswith("_" + key):
+                        siblings = vals
+                        break
+            siblings = [s for s in siblings if s[0] != tgt]
+        if siblings:
+            sample = siblings[0]
+            sib_target, sib_step, sib_alias = sample
+            extras = ""
+            if len(siblings) > 1:
+                others = ", ".join(s[0] for s in siblings[1:4])
+                extras = f"  Other targets projecting the same column: {others}."
+            return (
+                f"REAL ODI GAP (with source available): DRD's source "
+                f"attribute '{drd_attr_up}' is not projected into THIS "
+                f"target ({tgt}) anywhere in ODI -- but the SAME source "
+                f"column IS projected by ODI at step {sib_step} into "
+                f"sibling target '{sib_target}' from alias '{sib_alias}'."
+                f"{extras}  ODI has the source data; the gap is that ODI "
+                f"doesn't bind the role-specific table (e.g. BKR_AR_DIM "
+                f"for broker, APA_SECURITY for security) to populate "
+                f"this target.",
+                f"REAL_ODI_GAP_WITH_SOURCE_AVAILABLE -- DRD source "
+                f"'{drd_attr_up}' exists in ODI (used by '{sib_target}'); "
+                f"ODI just doesn't join the role-specific table for '{tgt}'",
+            )
         return (
             "ODI never derives this column anywhere in the chain: every "
             "STEPn entry is a pass-through reference and the MERGE just "
             "copies S.<col> from the USING subquery (which is itself "
             "reading the pass-through value).  In production the column "
             "will be NULL unless an out-of-scope UPDATE populates it.  "
-            "Real ODI gap -- the DRD's stated source attribute (e.g. "
-            f"'{drd_attr_up}') is never projected at any step.",
-            "REAL_ODI_GAP -- column declared but never derived; DRD wants "
-            f"'{drd_attr_up}' which ODI doesn't project",
+            "Real ODI gap -- the DRD's stated source attribute "
+            f"'{drd_attr_up}' is never projected at any step "
+            "(also not under any sibling target).",
+            "REAL_ODI_GAP -- column declared but never derived; DRD source "
+            f"'{drd_attr_up}' is absent from the entire ODI chain",
         )
 
     # ── Pattern 10: full-rule-truncated columns (BKR_AR_ID etc.) ─────────
@@ -346,6 +391,32 @@ def _classify_and_explain(
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
+
+def _build_source_attr_index(model) -> Dict[str, list]:
+    """Walk model.column_derivations across ALL target columns and build an
+    index ``{source_col_upper: [(target_col, step_label, source_alias), ...]}``.
+
+    This lets the enrichment script answer: "for DRD source attribute X, does
+    ODI project X anywhere in the chain (regardless of which TARGET column
+    that chain belongs to)?"  Many BKR_* / SEC_* / CASH_* target columns
+    are sourced from the same physical column as a non-prefixed sibling.
+    """
+    idx: Dict[str, list] = {}
+    derivs = getattr(model, "column_derivations", None) or {}
+    for tgt, chain in derivs.items():
+        for d in chain:
+            if not d.source_col:
+                continue
+            if d.expr_kind not in ("column_ref", "function", "case_when",
+                                   "agg", "subquery"):
+                # pass-through / literal / unknown - skip
+                continue
+            key = d.source_col.upper()
+            idx.setdefault(key, []).append(
+                (tgt, d.step_label, d.source_alias or "")
+            )
+    return idx
+
 
 def main(in_csv: pathlib.Path, out_csv: pathlib.Path) -> int:
     print(f"Loading {in_csv}")
@@ -389,6 +460,11 @@ def main(in_csv: pathlib.Path, out_csv: pathlib.Path) -> int:
     print(f"  APA_CASH filter: {apa_cash_filter}")
     print(f"  APA_SECURITY filter: {apa_security_filter}")
 
+    # Index every source column ODI actually projects, across all targets.
+    # Lets the classifier detect cross-column source matches.
+    source_attr_index = _build_source_attr_index(model)
+    print(f"  source-attribute index: {len(source_attr_index)} distinct source columns")
+
     drd_full_map = _build_drd_full_rule_map(result.augmented_drd_rows)
 
     # Build the enriched rows.  Process the union of operator-annotated rows
@@ -422,6 +498,7 @@ def main(in_csv: pathlib.Path, out_csv: pathlib.Path) -> int:
             drd_full = annotated.get("drd_rule", "")
         explanation, recommendation = _classify_and_explain(
             classify_row, drd_full, apa_cash_filter, apa_security_filter,
+            source_attr_index=source_attr_index,
         )
         # If the column was annotated but is no longer in fresh mismatches,
         # flag it as "now matched" so operator sees the change.
@@ -446,10 +523,21 @@ def main(in_csv: pathlib.Path, out_csv: pathlib.Path) -> int:
         "now_matched", "human_explanation", "recommendation",
     ]
     print(f"Writing {out_csv}")
-    with open(out_csv, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=field_order, quoting=csv.QUOTE_ALL)
-        w.writeheader()
-        w.writerows(out_rows)
+    try:
+        with open(out_csv, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=field_order, quoting=csv.QUOTE_ALL)
+            w.writeheader()
+            w.writerows(out_rows)
+        target = out_csv
+    except PermissionError:
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+        target = out_csv.with_name(out_csv.stem + f"_{ts}.csv")
+        with open(target, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=field_order, quoting=csv.QUOTE_ALL)
+            w.writeheader()
+            w.writerows(out_rows)
+        print(f"  (primary path locked; wrote to {target})")
     print(f"  {len(out_rows)} rows written + 2 new columns "
           f"(human_explanation, recommendation)")
 
