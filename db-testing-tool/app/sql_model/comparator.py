@@ -547,13 +547,14 @@ class DrdClaim:
     # rule engine to resolve discriminators in master / sentence-headered
     # blocks that aren't indexed as named blocks.
     all_etl_text: str = ""
+    # Phase 7.9 (operator-locked 2026-05-30): DRD col AE = Notes/Comments
+    # (decision history, PBI refs, cross-reference rationale).  Surfaced
+    # so emitter / GUI can show operator-authored context inline.
+    notes: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> "DrdClaim":
         raw_attr = norm(d.get("source_attribute") or "")
-        # Strip trailing parenthetical notes like " (FROM T2)" — must have a space
-        # before '(' and only alphanumeric/underscore/space inside so Oracle calls
-        # like TO_DATE(col,'fmt') are never touched.
         clean_attr = _PAREN_NOTE_RE.sub("", raw_attr)
         return cls(
             target_col=norm(d.get("physical_name") or d.get("target_col") or ""),
@@ -564,6 +565,7 @@ class DrdClaim:
             etl_block_ref=(d.get("etl_block_ref") or "").strip(),
             etl_block_body=(d.get("etl_block_body") or "").strip(),
             all_etl_text=(d.get("_all_etl_text") or d.get("all_etl_text") or "").strip(),
+            notes=(d.get("notes") or "").strip(),
         )
 
     @property
@@ -612,6 +614,11 @@ class ComparisonResult:
     mismatch_kind: MismatchKind = MismatchKind.NONE
     drd_logic: str = ""                         # raw DRD col AD text (Transformation/Business Rules/Join)
     odi_logic: str = ""                         # raw ODI projection SQL fragment
+    # Phase 7.9 (operator-locked 2026-05-30): DRD col AE = Notes /
+    # Comments (decision history, PBI refs, cross-reference rationale).
+    # Operator: "колонка AE содержит полезные советы".  Surfaced so the
+    # GUI + emitter can show this inline with technical analysis.
+    drd_notes: str = ""
 
     @property
     def is_ok(self) -> bool:
@@ -639,6 +646,7 @@ class ComparisonResult:
             "mismatch_kind": self.mismatch_kind.value,
             "drd_logic": self.drd_logic,
             "odi_logic": self.odi_logic,
+            "drd_notes": self.drd_notes,
         }
 
 
@@ -1893,14 +1901,18 @@ def compare_drd_rows_to_model(
         drd = DrdClaim.from_dict(row)
         if not drd.target_col:
             continue
-        results.append(
-            compare_drd_odi(
-                drd, model,
-                _staging_tables=staging_tables,
-                kb=kb,
-                _final_insert_cols=final_insert_cols,
-            )
+        res = compare_drd_odi(
+            drd, model,
+            _staging_tables=staging_tables,
+            kb=kb,
+            _final_insert_cols=final_insert_cols,
         )
+        # Phase 7.9: stamp drd_notes (col AE) on the result so emitter
+        # + GUI see decision history / PBI refs inline.  Use dataclass
+        # field replacement (ComparisonResult is mutable here).
+        if drd.notes:
+            res.drd_notes = drd.notes
+        results.append(res)
     return results
 
 

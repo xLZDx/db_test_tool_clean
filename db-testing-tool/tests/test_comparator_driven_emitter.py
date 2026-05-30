@@ -390,18 +390,13 @@ def test_path_3_5_fact_extension_inferred_fk_emits_marker():
     assert "TXN_ID = " in res.sql.upper() or "TXN_ID=" in res.sql.upper()
 
 
-def test_complex_drd_expression_surfaces_odi_hint_when_drd_is_prose():
-    """Phase 7.8 (operator question 2026-05-30): when DRD writes a
-    rule as English text (so source_table is unparseable / pseudo)
-    but the comparator MATCHED ODI's computed expression, the emitter
-    must:
-      - Emit NULL (DRD spec is unparseable; honest)
-      - Surface the comparator-matched ODI expression in the comment
-        as a hint
-      - Track in `complex_drd_expression_cols` (NOT counted as MATCHED
-        because the emitter projects NULL, but distinct from honest
-        no-source NULLs)
-    """
+def test_prose_drd_with_odi_match_projects_recovered_sql():
+    """Phase 7.9 (operator question 2026-05-30): when DRD writes intent
+    as English text but comparator MATCHED ODI's computed SQL
+    expression, the emitter now PROJECTS the ODI expression with
+    [RECOVERED_FROM_PROSE] marker (it IS the realization of DRD's
+    intent -- not ODI inheritance).  Operator gets actionable SQL,
+    NOT a NULL placeholder."""
     res = emit_insert_comparator_driven(
         target_schema="C", target_table="X",
         drd_rows=[
@@ -422,19 +417,40 @@ def test_complex_drd_expression_surfaces_odi_hint_when_drd_is_prose():
         ],
         odi_model=_make_model(),
     )
-    # PROSE_RULE column is tracked in the new bucket.
-    assert "PROSE_RULE" in res.complex_drd_expression_cols
-    assert "PROSE_RULE" in res.null_substitutions
-    # Comparator's ODI expression hint appears in the comment.
+    # PROSE_RULE is in the RECOVERED bucket (not the NULL'd one).
+    assert "PROSE_RULE" in res.recovered_from_prose_cols
+    assert "PROSE_RULE" not in res.null_substitutions
+    # Projection is the ODI expression (NOT NULL).
     proj_lines = _select_lines(res.sql)
     pr_line = [l for l in proj_lines if "PROSE_RULE" in l][0]
-    assert "COMPLEX_DRD_EXPRESSION" in pr_line
+    assert "RECOVERED_FROM_PROSE" in pr_line
     assert "CASE WHEN EXISTS" in pr_line
-    # Emitter projects NULL (operator's locked DRD-driven rule -- we
-    # cannot project DRD's prose; ODI value is only for verification).
-    assert "NULL" in pr_line
-    # matched_count does NOT count this as MATCHED (honest accounting).
-    assert res.matched_count == 1  # only BASE matched
+    assert not pr_line.lstrip().startswith("NULL"), (
+        f"PROSE_RULE should project the ODI SQL, not NULL: {pr_line!r}"
+    )
+    # matched_count counts the recovery (real SQL emitted).
+    assert res.matched_count == 2  # BASE + PROSE_RULE
+
+
+def test_drd_notes_appears_inline_in_emitter_comment():
+    """Phase 7.9: column AE (Notes / Comments) from DRD must appear
+    in the emitter's per-row comment as `[DRD-notes: ...]` so operator
+    sees decision history / PBI refs inline with the SQL."""
+    res_with_notes = _make_result(
+        "BASE", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="ID",
+    )
+    res_with_notes.drd_notes = "[05/28/25]: PBI 1234 -- this is a decision note"
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "BASE", "source_schema": "S", "source_table": "T", "source_attribute": "ID"},
+        ],
+        comparison_results=[res_with_notes],
+        odi_model=_make_model(),
+    )
+    proj_lines = _select_lines(res.sql)
+    assert any("DRD-notes:" in l for l in proj_lines)
+    assert any("PBI 1234" in l for l in proj_lines)
 
 
 def test_extra_filter_with_undefined_alias_dropped_safely():

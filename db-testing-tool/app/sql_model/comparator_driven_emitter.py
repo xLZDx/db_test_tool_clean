@@ -94,6 +94,10 @@ class DrdDrivenInsert:
     # comparator-matched ODI expression in the comment as a hint for
     # the operator to restructure the DRD spec.
     complex_drd_expression_cols: List[str] = field(default_factory=list)
+    # Phase 7.9: prose-DRD rows where comparator MATCHED ODI's computed
+    # expression -- emitter projects the ODI expression as the SQL
+    # realization of DRD's intent (operator-locked recovery path).
+    recovered_from_prose_cols: List[str] = field(default_factory=list)
     base_table: str = ""
     aliases_used: Dict[str, str] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
@@ -443,52 +447,91 @@ def emit_insert_comparator_driven(
     source_missing_cols: List[str] = []
     null_in_not_null_risk_cols: List[str] = []
     complex_drd_expression_cols: List[str] = []
+    recovered_from_prose_cols: List[str] = []
     matched_count = 0
     proj_pairs: List[Tuple[str, str]] = []
+
+    def _notes_suffix(r) -> str:
+        """Append DRD col-AE notes to the inline comment when present.
+        Operator-locked 2026-05-30: AE = decision history / PBI refs /
+        cross-reference rationale.  Surfacing inline gives operator
+        full context next to the SQL."""
+        if r is None:
+            return ""
+        notes = (getattr(r, "drd_notes", "") or "").strip()
+        if not notes:
+            return ""
+        clean = re.sub(r"[\r\n\t]+", " ", notes).strip()
+        return f"  [DRD-notes: {clean[:160]}]"
 
     for col, fq, drd_attr, drd_logic, verdict in tuples:
         res = by_target.get(col)
         if not drd_attr or not fq:
             # DRD source is unparseable (English text, missing, or
-            # pseudo-table parse artefact).  Distinguish two cases
-            # (operator-locked 2026-05-30 Phase 7.8):
+            # pseudo-table parse artefact).  Three sub-cases:
             #
-            #  (a) Comparator MATCHED -- ODI has a real computed
-            #      expression for this column.  DRD just wrote the
-            #      rule as English instead of structured source.
-            #      Emit NULL but show the comparator-matched ODI
-            #      expression in the comment so operator can copy +
-            #      restructure DRD.  Track separately so matched_count
-            #      reflects emitter projections honestly, but
-            #      complex_drd_expression_cols surfaces the gap.
+            #  (a) Comparator MATCHED with ODI expression available
+            #      (Phase 7.9 -- operator-locked 2026-05-30):
+            #      ODI's expression IS the SQL realization of DRD's
+            #      intent (comparator MATCHED them).  Project the
+            #      ODI expression with [RECOVERED_FROM_PROSE] marker.
+            #      This is NOT "ODI inheritance" -- it's "DRD intent
+            #      translated to SQL", which is exactly what
+            #      reverse-engineering wants.  Operator sees BOTH
+            #      DRD prose AND realized SQL in the comment.
             #
-            #  (b) Anything else -- DRD genuinely has no spec;
-            #      operator must populate DRD.
-            if res and verdict == ComparisonVerdict.MATCHED.value and res.odi_expr_sql:
+            #  (b) Comparator MATCHED but no usable ODI expression:
+            #      surface as COMPLEX_DRD_EXPRESSION (Phase 7.8) --
+            #      NULL with hint.
+            #
+            #  (c) No match at all: honest NULL.
+            if (
+                res
+                and verdict == ComparisonVerdict.MATCHED.value
+                and res.odi_expr_sql
+                and res.odi_expr_sql.strip()
+            ):
+                odi_expr = res.odi_expr_sql.strip()
+                # Phase 7.9: ODI expression often references aliases
+                # specific to ODI's staging (TXN_RLTNP, APA_CASH, ...).
+                # We keep the raw expression but warn operator that
+                # alias resolution to OUR FROM-graph may need manual
+                # adjustment.
+                recovered_from_prose_cols.append(col)
+                matched_count += 1  # counts -- we emit real SQL
+                drd_prose = (drd_logic or drd_attr or "")
+                clean_prose = re.sub(r"[\r\n\t]+", " ", drd_prose).strip()
+                clean_expr = re.sub(r"[\r\n\t]+", " ", odi_expr).strip()
+                # Wrap in parens for safety inside SELECT.
+                expr_for_select = odi_expr if odi_expr.strip().startswith("(") else f"({odi_expr})"
+                proj_pairs.append((
+                    expr_for_select,
+                    f"[RECOVERED_FROM_PROSE] DRD wrote intent as English: "
+                    f"{clean_prose[:80]!r}; comparator MATCHED ODI's SQL "
+                    f"realization: {clean_expr[:80]!r}.  Operator: verify "
+                    f"alias names in the expression resolve in our FROM "
+                    f"graph; restructure DRD source_table when convenient."
+                    + _notes_suffix(res)
+                ))
+                continue
+            # (b)/(c): NULL paths
+            if res and verdict == ComparisonVerdict.MATCHED.value:
                 complex_drd_expression_cols.append(col)
-                null_substitutions.append(col)
-                if col in not_null_cols:
-                    null_in_not_null_risk_cols.append(col)
-                hint_expr = re.sub(r"[\r\n\t]+", " ", res.odi_expr_sql).strip()
-                proj_pairs.append((
-                    "NULL",
-                    f"[COMPLEX_DRD_EXPRESSION] DRD wrote a prose rule "
-                    f"for {col} instead of a structured "
-                    f"schema.table.column source.  Comparator MATCHED "
-                    f"ODI's computed expression: {hint_expr[:120]!r}. "
-                    f"Operator: copy this expression into the DRD "
-                    f"spec (as a structured derivation) and re-run."
-                ))
-            else:
-                if col in not_null_cols:
-                    null_in_not_null_risk_cols.append(col)
-                null_substitutions.append(col)
-                proj_pairs.append((
-                    "NULL",
-                    f"DRD did not state a source for {col}; "
-                    f"projecting NULL.  Operator must populate DRD or "
-                    f"accept the NULL."
-                ))
+            if col in not_null_cols:
+                null_in_not_null_risk_cols.append(col)
+            null_substitutions.append(col)
+            proj_pairs.append((
+                "NULL",
+                (
+                    f"[COMPLEX_DRD_EXPRESSION] DRD wrote a prose rule for "
+                    f"{col}; comparator MATCHED but no ODI expression to "
+                    f"recover.  Operator must restructure DRD."
+                    if res and verdict == ComparisonVerdict.MATCHED.value
+                    else f"DRD did not state a source for {col}; "
+                         f"projecting NULL.  Operator must populate DRD."
+                )
+                + _notes_suffix(res)
+            ))
             continue
         if verdict == ComparisonVerdict.ODI_EXTRA.value:
             # Defensive (should not happen if drd_rows drives the loop).
@@ -554,7 +597,7 @@ def emit_insert_comparator_driven(
                 f"DRD source used.  Operator review."
             )
 
-        proj_pairs.append((proj_expr, comment))
+        proj_pairs.append((proj_expr, comment + _notes_suffix(res)))
 
     # ── Compose SELECT projection (comma BEFORE comment for Oracle) ──────
     select_lines: List[str] = []
@@ -626,7 +669,8 @@ def emit_insert_comparator_driven(
         f"-- {len(real_mismatch_cols)} REAL_MISMATCH (DRD used; ODI divergent);\n"
         f"-- {len(unresolvable_cols)} UNRESOLVABLE (DRD used; ODI complex);\n"
         f"-- {len(source_missing_cols)} SOURCE_MISSING (DRD used; ODI gap);\n"
-        f"-- {len(complex_drd_expression_cols)} COMPLEX_DRD_EXPRESSION (DRD prose; comparator matched ODI expr; NULL'd with hint);\n"
+        f"-- {len(recovered_from_prose_cols)} RECOVERED_FROM_PROSE (DRD prose; ODI's SQL realization projected with marker);\n"
+        f"-- {len(complex_drd_expression_cols)} COMPLEX_DRD_EXPRESSION (DRD prose; no ODI expr available; NULL'd);\n"
         f"-- {len(null_substitutions)} NULL total (no DRD source or prose-only DRD);\n"
         f"-- {len(null_in_not_null_risk_cols)} NOT NULL constraint risk;\n"
         f"-- {len(join_derived)} JOIN clauses auto-derived from DRD;\n"
@@ -688,6 +732,7 @@ def emit_insert_comparator_driven(
         join_undetermined_tables=join_undetermined,
         join_derived_tables=join_derived,
         complex_drd_expression_cols=complex_drd_expression_cols,
+        recovered_from_prose_cols=recovered_from_prose_cols,
         base_table=base_fq,
         aliases_used={f"{fq}@{disc}": alias for (fq, disc), alias in per_row_alias.items()},
         notes=notes,
