@@ -39,12 +39,25 @@ class SchemaProvider:
     fall back to CROSS JOIN cleanly.
     """
 
-    def __init__(self, kb_dir: Optional[Path] = None):
+    def __init__(self, kb_dir: Optional[Path] = None,
+                 preferred_ds_id: Optional[int] = None):
         if kb_dir is None:
             kb_dir = Path(__file__).resolve().parent.parent.parent / "data" / "local_kb"
         self._kb_dir = kb_dir
         # tables: dict[(schema_upper, table_upper)] -> set of column names (upper)
         self._tables: Dict[tuple, Set[str]] = {}
+        # When preferred_ds_id is set (default from env var
+        # PDM_PREFERRED_DS_ID), the PDM file for that DS is loaded
+        # ALONE.  All other on-disk KBs are skipped.  Operator-locked
+        # 2026-05-30 Phase 7.14: lets the live-regenerated PDM (ds_99)
+        # take authoritative precedence over the legacy production
+        # ds_3 dump when validating JOINs against live FREEPDB1.
+        import os
+        if preferred_ds_id is None:
+            env_val = os.environ.get("PDM_PREFERRED_DS_ID", "").strip()
+            if env_val.isdigit():
+                preferred_ds_id = int(env_val)
+        self._preferred_ds_id = preferred_ds_id
         self._loaded = False
 
     def _load(self) -> None:
@@ -54,7 +67,25 @@ class SchemaProvider:
         if not self._kb_dir.exists():
             _log.warning("SchemaProvider: KB dir %s does not exist", self._kb_dir)
             return
-        for path in sorted(self._kb_dir.glob("schema_kb_ds_*.json")):
+        # Apply preferred-DS filter: if set, only load that one file.
+        if self._preferred_ds_id is not None:
+            target = self._kb_dir / f"schema_kb_ds_{self._preferred_ds_id}.json"
+            if target.exists():
+                _log.info(
+                    "SchemaProvider: loading ONLY preferred ds_%d (ignoring others)",
+                    self._preferred_ds_id,
+                )
+                paths = [target]
+            else:
+                _log.warning(
+                    "SchemaProvider: PDM_PREFERRED_DS_ID=%d but %s does not exist; "
+                    "falling back to glob",
+                    self._preferred_ds_id, target,
+                )
+                paths = sorted(self._kb_dir.glob("schema_kb_ds_*.json"))
+        else:
+            paths = sorted(self._kb_dir.glob("schema_kb_ds_*.json"))
+        for path in paths:
             try:
                 text = path.read_text(encoding="utf-8")
                 if text.lstrip().startswith("version https://git-lfs"):

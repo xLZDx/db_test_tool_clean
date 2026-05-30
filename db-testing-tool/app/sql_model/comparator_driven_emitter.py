@@ -268,6 +268,29 @@ def _derive_on_clause(
     target_col_u = (tgt_col or "").upper()
     bare_table = fq_table.split(".")[-1].upper()
 
+    # PDM-aware validation helper (Phase 7.13).  Imports lazily so the
+    # comparator stays usable when PDM is absent.  Available to ALL
+    # paths below (Phase 7.14: also Path 1).
+    from app.sql_model.schema_provider import default_provider
+    provider = default_provider()
+    base_sch, base_tab = (base_fq.split(".", 1) + [""])[:2] if "." in base_fq else ("", base_fq)
+    tgt_sch, tgt_tab = (fq_table.split(".", 1) + [""])[:2] if "." in fq_table else ("", fq_table)
+
+    def _both_exist(b_col: str, t_col: str) -> bool:
+        return (
+            provider.has_column(base_sch, base_tab, b_col)
+            and provider.has_column(tgt_sch, tgt_tab, t_col)
+        )
+
+    def _make_join(t_col: str, b_col: str, extra_clause: str = "") -> str:
+        out = (
+            f"{alias}.{_quote_if_reserved(t_col)} = "
+            f"{base_alias}.{_quote_if_reserved(b_col)}"
+        )
+        if extra_clause:
+            out += f" AND {extra_clause}"
+        return out
+
     # Path 1: reuse drd_import_service's lookup-spec extractor.
     try:
         from app.services.drd_import_service import _extract_lookup_spec
@@ -308,44 +331,17 @@ def _derive_on_clause(
                 extra = ""
         # Standalone literal? (e.g. "Use TYPE_ID as 84" with literal id)
         src_literal = (spec.get("source_lookup_literal") or "").strip()
+        # Phase 7.14: PDM-validate Path 1 before emit (was unvalidated).
         if src_join and lookup_join:
-            base = (
-                f"{alias}.{_quote_if_reserved(lookup_join)} = "
-                f"{base_alias}.{_quote_if_reserved(src_join)}"
-            )
-            if extra:
-                base += f" AND {extra}"
-            return (base, True)
-        if src_literal and lookup_join:
-            base = f"{alias}.{_quote_if_reserved(lookup_join)} = {src_literal}"
-            if extra:
-                base += f" AND {extra}"
-            return (base, True)
-
-    # PDM-aware validation helper (Phase 7.13).  Imports lazily so the
-    # comparator stays usable when PDM is absent.
-    from app.sql_model.schema_provider import default_provider
-
-    provider = default_provider()
-    base_sch, base_tab = (base_fq.split(".", 1) + [""])[:2] if "." in base_fq else ("", base_fq)
-    tgt_sch, tgt_tab = (fq_table.split(".", 1) + [""])[:2] if "." in fq_table else ("", fq_table)
-
-    def _both_exist(b_col: str, t_col: str) -> bool:
-        """True if base.b_col AND alias.t_col both exist in PDM (or
-        either table is unknown -- conservative)."""
-        return (
-            provider.has_column(base_sch, base_tab, b_col)
-            and provider.has_column(tgt_sch, tgt_tab, t_col)
-        )
-
-    def _make_join(t_col: str, b_col: str, extra_clause: str = "") -> str:
-        out = (
-            f"{alias}.{_quote_if_reserved(t_col)} = "
-            f"{base_alias}.{_quote_if_reserved(b_col)}"
-        )
-        if extra_clause:
-            out += f" AND {extra_clause}"
-        return out
+            if _both_exist(src_join, lookup_join):
+                return (_make_join(lookup_join, src_join, extra), True)
+            # PDM rejects -> fall through to Path 2 cascade.
+        elif src_literal and lookup_join:
+            if provider.has_column(tgt_sch, tgt_tab, lookup_join):
+                base = f"{alias}.{_quote_if_reserved(lookup_join)} = {src_literal}"
+                if extra:
+                    base += f" AND {extra}"
+                return (base, True)
 
     # Path 2: DIM/LKU table standard pattern, PDM-VALIDATED.  Try
     # multiple FK candidates (TABLE_ID, ID, TABLE_KEY, ...) and use the
