@@ -86,6 +86,7 @@ class DrdDrivenInsert:
     source_missing_cols: List[str] = field(default_factory=list)
     null_in_not_null_risk_cols: List[str] = field(default_factory=list)
     join_undetermined_tables: List[str] = field(default_factory=list)
+    join_derived_tables: List[str] = field(default_factory=list)
     base_table: str = ""
     aliases_used: Dict[str, str] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
@@ -94,10 +95,24 @@ class DrdDrivenInsert:
 
 
 def _canonical_table(schema: str, table: str) -> str:
-    """Lowercase normalised 'schema.table' or just 'table'."""
+    """Lowercase normalised 'schema.table' or just 'table'.
+
+    Operator-locked filter (2026-05-30 Phase 7.7): when DRD parsing
+    mis-treats English text as a source_table (symptom: schema == table,
+    or table starts with an uppercase verb / contains spaces), we
+    refuse to emit it.  These are garbage rows that would otherwise
+    poison the JOIN graph.
+    """
     schema = (schema or "").strip()
     table = (table or "").strip()
     if not table:
+        return ""
+    # Reject: schema literally equals table (TRD_CNCLD_F.TRD_CNCLD_F)
+    if schema and schema.upper() == table.upper():
+        return ""
+    # Reject: table contains a space or is excessively long (English
+    # prose, not an Oracle identifier).
+    if " " in table or len(table) > 64:
         return ""
     if schema:
         return f"{schema}.{table}".upper()
@@ -145,25 +160,27 @@ def _lookup_discriminator(transformation_text: str) -> str:
 
 def _build_alias_map(
     rows: List[Tuple[str, str, str, str, str]],
-) -> Tuple[str, Dict[Tuple[str, str], str], Dict[str, str]]:
-    """Return (base_fq_table, per_row_alias_map, per_table_alias_map).
+) -> Tuple[str, Dict[Tuple[str, str], str], Dict[str, str], Dict[Tuple[str, str], Tuple[str, str, str]]]:
+    """Return (base_fq_table, per_row_alias_map, per_table_alias_map,
+    representative_row_per_alias).
 
     `rows` is list of (target_col, fq_table, source_attr, drd_logic, verdict).
 
     - per_row_alias_map maps (fq_table, discriminator) -> alias.  Lookup
       tables get one alias per unique discriminator; non-lookup tables
       get a single shared alias keyed by (fq_table, "").
-    - per_table_alias_map maps fq_table -> list of all aliases ever
-      assigned for that table (used by JOIN-emit step).
+    - per_table_alias_map maps fq_table -> list of aliases assigned.
+    - representative_row_per_alias maps (fq_table, discriminator) ->
+      (target_col, source_attr, drd_logic) of the FIRST row that pulled
+      from this alias.  Used by JOIN-derivation logic to extract ON
+      clause from the DRD transformation text.
     """
-    # Pick base table = most-common non-lookup table
     counter: Counter = Counter()
     for _, fq, _, _, _ in rows:
         if not fq or _is_lookup_table(fq):
             continue
         counter[fq] += 1
     if not counter:
-        # No non-lookup table; fall back to most common overall
         for _, fq, _, _, _ in rows:
             if fq:
                 counter[fq] += 1
@@ -172,13 +189,14 @@ def _build_alias_map(
     used_aliases: set = set()
     per_row: Dict[Tuple[str, str], str] = {}
     per_table: Dict[str, List[str]] = {}
+    representative: Dict[Tuple[str, str], Tuple[str, str, str]] = {}
     if base_fq:
         base_alias = "t"
         used_aliases.add(base_alias)
         per_row[(base_fq, "")] = base_alias
         per_table[base_fq] = [base_alias]
 
-    for _, fq, _, drd_logic, _ in rows:
+    for tgt, fq, src_attr, drd_logic, _ in rows:
         if not fq or fq == base_fq:
             continue
         if _is_lookup_table(fq):
@@ -191,8 +209,138 @@ def _build_alias_map(
         alias = _derive_alias(fq, used_aliases)
         per_row[key] = alias
         per_table.setdefault(fq, []).append(alias)
+        representative[key] = (tgt, src_attr, drd_logic)
 
-    return base_fq, per_row, per_table
+    return base_fq, per_row, per_table, representative
+
+
+def _derive_on_clause(
+    fq_table: str,
+    alias: str,
+    discriminator: str,
+    representative: Tuple[str, str, str],
+    base_alias: str,
+    base_fq: str,
+) -> Tuple[str, bool]:
+    """Return (on_clause, success).
+
+    Tries to derive a valid ON clause for `alias` joined to base.  Uses:
+      1. DRD-recognised lookup spec patterns (USE X AS CL_VAL_ID, etc.)
+      2. DIM table standard pattern (<table_base>_ID == base.<...>_ID)
+      3. Discriminator-only WHERE for CL_VAL (1=1 + AND CL_SCM_ID = N)
+      4. Failure -> ('1=1', False) so caller emits CROSS JOIN with TODO.
+    """
+    tgt_col, src_attr, drd_logic = representative
+    src_attr_u = (src_attr or "").upper()
+    target_col_u = (tgt_col or "").upper()
+    bare_table = fq_table.split(".")[-1].upper()
+
+    # Path 1: reuse drd_import_service's lookup-spec extractor.
+    try:
+        from app.services.drd_import_service import _extract_lookup_spec
+        spec = _extract_lookup_spec(
+            drd_logic or "", src_attr_u, target_col_u,
+            src_schema=(fq_table.split(".")[0] if "." in fq_table else ""),
+            src_table=bare_table,
+        )
+    except Exception:
+        spec = None
+    if spec:
+        src_join = (spec.get("source_lookup_col") or "").strip().upper()
+        lookup_join = (spec.get("lookup_join_col") or "").strip().upper()
+        extra = (spec.get("extra_filter") or "").strip()
+        # Rewrite extra_filter `LK.X` -> `<alias>.X` (the helper used a
+        # hardcoded 'LK.' prefix; we own the alias here).
+        if extra:
+            extra = re.sub(r"\bLK\.", f"{alias}.", extra, flags=re.IGNORECASE)
+            extra = re.sub(r"^\s*AND\s+", "", extra, flags=re.IGNORECASE).strip()
+            extra = re.sub(r"\s+AND\s*$", "", extra, flags=re.IGNORECASE).strip()
+            # Safety check (review MAJOR): if extra still has any
+            # `<WORD>.` prefix that is NEITHER alias NOR base_alias,
+            # it references a DRD-text alias we cannot resolve here.
+            # Drop the extra_filter entirely rather than emit invalid
+            # SQL pointing at undefined aliases.
+            valid_prefixes = {alias.upper(), base_alias.upper()}
+            stray_aliases = set()
+            for pm in re.finditer(r"\b([A-Z][A-Z0-9_]*)\.", extra, flags=re.IGNORECASE):
+                p = pm.group(1).upper()
+                if p not in valid_prefixes:
+                    stray_aliases.add(p)
+            if stray_aliases:
+                _log.debug(
+                    "comparator_driven_emitter: dropping extra_filter for "
+                    "%s; references undefined alias(es) %s",
+                    fq_table, ", ".join(sorted(stray_aliases)),
+                )
+                extra = ""
+        # Standalone literal? (e.g. "Use TYPE_ID as 84" with literal id)
+        src_literal = (spec.get("source_lookup_literal") or "").strip()
+        if src_join and lookup_join:
+            base = f"{alias}.{lookup_join} = {base_alias}.{src_join}"
+            if extra:
+                base += f" AND {extra}"
+            return (base, True)
+        if src_literal and lookup_join:
+            base = f"{alias}.{lookup_join} = {src_literal}"
+            if extra:
+                base += f" AND {extra}"
+            return (base, True)
+
+    # Path 2: DIM table standard pattern.  Strip _DIM/_LKU/_LKUP/_MAP
+    # suffix to get the base; append _ID.  Many ETL schemas join DIMs
+    # this way: dim.<base>_ID = t.<base>_ID.
+    if _is_lookup_table(fq_table):
+        m = re.match(r"^(.*?)(?:_DIM|_MAP|_LKU|_LKUP)$", bare_table, re.IGNORECASE)
+        if m:
+            stem = m.group(1).upper()
+            id_col = f"{stem}_ID"
+            return (f"{alias}.{id_col} = {base_alias}.{id_col}", True)
+        # Plain CL_VAL with discriminator -> standard CL_VAL_ID join
+        # (the base table must have a column ending in _CL_VAL_ID or
+        # similar; we project the discriminator as the only filter).
+        if bare_table == "CL_VAL":
+            if discriminator:
+                # Best-effort: <alias>.CL_VAL_ID = <base>.<src_attr_at_first_use>
+                # AND <alias>.CL_SCM_ID = <discriminator>
+                # We don't know which base column to equate without
+                # spec; emit ID join + discriminator + marker that
+                # source_attr might need operator confirmation.
+                return (
+                    f"{alias}.CL_SCM_ID = {discriminator}  "
+                    f"/* WARN: add `{alias}.CL_VAL_ID = {base_alias}.<src_col>` "
+                    f"-- operator must specify the FK column */",
+                    False,
+                )
+        # Generic DIM fallback: try <bare>_ID
+        if bare_table.endswith("_DIM"):
+            stem = bare_table[:-4]
+            id_col = f"{stem}_ID"
+            return (f"{alias}.{id_col} = {base_alias}.{id_col}", True)
+
+    # Path 3: same-name _ID join (column ends in _ID).
+    if src_attr_u and src_attr_u.endswith("_ID"):
+        return (f"{alias}.{src_attr_u} = {base_alias}.{src_attr_u}", True)
+
+    # Path 3.5: fact-extension table convention -- non-lookup tables
+    # typically share the base table's PK as a FK.  This is INFERRED,
+    # not verified against the schema, so we emit a clear marker so
+    # operator can spot-check.  Returns success=True so the JOIN
+    # appears in the SQL (operator wants 0 CROSS JOIN TODOs), but the
+    # ON clause text says `/* INFERRED FK -- verify in PDM */`
+    # (review MAJOR).
+    if base_fq and not _is_lookup_table(fq_table):
+        base_bare = base_fq.split(".")[-1].upper()
+        if base_bare:
+            fk_col = f"{base_bare}_ID"
+            return (
+                f"{alias}.{fk_col} = {base_alias}.{fk_col}  "
+                f"/* INFERRED FK -- verify {fq_table} actually has "
+                f"{fk_col} as the foreign key to {base_fq} */",
+                True,
+            )
+
+    # No clean derivation -> caller emits CROSS JOIN + TODO.
+    return ("1=1", False)
 
 
 def _alias_for_row(
@@ -269,7 +417,7 @@ def emit_insert_comparator_driven(
             extraction_failure_reason="empty drd_rows",
         )
 
-    base_fq, per_row_alias, per_table_alias = _build_alias_map(tuples)
+    base_fq, per_row_alias, per_table_alias, representative_row = _build_alias_map(tuples)
     if not base_fq:
         return DrdDrivenInsert(
             sql="",
@@ -395,32 +543,38 @@ def emit_insert_comparator_driven(
         base_sql_table = base_fq
     from_clauses: List[str] = [f"FROM {base_sql_table} {base_alias}"]
     join_undetermined: List[str] = []
-    # Walk per_row_alias map and emit one JOIN per (fq_table, discriminator).
+    join_derived: List[str] = []
     seen_aliases: set = {base_alias}
+    # Walk per_row_alias and emit one JOIN per (fq_table, discriminator).
+    # Each non-base entry tries to derive an ON clause from the DRD
+    # transformation text of its representative row; falls back to
+    # CROSS JOIN + TODO when the derivation can't pin a clean predicate.
     for (fq, disc), alias in per_row_alias.items():
         if alias in seen_aliases:
             continue
         seen_aliases.add(alias)
         parts = fq.split(".", 1)
-        if len(parts) == 2:
-            sql_table = f"{parts[0]}.{parts[1]}"
-        else:
-            sql_table = fq
-        # Without DRD-derived JOIN keys this emitter cannot produce a
-        # valid ON clause; emit explicit CROSS JOIN + warning so
-        # operator sees the gap (nothing silent).
-        if _is_lookup_table(fq) and disc:
+        sql_table = f"{parts[0]}.{parts[1]}" if len(parts) == 2 else fq
+        rep = representative_row.get((fq, disc), ("", "", ""))
+        on_clause, success = _derive_on_clause(
+            fq_table=fq, alias=alias, discriminator=disc,
+            representative=rep, base_alias=base_alias, base_fq=base_fq,
+        )
+        if success:
             from_clauses.append(
-                f"  -- TODO: replace CROSS JOIN with ON clause using "
-                f"discriminator {disc} for lookup {fq}"
+                f"  JOIN {sql_table} {alias} ON {on_clause}"
             )
+            join_derived.append(f"{alias}={fq}")
         else:
+            # Operator-visible CROSS JOIN with explicit TODO so nothing
+            # silent and operator can spot-fix.
+            disc_hint = f" (discriminator: {disc})" if disc else ""
             from_clauses.append(
                 f"  -- TODO: replace CROSS JOIN with operator-supplied "
-                f"ON clause for {fq}"
+                f"ON clause for {fq}{disc_hint}"
             )
-        from_clauses.append(f"  CROSS JOIN {sql_table} {alias}")
-        join_undetermined.append(f"{alias}={fq}")
+            from_clauses.append(f"  CROSS JOIN {sql_table} {alias}")
+            join_undetermined.append(f"{alias}={fq}")
 
     # ── Compose final SQL ────────────────────────────────────────────────
     target_cols = [t[0] for t in tuples]
@@ -436,6 +590,7 @@ def emit_insert_comparator_driven(
         f"-- {len(source_missing_cols)} SOURCE_MISSING (DRD used; ODI gap);\n"
         f"-- {len(null_substitutions)} NULL (no DRD source given);\n"
         f"-- {len(null_in_not_null_risk_cols)} NOT NULL constraint risk;\n"
+        f"-- {len(join_derived)} JOIN clauses auto-derived from DRD;\n"
         f"-- {len(join_undetermined)} JOIN clauses need operator-supplied ON predicate.\n"
     )
     sql = (
@@ -483,6 +638,7 @@ def emit_insert_comparator_driven(
         source_missing_cols=source_missing_cols,
         null_in_not_null_risk_cols=null_in_not_null_risk_cols,
         join_undetermined_tables=join_undetermined,
+        join_derived_tables=join_derived,
         base_table=base_fq,
         aliases_used={f"{fq}@{disc}": alias for (fq, disc), alias in per_row_alias.items()},
         notes=notes,

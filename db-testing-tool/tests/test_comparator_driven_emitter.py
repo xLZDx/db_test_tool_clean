@@ -200,7 +200,7 @@ def test_base_table_is_most_frequent_source():
         ("C", "S.APA", "COL_C", "", "MATCHED"),
         ("D", "S.TXN", "COL_D", "", "MATCHED"),
     ]
-    base, per_row, _ = _build_alias_map(tuples)
+    base, per_row, _, _ = _build_alias_map(tuples)
     assert base == "S.APA"
     assert per_row[("S.APA", "")] == "t"
 
@@ -213,7 +213,7 @@ def test_lookup_table_per_discriminator_aliasing():
         ("X", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
         ("Y", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 115", "MATCHED"),
     ]
-    base, per_row, _ = _build_alias_map(tuples)
+    base, per_row, _, _ = _build_alias_map(tuples)
     assert base == "S.TXN"
     # Two distinct lookup aliases.
     assert per_row[("S.CL_VAL", "114")] != per_row[("S.CL_VAL", "115")]
@@ -227,7 +227,7 @@ def test_lookup_table_same_discriminator_shares_alias():
         ("X", "S.CL_VAL", "CL_VAL_CODE", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
         ("Y", "S.CL_VAL", "CL_VAL_NM", "Use CL_VAL where CL_SCM_ID = 114", "MATCHED"),
     ]
-    base, per_row, _ = _build_alias_map(tuples)
+    base, per_row, _, _ = _build_alias_map(tuples)
     assert len([k for k in per_row.keys() if k[0] == "S.CL_VAL"]) == 1
 
 
@@ -301,10 +301,10 @@ def test_null_for_not_null_column_flagged_as_runtime_risk():
     assert "ORA-01400" in res.sql
 
 
-def test_oracle_parses_cleanly_with_dummy_joins():
-    """Even with CROSS JOIN placeholders, the SQL must parse under
-    sqlglot Oracle dialect (we generate valid-but-incomplete SQL,
-    NOT garbage)."""
+def test_oracle_parses_cleanly_with_auto_derived_joins():
+    """Phase 7.7: non-lookup tables now auto-derive a JOIN via the
+    fact-extension convention (`<alias>.<base>_ID = base.<base>_ID`).
+    SQL must parse cleanly under sqlglot Oracle dialect."""
     res = emit_insert_comparator_driven(
         target_schema="C", target_table="X",
         drd_rows=[
@@ -317,16 +317,110 @@ def test_oracle_parses_cleanly_with_dummy_joins():
         ],
         odi_model=_make_model(),
     )
-    # CROSS JOIN appears for the non-base table
-    assert "CROSS JOIN" in res.sql
-    # And join_undetermined_tables records it
-    assert res.join_undetermined_tables, "operator must see which joins lack ON predicates"
-    # Validate SQL parses
+    # Phase 7.7: JOIN is auto-derived now (no CROSS JOIN).
+    assert "  JOIN " in res.sql
+    assert res.join_derived_tables, "non-lookup join should be auto-derived"
+    # Validate SQL parses.
     import sqlglot
     try:
         sqlglot.parse_one(res.sql, dialect="oracle")
     except Exception as e:
         pytest.fail(f"emitted SQL does not parse: {e}\n\nSQL:\n{res.sql}")
+
+
+def test_pseudo_table_from_drd_parse_artifact_rejected():
+    """When schema == table (e.g. 'TRD_CNCLD_F.TRD_CNCLD_F'), DRD
+    parsing has mistreated English prose as a source_table.  The
+    emitter must SKIP this row's table -- not pollute the JOIN graph.
+
+    Strengthened (review MINOR): check the table name does NOT appear
+    in any FROM / JOIN line (it may appear inside a SELECT comment,
+    which is harmless)."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "GOOD", "source_schema": "S", "source_table": "T", "source_attribute": "X"},
+            {"physical_name": "BAD",  "source_schema": "TRD_CNCLD_F", "source_table": "TRD_CNCLD_F",
+             "source_attribute": "blah"},
+        ],
+        comparison_results=[
+            _make_result("GOOD", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="X"),
+            _make_result("BAD",  ComparisonVerdict.MATCHED, drd_schema="TRD_CNCLD_F", drd_table="TRD_CNCLD_F", drd_attr="blah"),
+        ],
+        odi_model=_make_model(),
+    )
+    # GOOD row's projection appears.
+    assert "X" in res.sql
+    # Pseudo-table must NOT appear in any FROM / JOIN clause.
+    for line in res.sql.splitlines():
+        upper = line.upper().strip()
+        if upper.startswith("FROM ") or upper.startswith("JOIN ") or upper.startswith("CROSS JOIN"):
+            assert "TRD_CNCLD_F" not in upper, (
+                f"pseudo-table TRD_CNCLD_F leaked into FROM/JOIN: {line!r}"
+            )
+
+
+def test_path_3_5_fact_extension_inferred_fk_emits_marker():
+    """Phase 7.7 review MAJOR: Path 3.5 INFERS the FK as
+    `<base>_ID = base.<base>_ID` but cannot verify it against PDM.
+    The emitted JOIN MUST carry an `INFERRED FK -- verify` marker so
+    the operator can spot-check the assumption."""
+    # Base = TXN (most-frequent non-lookup); FIP is non-lookup
+    # extension -> Path 3.5 fires with inferred TXN_ID = TXN.TXN_ID.
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "A", "source_schema": "S", "source_table": "TXN", "source_attribute": "A"},
+            {"physical_name": "B", "source_schema": "S", "source_table": "FIP", "source_attribute": "AMT"},
+        ],
+        comparison_results=[
+            _make_result("A", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="TXN", drd_attr="A"),
+            _make_result(
+                "B", ComparisonVerdict.MATCHED,
+                drd_schema="S", drd_table="FIP", drd_attr="AMT",
+                drd_logic="",  # no DRD spec parseable
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    # JOIN is auto-derived (success=True) AND carries INFERRED marker.
+    assert "INFERRED FK" in res.sql, "operator must see that the FK is unverified"
+    assert "verify" in res.sql.lower()
+    # The ON predicate uses the base table's bare name + _ID.
+    assert "TXN_ID = " in res.sql.upper() or "TXN_ID=" in res.sql.upper()
+
+
+def test_extra_filter_with_undefined_alias_dropped_safely():
+    """Phase 7.7 review MAJOR: extra_filter may contain DRD-text alias
+    refs (e.g. `FA.EFF_DT`) that are not the join alias or base alias.
+    Emitter must DROP such extras rather than embed unresolved alias
+    references in the ON clause (which would silently produce wrong
+    SQL or runtime errors)."""
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "A", "source_schema": "S", "source_table": "T", "source_attribute": "A"},
+            {"physical_name": "B", "source_schema": "S", "source_table": "AR_GRP_SUBDIM",
+             "source_attribute": "STATUS",
+             "transformation": "Use AR_ID UNDER AR_GRP_SUBDIM where T.TD >= FA.EFF_DT and FA.STATUS = 'A'"},
+        ],
+        comparison_results=[
+            _make_result("A", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="A"),
+            _make_result(
+                "B", ComparisonVerdict.MATCHED,
+                drd_schema="S", drd_table="AR_GRP_SUBDIM", drd_attr="STATUS",
+                drd_logic="Use AR_ID UNDER AR_GRP_SUBDIM where T.TD >= FA.EFF_DT and FA.STATUS = 'A'",
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    # Find the AR_GRP_SUBDIM JOIN line and assert it does NOT contain
+    # the undefined FA. prefix.
+    join_lines = [l for l in res.sql.splitlines() if "AR_GRP_SUBDIM" in l.upper() and "JOIN" in l.upper()]
+    for line in join_lines:
+        assert "FA." not in line.upper() or "/*" in line, (
+            f"undefined alias FA. leaked into JOIN: {line!r}"
+        )
 
 
 # ── Comma-before-comment (Oracle parse safety) ───────────────────────────────
