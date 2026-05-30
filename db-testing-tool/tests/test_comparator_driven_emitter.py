@@ -390,6 +390,53 @@ def test_path_3_5_fact_extension_inferred_fk_emits_marker():
     assert "TXN_ID = " in res.sql.upper() or "TXN_ID=" in res.sql.upper()
 
 
+def test_complex_drd_expression_surfaces_odi_hint_when_drd_is_prose():
+    """Phase 7.8 (operator question 2026-05-30): when DRD writes a
+    rule as English text (so source_table is unparseable / pseudo)
+    but the comparator MATCHED ODI's computed expression, the emitter
+    must:
+      - Emit NULL (DRD spec is unparseable; honest)
+      - Surface the comparator-matched ODI expression in the comment
+        as a hint
+      - Track in `complex_drd_expression_cols` (NOT counted as MATCHED
+        because the emitter projects NULL, but distinct from honest
+        no-source NULLs)
+    """
+    res = emit_insert_comparator_driven(
+        target_schema="C", target_table="X",
+        drd_rows=[
+            {"physical_name": "BASE", "source_schema": "S", "source_table": "T", "source_attribute": "ID"},
+            # DRD wrote prose -- parser put English as schema/table/attr
+            {"physical_name": "PROSE_RULE",
+             "source_schema": "PROSE_RULE", "source_table": "PROSE_RULE",
+             "source_attribute": "If X exists in Y then 'A'"},
+        ],
+        comparison_results=[
+            _make_result("BASE", ComparisonVerdict.MATCHED, drd_schema="S", drd_table="T", drd_attr="ID"),
+            _make_result(
+                "PROSE_RULE", ComparisonVerdict.MATCHED,
+                drd_schema="PROSE_RULE", drd_table="PROSE_RULE", drd_attr="x",
+                odi_table="DERIVED", odi_col="EXPR",
+                odi_expr_sql="CASE WHEN EXISTS (SELECT 1 FROM Y) THEN 'A' END",
+            ),
+        ],
+        odi_model=_make_model(),
+    )
+    # PROSE_RULE column is tracked in the new bucket.
+    assert "PROSE_RULE" in res.complex_drd_expression_cols
+    assert "PROSE_RULE" in res.null_substitutions
+    # Comparator's ODI expression hint appears in the comment.
+    proj_lines = _select_lines(res.sql)
+    pr_line = [l for l in proj_lines if "PROSE_RULE" in l][0]
+    assert "COMPLEX_DRD_EXPRESSION" in pr_line
+    assert "CASE WHEN EXISTS" in pr_line
+    # Emitter projects NULL (operator's locked DRD-driven rule -- we
+    # cannot project DRD's prose; ODI value is only for verification).
+    assert "NULL" in pr_line
+    # matched_count does NOT count this as MATCHED (honest accounting).
+    assert res.matched_count == 1  # only BASE matched
+
+
 def test_extra_filter_with_undefined_alias_dropped_safely():
     """Phase 7.7 review MAJOR: extra_filter may contain DRD-text alias
     refs (e.g. `FA.EFF_DT`) that are not the join alias or base alias.

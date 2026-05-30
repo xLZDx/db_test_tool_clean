@@ -87,6 +87,13 @@ class DrdDrivenInsert:
     null_in_not_null_risk_cols: List[str] = field(default_factory=list)
     join_undetermined_tables: List[str] = field(default_factory=list)
     join_derived_tables: List[str] = field(default_factory=list)
+    # Phase 7.8 (operator-locked 2026-05-30): columns where DRD wrote
+    # an English-text rule instead of a structured `schema.table.col`
+    # source, but the comparator MATCHED ODI's computed expression.
+    # Emitter cannot project DRD's prose, so emits NULL + shows the
+    # comparator-matched ODI expression in the comment as a hint for
+    # the operator to restructure the DRD spec.
+    complex_drd_expression_cols: List[str] = field(default_factory=list)
     base_table: str = ""
     aliases_used: Dict[str, str] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
@@ -435,22 +442,53 @@ def emit_insert_comparator_driven(
     unresolvable_cols: List[str] = []
     source_missing_cols: List[str] = []
     null_in_not_null_risk_cols: List[str] = []
+    complex_drd_expression_cols: List[str] = []
     matched_count = 0
     proj_pairs: List[Tuple[str, str]] = []
 
     for col, fq, drd_attr, drd_logic, verdict in tuples:
         res = by_target.get(col)
         if not drd_attr or not fq:
-            # DRD did not state a clear source; honest NULL.
-            if col in not_null_cols:
-                null_in_not_null_risk_cols.append(col)
-            null_substitutions.append(col)
-            proj_pairs.append((
-                "NULL",
-                f"DRD did not state a source for {col}; "
-                f"projecting NULL.  Operator must populate DRD or "
-                f"accept the NULL."
-            ))
+            # DRD source is unparseable (English text, missing, or
+            # pseudo-table parse artefact).  Distinguish two cases
+            # (operator-locked 2026-05-30 Phase 7.8):
+            #
+            #  (a) Comparator MATCHED -- ODI has a real computed
+            #      expression for this column.  DRD just wrote the
+            #      rule as English instead of structured source.
+            #      Emit NULL but show the comparator-matched ODI
+            #      expression in the comment so operator can copy +
+            #      restructure DRD.  Track separately so matched_count
+            #      reflects emitter projections honestly, but
+            #      complex_drd_expression_cols surfaces the gap.
+            #
+            #  (b) Anything else -- DRD genuinely has no spec;
+            #      operator must populate DRD.
+            if res and verdict == ComparisonVerdict.MATCHED.value and res.odi_expr_sql:
+                complex_drd_expression_cols.append(col)
+                null_substitutions.append(col)
+                if col in not_null_cols:
+                    null_in_not_null_risk_cols.append(col)
+                hint_expr = re.sub(r"[\r\n\t]+", " ", res.odi_expr_sql).strip()
+                proj_pairs.append((
+                    "NULL",
+                    f"[COMPLEX_DRD_EXPRESSION] DRD wrote a prose rule "
+                    f"for {col} instead of a structured "
+                    f"schema.table.column source.  Comparator MATCHED "
+                    f"ODI's computed expression: {hint_expr[:120]!r}. "
+                    f"Operator: copy this expression into the DRD "
+                    f"spec (as a structured derivation) and re-run."
+                ))
+            else:
+                if col in not_null_cols:
+                    null_in_not_null_risk_cols.append(col)
+                null_substitutions.append(col)
+                proj_pairs.append((
+                    "NULL",
+                    f"DRD did not state a source for {col}; "
+                    f"projecting NULL.  Operator must populate DRD or "
+                    f"accept the NULL."
+                ))
             continue
         if verdict == ComparisonVerdict.ODI_EXTRA.value:
             # Defensive (should not happen if drd_rows drives the loop).
@@ -588,7 +626,8 @@ def emit_insert_comparator_driven(
         f"-- {len(real_mismatch_cols)} REAL_MISMATCH (DRD used; ODI divergent);\n"
         f"-- {len(unresolvable_cols)} UNRESOLVABLE (DRD used; ODI complex);\n"
         f"-- {len(source_missing_cols)} SOURCE_MISSING (DRD used; ODI gap);\n"
-        f"-- {len(null_substitutions)} NULL (no DRD source given);\n"
+        f"-- {len(complex_drd_expression_cols)} COMPLEX_DRD_EXPRESSION (DRD prose; comparator matched ODI expr; NULL'd with hint);\n"
+        f"-- {len(null_substitutions)} NULL total (no DRD source or prose-only DRD);\n"
         f"-- {len(null_in_not_null_risk_cols)} NOT NULL constraint risk;\n"
         f"-- {len(join_derived)} JOIN clauses auto-derived from DRD;\n"
         f"-- {len(join_undetermined)} JOIN clauses need operator-supplied ON predicate.\n"
@@ -613,6 +652,15 @@ def emit_insert_comparator_driven(
         notes.append(
             f"{len(source_missing_cols)} SOURCE_MISSING columns: DRD source "
             f"projected; ODI does not provide the column (potential ODI gap)."
+        )
+    if complex_drd_expression_cols:
+        notes.append(
+            f"{len(complex_drd_expression_cols)} COMPLEX_DRD_EXPRESSION "
+            f"columns ({', '.join(complex_drd_expression_cols[:5])}): "
+            f"DRD wrote a prose rule; comparator MATCHED ODI's computed "
+            f"expression.  Emitted as NULL with hint -- operator must "
+            f"restructure DRD spec into table.column form for the "
+            f"emitter to project it."
         )
     if null_in_not_null_risk_cols:
         notes.append(
@@ -639,6 +687,7 @@ def emit_insert_comparator_driven(
         null_in_not_null_risk_cols=null_in_not_null_risk_cols,
         join_undetermined_tables=join_undetermined,
         join_derived_tables=join_derived,
+        complex_drd_expression_cols=complex_drd_expression_cols,
         base_table=base_fq,
         aliases_used={f"{fq}@{disc}": alias for (fq, disc), alias in per_row_alias.items()},
         notes=notes,
