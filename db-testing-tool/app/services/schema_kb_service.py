@@ -91,6 +91,162 @@ def _query_or_empty(connector, sql: str, params: Optional[Dict[str, Any]] = None
         return []
 
 
+# ── Oracle bulk extractor (Phase 7.15) ───────────────────────────────────────
+#
+# Operator-locked rationale (2026-05-30): the legacy per-table FK extractor
+# (`_oracle_foreign_keys` below) uses ALL_CONSTRAINTS which is grant-filtered.
+# A user without SELECT_CATALOG_ROLE cannot see referenced PKs that live in
+# other schemas -- result: 177 FKs captured on a DB that actually has 1375.
+#
+# This bulk extractor uses DBA_* views when available (one SELECT_CATALOG_ROLE
+# grant is enough), falls back to ALL_* views otherwise.  Per-schema batching
+# replaces N-tables-N-roundtrips with N-schemas-N-roundtrips (~40x fewer
+# round-trips on the 4000-table FREEPDB1 sample).
+#
+# `oracle_bulk_extract_schema(connector, schema)` returns:
+#   {
+#     'tables': {table_name -> {'columns':..., 'primary_keys':...,
+#                                'foreign_keys':..., 'object_type':...}},
+#     'used_dba_views': bool,        # diagnostic
+#   }
+
+def _oracle_has_dba_access(connector) -> bool:
+    """True iff the connecting user can SELECT from dba_users."""
+    try:
+        rows = connector.execute_query(
+            "SELECT 1 FROM dba_users WHERE ROWNUM = 1", {},
+        )
+        return rows is not None
+    except Exception:
+        return False
+
+
+def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
+    """Bulk-extract every (object_type, columns, PKs, FKs) for one
+    Oracle schema in O(4) round-trips total.  Uses DBA_* views when
+    available; falls back to ALL_* with a clear warning logged.
+    """
+    use_dba = _oracle_has_dba_access(connector)
+    prefix = "dba" if use_dba else "all"
+    schema_filter = "owner" if use_dba else "owner"
+    s_upper = (schema or "").upper()
+
+    # 1. Object list (tables + views)
+    obj_sql = (
+        f"SELECT object_name, object_type FROM {prefix}_objects "
+        f"WHERE {schema_filter}=:o AND object_type IN "
+        f"('TABLE','VIEW','MATERIALIZED VIEW') ORDER BY object_name"
+    )
+    obj_rows = _query_or_empty(connector, obj_sql, {"o": s_upper}) or []
+
+    # 2. All columns for the schema in one round trip
+    col_sql = (
+        f"SELECT table_name, column_name, data_type, nullable, "
+        f"column_id, data_length, data_precision, data_scale "
+        f"FROM {prefix}_tab_columns WHERE {schema_filter}=:o "
+        f"ORDER BY table_name, column_id"
+    )
+    col_rows = _query_or_empty(connector, col_sql, {"o": s_upper}) or []
+
+    # 3. PK constraint columns
+    pk_sql = (
+        f"SELECT cc.table_name, cc.column_name "
+        f"FROM {prefix}_constraints c "
+        f"JOIN {prefix}_cons_columns cc "
+        f"  ON c.owner=cc.owner AND c.constraint_name=cc.constraint_name "
+        f"WHERE c.{schema_filter}=:o AND c.constraint_type='P' "
+        f"ORDER BY cc.table_name, cc.position"
+    )
+    pk_rows = _query_or_empty(connector, pk_sql, {"o": s_upper}) or []
+
+    # 4. FK constraint columns -- joins forward to the referenced PK
+    #    via R_OWNER / R_CONSTRAINT_NAME (THIS is what the old per-table
+    #    extractor did but with all_* visibility, which dropped cross-
+    #    schema FKs when grants didn't extend).
+    fk_sql = (
+        f"SELECT cc.table_name, cc.column_name, c.constraint_name, "
+        f"r.owner AS ref_owner, rcc.table_name AS ref_table, "
+        f"rcc.column_name AS ref_col "
+        f"FROM {prefix}_constraints c "
+        f"JOIN {prefix}_cons_columns cc "
+        f"  ON c.owner=cc.owner AND c.constraint_name=cc.constraint_name "
+        f"JOIN {prefix}_constraints r "
+        f"  ON c.r_owner=r.owner AND c.r_constraint_name=r.constraint_name "
+        f"JOIN {prefix}_cons_columns rcc "
+        f"  ON r.owner=rcc.owner AND r.constraint_name=rcc.constraint_name "
+        f"  AND cc.position=rcc.position "
+        f"WHERE c.{schema_filter}=:o AND c.constraint_type='R' "
+        f"ORDER BY cc.table_name, c.constraint_name, cc.position"
+    )
+    fk_rows = _query_or_empty(connector, fk_sql, {"o": s_upper}) or []
+
+    # Index everything by table_name
+    def _norm(rec: Dict[str, Any], key: str) -> Any:
+        # Connectors may return uppercase OR lowercase keys; normalize.
+        return rec.get(key) or rec.get(key.upper()) or rec.get(key.lower())
+
+    by_table_cols: Dict[str, list] = {}
+    for r in col_rows:
+        tbl = _norm(r, "table_name")
+        if not tbl:
+            continue
+        dtype = _norm(r, "data_type") or "VARCHAR2"
+        dlen = _norm(r, "data_length")
+        dprec = _norm(r, "data_precision")
+        dscale = _norm(r, "data_scale")
+        # Construct display type (NUMBER(p,s), VARCHAR2(n), etc.)
+        disp = dtype
+        if dtype in ("VARCHAR2", "CHAR", "NVARCHAR2", "NCHAR") and dlen:
+            disp = f"{dtype}({dlen})"
+        elif dtype == "NUMBER" and dprec is not None:
+            disp = f"NUMBER({dprec},{dscale or 0})"
+        by_table_cols.setdefault(tbl, []).append({
+            "name": _norm(r, "column_name"),
+            "data_type": disp,
+            "nullable": (_norm(r, "nullable") == "Y"),
+            "is_pk": False,
+            "ordinal_position": _norm(r, "column_id"),
+        })
+    pk_by_table: Dict[str, list] = {}
+    for r in pk_rows:
+        tbl = _norm(r, "table_name")
+        col = _norm(r, "column_name")
+        if tbl and col:
+            pk_by_table.setdefault(tbl, []).append(col)
+    for tbl, cols in by_table_cols.items():
+        pks = set(pk_by_table.get(tbl, []))
+        for c in cols:
+            if c["name"] in pks:
+                c["is_pk"] = True
+    fk_by_table: Dict[str, list] = {}
+    for r in fk_rows:
+        tbl = _norm(r, "table_name")
+        if not tbl:
+            continue
+        fk_by_table.setdefault(tbl, []).append({
+            "constraint_name": _norm(r, "constraint_name"),
+            "column": _norm(r, "column_name"),
+            "ref_schema": _norm(r, "ref_owner"),
+            "ref_table": _norm(r, "ref_table"),
+            "ref_column": _norm(r, "ref_col"),
+        })
+
+    tables_out: Dict[str, Dict[str, Any]] = {}
+    for r in obj_rows:
+        name = _norm(r, "object_name")
+        obj_type = _norm(r, "object_type")
+        tables_out[name] = {
+            "columns": by_table_cols.get(name, []),
+            "primary_keys": pk_by_table.get(name, []),
+            "foreign_keys": fk_by_table.get(name, []),
+            "object_type": obj_type,
+        }
+    return {
+        "tables": tables_out,
+        "used_dba_views": use_dba,
+    }
+
+
 def _oracle_foreign_keys(connector, schema: str, table: str) -> List[Dict[str, Any]]:
     sql = """
         SELECT
@@ -372,7 +528,39 @@ def _sqlserver_constraints(connector, schema: str, table: str) -> List[Dict[str,
     ]
 
 
-def _table_details(connector, db_type: str, schema: str, table: str, object_type: str) -> Dict[str, Any]:
+def _table_details(
+    connector,
+    db_type: str,
+    schema: str,
+    table: str,
+    object_type: str,
+    oracle_bulk: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    # Oracle bulk fast-path (Phase 7.15): if the caller pre-fetched the
+    # schema-level columns/PKs/FKs via `oracle_bulk_extract_schema`,
+    # serve columns + PKs + FKs from that cache instead of hitting the
+    # connector per-table.  Indexes/constraints/view_sql still fall
+    # through to per-table (kept small + DBA-view sensitive).
+    if db_type == "oracle" and oracle_bulk is not None and table in oracle_bulk:
+        bulk = oracle_bulk[table]
+        columns = list(bulk.get("columns") or [])
+        primary_keys = list(bulk.get("primary_keys") or [])
+        foreign_keys = list(bulk.get("foreign_keys") or [])
+        indexes = _oracle_indexes(connector, schema, table)
+        constraints = _oracle_constraints(connector, schema, table)
+        view_sql = _oracle_view_sql(connector, schema, table, object_type) if object_type in {"VIEW", "MVIEW"} else None
+        return {
+            "schema": schema,
+            "name": table,
+            "type": object_type,
+            "columns": columns,
+            "primary_keys": primary_keys,
+            "foreign_keys": foreign_keys,
+            "indexes": indexes,
+            "constraints": constraints,
+            "view_sql": view_sql,
+        }
+
     cols = connector.get_columns(schema, table)
     columns = [
         {
@@ -453,13 +641,46 @@ def build_pdm_catalog(
             tables = schema_tables.get(schema, [])
             advance_progress(operation_id, 1, f"Building schema {schema} ({len(tables)} objects)")
             table_payload = []
+
+            # Oracle bulk fast-path (Phase 7.15): one round-trip per
+            # schema for columns + PKs + FKs.  Uses DBA_* views when
+            # the connecting user has SELECT_CATALOG_ROLE so cross-
+            # schema FKs are visible (legacy per-table ALL_* path
+            # silently dropped them -- 177 vs 1375 FKs on FREEPDB1).
+            oracle_bulk_cache: Optional[Dict[str, Dict[str, Any]]] = None
+            if db_type == "oracle":
+                try:
+                    bulk = oracle_bulk_extract_schema(connector, schema)
+                    oracle_bulk_cache = bulk.get("tables") or {}
+                    if bulk.get("used_dba_views"):
+                        add_notification(
+                            operation_id,
+                            f"  {schema}: bulk-extract via DBA views "
+                            f"({len(oracle_bulk_cache)} objects)",
+                        )
+                    else:
+                        add_notification(
+                            operation_id,
+                            f"  {schema}: bulk-extract via ALL views (no DBA "
+                            f"role; cross-schema FKs may be undercount)",
+                        )
+                except Exception as exc:  # noqa: BLE001 - fall back to per-table
+                    logger.warning(
+                        "Oracle bulk extract failed for %s: %s -- "
+                        "falling back to per-table queries", schema, exc,
+                    )
+                    oracle_bulk_cache = None
+
             for t in tables:
                 ensure_not_stopped(operation_id)
                 # Skip tables already in the KB — saves all the DB metadata queries
                 schema_existing_set = (skip_existing or {}).get(schema.upper(), set())
                 if schema_existing_set and t.table_name.upper() in schema_existing_set:
                     continue
-                detail = _table_details(connector, db_type, schema, t.table_name, t.table_type)
+                detail = _table_details(
+                    connector, db_type, schema, t.table_name, t.table_type,
+                    oracle_bulk=oracle_bulk_cache,
+                )
                 table_payload.append(detail)
                 for fk in detail.get("foreign_keys", []):
                     relationships.append({

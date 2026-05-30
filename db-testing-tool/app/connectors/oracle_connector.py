@@ -34,16 +34,32 @@ class OracleConnector(BaseConnector):
     def _direct_connect(self):
         import oracledb
         timeout_seconds = float(self.extra_params.get("connect_timeout", 5))
+        # Optional privileged-session mode (SYSDBA / SYSOPER) carried via
+        # extra_params["mode"] so service-account flows like the
+        # Phase 7.15 PDM regenerator can authenticate as SYS.
+        mode_raw = str(self.extra_params.get("mode", "") or "").strip().upper()
+        mode_kwarg: Dict[str, Any] = {}
+        if mode_raw in ("SYSDBA", "SYSOPER"):
+            sym = "SYSDBA" if mode_raw == "SYSDBA" else "SYSOPER"
+            mode_const = getattr(oracledb, sym, None)
+            if mode_const is not None:
+                mode_kwarg = {"mode": mode_const}
         try:
             return oracledb.connect(
                 user=self.username,
                 password=self.password,
                 dsn=self._dsn(),
                 tcp_connect_timeout=timeout_seconds,
+                **mode_kwarg,
             )
         except TypeError:
             # Backward compatibility with older python-oracledb versions.
-            return oracledb.connect(user=self.username, password=self.password, dsn=self._dsn())
+            return oracledb.connect(
+                user=self.username,
+                password=self.password,
+                dsn=self._dsn(),
+                **mode_kwarg,
+            )
 
     @staticmethod
     def _should_attempt_direct_fallback(pool_error: Exception) -> bool:
