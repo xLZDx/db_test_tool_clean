@@ -1,0 +1,191 @@
+"""Schema provider — answers `has_column(schema, table, col)` for the
+comparator-driven emitter's JOIN ON-clause validator.
+
+Operator-locked architecture (2026-05-30 Phase 7.13):
+
+  The emitter's Path 2 (DIM `<base>_ID = base.<base>_ID`) and Path 3.5
+  (fact-extension `<base>_ID`) inference paths produce ON predicates
+  WITHOUT verifying the predicted columns actually exist in either
+  table.  Result: silent wrong SQL that fails at runtime with
+  ORA-00904.
+
+  This provider loads the PDM from `data/local_kb/schema_kb_ds_*.json`
+  (the same files the comparator uses) so the emitter can verify EVERY
+  ON-predicate column reference BEFORE emitting.  If validation fails,
+  the emitter downgrades the JOIN to CROSS JOIN + TODO marker.
+
+  Live-DB fallback (Phase 7.14, deferred): if PDM is incomplete OR
+  caller supplies an oracledb connection, validate against ALL_TAB_COLUMNS.
+  PDM-only is the safe default for offline operation.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from pathlib import Path
+from typing import Any, Dict, Optional, Set
+
+
+_log = logging.getLogger(__name__)
+
+
+class SchemaProvider:
+    """Answers existence queries for schema.table.column triples.
+
+    Backed by Git-LFS-pulled `schema_kb_ds_*.json` files in
+    `data/local_kb/`.  Lookups are case-insensitive.  Missing schemas
+    / tables / columns return False (NOT raise) so the emitter can
+    fall back to CROSS JOIN cleanly.
+    """
+
+    def __init__(self, kb_dir: Optional[Path] = None):
+        if kb_dir is None:
+            kb_dir = Path(__file__).resolve().parent.parent.parent / "data" / "local_kb"
+        self._kb_dir = kb_dir
+        # tables: dict[(schema_upper, table_upper)] -> set of column names (upper)
+        self._tables: Dict[tuple, Set[str]] = {}
+        self._loaded = False
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True  # mark first so we don't re-attempt on failure
+        if not self._kb_dir.exists():
+            _log.warning("SchemaProvider: KB dir %s does not exist", self._kb_dir)
+            return
+        for path in sorted(self._kb_dir.glob("schema_kb_ds_*.json")):
+            try:
+                text = path.read_text(encoding="utf-8")
+                if text.lstrip().startswith("version https://git-lfs"):
+                    _log.warning(
+                        "SchemaProvider: %s is a Git LFS pointer (%d bytes); "
+                        "run `git lfs pull` to enable JOIN validation against it.",
+                        path.name, len(text),
+                    )
+                    continue
+                payload = json.loads(text)
+            except (OSError, json.JSONDecodeError) as exc:
+                _log.warning("SchemaProvider: cannot load %s: %s", path.name, exc)
+                continue
+            schemas = (payload.get("pdm") or {}).get("schemas") or []
+            for sch_block in schemas:
+                schema_name = (sch_block.get("schema") or "").strip().upper()
+                if not schema_name:
+                    continue
+                for tbl_block in sch_block.get("tables") or []:
+                    table_name = (tbl_block.get("name") or "").strip().upper()
+                    if not table_name:
+                        continue
+                    cols = {
+                        (c.get("name") or "").strip().upper()
+                        for c in (tbl_block.get("columns") or [])
+                        if c.get("name")
+                    }
+                    self._tables[(schema_name, table_name)] = cols
+        _log.info(
+            "SchemaProvider loaded %d tables from %s",
+            len(self._tables), self._kb_dir,
+        )
+
+    def has_column(self, schema: str, table: str, col: str) -> bool:
+        self._load()
+        key = (
+            (schema or "").strip().upper(),
+            (table or "").strip().upper(),
+        )
+        cols = self._tables.get(key)
+        if cols is None:
+            # Table not in PDM at all -- treat as "unknown" (return
+            # True to avoid false negatives).  Operator can switch to
+            # strict mode by checking `has_table()` first.
+            return True
+        c = (col or "").strip().upper().strip('"')
+        return c in cols
+
+    def has_table(self, schema: str, table: str) -> bool:
+        self._load()
+        key = (
+            (schema or "").strip().upper(),
+            (table or "").strip().upper(),
+        )
+        return key in self._tables
+
+    def columns_for(self, schema: str, table: str) -> Set[str]:
+        self._load()
+        return set(self._tables.get(
+            ((schema or "").upper(), (table or "").upper()), ()
+        ))
+
+    def candidate_fk_columns(self, schema: str, table: str, base_bare: str) -> list:
+        """Return candidate FK column names that EXIST in
+        `schema.table` and look like FKs to `base_bare`.  Tried in
+        priority order:
+
+          1. `<base_bare>_ID`     (e.g. TXN_ID)
+          2. `<base_bare>`        (e.g. TXN)
+          3. `<base_bare>_KEY`
+          4. `<base_bare>_CD`
+          5. `<base_bare>_CODE`
+          6. literal "ID" (often used as PK on lookup tables)
+        """
+        self._load()
+        cols = self.columns_for(schema, table)
+        if not cols:
+            return []
+        candidates = [
+            f"{base_bare}_ID",
+            f"{base_bare}",
+            f"{base_bare}_KEY",
+            f"{base_bare}_CD",
+            f"{base_bare}_CODE",
+            "ID",
+        ]
+        return [c for c in candidates if c.upper() in cols]
+
+
+# Module-level singleton -- emitter import is cheap; KB load is lazy
+# on first lookup.
+_default_provider: Optional[SchemaProvider] = None
+
+
+def default_provider() -> SchemaProvider:
+    global _default_provider
+    if _default_provider is None:
+        _default_provider = SchemaProvider()
+    return _default_provider
+
+
+def validate_on_predicate(
+    on_sql: str,
+    alias_to_fq: Dict[str, str],
+    provider: Optional[SchemaProvider] = None,
+) -> tuple:
+    """Validate every `<alias>.<col>` reference in `on_sql` against the
+    provider.  Returns `(valid: bool, failures: list[(alias, col, reason)])`.
+
+    `alias_to_fq` maps alias -> "schema.table".  Aliases NOT in the map
+    are skipped (unknown — could be operator-supplied; don't false-fail).
+    Quoted columns ("CHECK") are unquoted before lookup.
+    """
+    if provider is None:
+        provider = default_provider()
+    if not on_sql:
+        return True, []
+    failures: list = []
+    ref_re = re.compile(r"\b([A-Za-z_][A-Za-z0-9_$#]*)\.(\"[A-Z0-9_]+\"|[A-Za-z_][A-Za-z0-9_$#]*)")
+    for m in ref_re.finditer(on_sql):
+        alias = m.group(1).upper()
+        col = m.group(2).strip('"').upper()
+        fq = alias_to_fq.get(alias)
+        if not fq:
+            continue
+        if "." in fq:
+            sch, tab = fq.split(".", 1)
+        else:
+            sch, tab = "", fq
+        if not provider.has_table(sch, tab):
+            continue  # table not in PDM -> can't validate; allow.
+        if not provider.has_column(sch, tab, col):
+            failures.append((alias, col, f"column not in {sch}.{tab}"))
+    return (len(failures) == 0, failures)

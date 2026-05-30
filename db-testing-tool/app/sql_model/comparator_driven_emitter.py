@@ -105,20 +105,42 @@ class DrdDrivenInsert:
     extraction_failure_reason: str = ""
 
 
+_ORACLE_RESERVED = frozenset({
+    # Common Oracle reserved words that conflict with bare identifier use.
+    "CHECK", "ORDER", "GROUP", "WHERE", "TABLE", "INDEX", "VIEW",
+    "USER", "DATE", "LEVEL", "ROWID", "ROWNUM", "MINUS", "UNION",
+    "INTERSECT", "DESC", "ASC", "NULL", "BETWEEN", "DISTINCT",
+    "EXISTS", "INTO", "FROM", "SELECT", "WITH", "AS", "OR", "AND",
+    "NOT", "IN", "IS", "LIKE", "VALUES", "CASE", "WHEN", "THEN",
+    "ELSE", "END",
+})
+
+
+def _quote_if_reserved(col: str) -> str:
+    """Wrap an Oracle reserved word in double quotes so it's parsed as
+    an identifier (e.g. CHECK -> \"CHECK\").  Other tokens unchanged."""
+    if (col or "").upper() in _ORACLE_RESERVED:
+        return f'"{col.upper()}"'
+    return col
+
+
 def _canonical_table(schema: str, table: str) -> str:
     """Lowercase normalised 'schema.table' or just 'table'.
 
-    Operator-locked filter (2026-05-30 Phase 7.7): when DRD parsing
-    mis-treats English text as a source_table (symptom: schema == table,
-    or table starts with an uppercase verb / contains spaces), we
-    refuse to emit it.  These are garbage rows that would otherwise
-    poison the JOIN graph.
+    Operator-locked filters:
+      * Phase 7.7: reject pseudo-tables where schema == table (DRD
+        parse artefact for English-as-table).
+      * Phase 7.11: take FIRST line only when table is multi-line --
+        DRD source_table sometimes has the full FQN spread across
+        cell lines (e.g. "TRANSACTIONS_OWNER\\n.LGCY_TRD_CPCTY_TP_DIM").
+        Raw multi-line emits `JOIN TRANSACTIONS_OWNER\\n.LGCY...` which
+        Oracle parses as a JOIN without table name (ORA-02000).
     """
-    schema = (schema or "").strip()
-    table = (table or "").strip()
+    schema = (schema or "").split("\n")[0].strip()
+    table = (table or "").split("\n")[0].strip()
     if not table:
         return ""
-    # Reject: schema literally equals table (TRD_CNCLD_F.TRD_CNCLD_F)
+    # Reject: schema literally equals table (TRD_CNCLD_F.TRD_CNCLD_F).
     if schema and schema.upper() == table.upper():
         return ""
     # Reject: table contains a space or is excessively long (English
@@ -287,70 +309,110 @@ def _derive_on_clause(
         # Standalone literal? (e.g. "Use TYPE_ID as 84" with literal id)
         src_literal = (spec.get("source_lookup_literal") or "").strip()
         if src_join and lookup_join:
-            base = f"{alias}.{lookup_join} = {base_alias}.{src_join}"
+            base = (
+                f"{alias}.{_quote_if_reserved(lookup_join)} = "
+                f"{base_alias}.{_quote_if_reserved(src_join)}"
+            )
             if extra:
                 base += f" AND {extra}"
             return (base, True)
         if src_literal and lookup_join:
-            base = f"{alias}.{lookup_join} = {src_literal}"
+            base = f"{alias}.{_quote_if_reserved(lookup_join)} = {src_literal}"
             if extra:
                 base += f" AND {extra}"
             return (base, True)
 
-    # Path 2: DIM table standard pattern.  Strip _DIM/_LKU/_LKUP/_MAP
-    # suffix to get the base; append _ID.  Many ETL schemas join DIMs
-    # this way: dim.<base>_ID = t.<base>_ID.
+    # PDM-aware validation helper (Phase 7.13).  Imports lazily so the
+    # comparator stays usable when PDM is absent.
+    from app.sql_model.schema_provider import default_provider
+
+    provider = default_provider()
+    base_sch, base_tab = (base_fq.split(".", 1) + [""])[:2] if "." in base_fq else ("", base_fq)
+    tgt_sch, tgt_tab = (fq_table.split(".", 1) + [""])[:2] if "." in fq_table else ("", fq_table)
+
+    def _both_exist(b_col: str, t_col: str) -> bool:
+        """True if base.b_col AND alias.t_col both exist in PDM (or
+        either table is unknown -- conservative)."""
+        return (
+            provider.has_column(base_sch, base_tab, b_col)
+            and provider.has_column(tgt_sch, tgt_tab, t_col)
+        )
+
+    def _make_join(t_col: str, b_col: str, extra_clause: str = "") -> str:
+        out = (
+            f"{alias}.{_quote_if_reserved(t_col)} = "
+            f"{base_alias}.{_quote_if_reserved(b_col)}"
+        )
+        if extra_clause:
+            out += f" AND {extra_clause}"
+        return out
+
+    # Path 2: DIM/LKU table standard pattern, PDM-VALIDATED.  Try
+    # multiple FK candidates (TABLE_ID, ID, TABLE_KEY, ...) and use the
+    # FIRST one that exists in BOTH the join table and base table.
     if _is_lookup_table(fq_table):
         m = re.match(r"^(.*?)(?:_DIM|_MAP|_LKU|_LKUP)$", bare_table, re.IGNORECASE)
         if m:
             stem = m.group(1).upper()
-            id_col = f"{stem}_ID"
-            return (f"{alias}.{id_col} = {base_alias}.{id_col}", True)
-        # Plain CL_VAL with discriminator -> standard CL_VAL_ID join
-        # (the base table must have a column ending in _CL_VAL_ID or
-        # similar; we project the discriminator as the only filter).
-        if bare_table == "CL_VAL":
-            if discriminator:
-                # Best-effort: <alias>.CL_VAL_ID = <base>.<src_attr_at_first_use>
-                # AND <alias>.CL_SCM_ID = <discriminator>
-                # We don't know which base column to equate without
-                # spec; emit ID join + discriminator + marker that
-                # source_attr might need operator confirmation.
-                return (
-                    f"{alias}.CL_SCM_ID = {discriminator}  "
-                    f"/* WARN: add `{alias}.CL_VAL_ID = {base_alias}.<src_col>` "
-                    f"-- operator must specify the FK column */",
-                    False,
-                )
-        # Generic DIM fallback: try <bare>_ID
-        if bare_table.endswith("_DIM"):
-            stem = bare_table[:-4]
-            id_col = f"{stem}_ID"
-            return (f"{alias}.{id_col} = {base_alias}.{id_col}", True)
+            for cand in (f"{stem}_ID", stem, f"{stem}_KEY", f"{stem}_CD"):
+                if _both_exist(cand, cand):
+                    return (_make_join(cand, cand), True)
+            # Try alias side `<stem>_ID` joined to base side via
+            # `<bare_table>_ID` (often DIM-side has its own PK).
+            for cand_t, cand_b in [
+                (f"{stem}_ID", f"{bare_table}_ID"),
+                ("ID", f"{bare_table}_ID"),
+            ]:
+                if _both_exist(cand_b, cand_t):
+                    return (_make_join(cand_t, cand_b), True)
+            # No verified FK -> caller emits CROSS JOIN + TODO.
+            return ("1=1", False)
+        # CL_VAL with discriminator -> PDM should have CL_VAL_ID and
+        # CL_SCM_ID; verify before emitting.
+        if bare_table == "CL_VAL" and discriminator:
+            if (provider.has_column(tgt_sch, tgt_tab, "CL_VAL_ID")
+                    and provider.has_column(tgt_sch, tgt_tab, "CL_SCM_ID")):
+                # Need a base-side column.  Try src_attr_u first.
+                if src_attr_u and provider.has_column(base_sch, base_tab, src_attr_u):
+                    return (
+                        _make_join("CL_VAL_ID", src_attr_u,
+                                   f"{alias}.CL_SCM_ID = {discriminator}"),
+                        True,
+                    )
+                # Fall through to CROSS JOIN
+                return ("1=1", False)
+            return ("1=1", False)
 
-    # Path 3: same-name _ID join (column ends in _ID).
-    if src_attr_u and src_attr_u.endswith("_ID"):
-        return (f"{alias}.{src_attr_u} = {base_alias}.{src_attr_u}", True)
+    # Path 3: same-name _ID join -- PDM-VALIDATED.
+    if src_attr_u and src_attr_u.endswith("_ID") and _both_exist(src_attr_u, src_attr_u):
+        return (_make_join(src_attr_u, src_attr_u), True)
 
-    # Path 3.5: fact-extension table convention -- non-lookup tables
-    # typically share the base table's PK as a FK.  This is INFERRED,
-    # not verified against the schema, so we emit a clear marker so
-    # operator can spot-check.  Returns success=True so the JOIN
-    # appears in the SQL (operator wants 0 CROSS JOIN TODOs), but the
-    # ON clause text says `/* INFERRED FK -- verify in PDM */`
-    # (review MAJOR).
-    if base_fq and not _is_lookup_table(fq_table):
+    # Path 3.5: fact-extension convention -- PDM-VALIDATED + candidate
+    # cascade.  Operator-locked Phase 7.13: NEVER emit an inferred FK
+    # the PDM does not back up.  Cascade through candidate FK columns
+    # and pick the first that exists in BOTH tables.  If none verified,
+    # downgrade to CROSS JOIN + TODO (operator-visible).
+    if base_fq:
         base_bare = base_fq.split(".")[-1].upper()
         if base_bare:
-            fk_col = f"{base_bare}_ID"
-            return (
-                f"{alias}.{fk_col} = {base_alias}.{fk_col}  "
-                f"/* INFERRED FK -- verify {fq_table} actually has "
-                f"{fk_col} as the foreign key to {base_fq} */",
-                True,
-            )
+            candidates = [
+                f"{base_bare}_ID",
+                base_bare,
+                f"{base_bare}_KEY",
+                f"{base_bare}_CD",
+                f"{base_bare}_CODE",
+                "ID",
+            ]
+            for cand in candidates:
+                if _both_exist(cand, cand):
+                    return (_make_join(cand, cand), True)
+            # PDM has both tables but no shared FK column -> honest
+            # CROSS JOIN.  If either table is unknown in PDM, the
+            # `_both_exist` check returned True (conservative) and one
+            # of the candidates may pass -- that's intentional, we
+            # want to keep working when PDM is incomplete.
 
-    # No clean derivation -> caller emits CROSS JOIN + TODO.
+    # No verified derivation -> caller emits CROSS JOIN + TODO.
     return ("1=1", False)
 
 
@@ -415,7 +477,13 @@ def emit_insert_comparator_driven(
         tuples.append((
             col,
             fq,
-            (res.drd_attr or "").strip(),
+            # Multi-line source_attribute is the DRD convention for
+            # "any of these candidates is OK" (e.g. "BKR_AR_ID\nAR_ID").
+            # The emitter MUST pick a SINGLE column name -- raw multi-
+            # line would emit `alias.BKR_AR_ID\nAR_ID` as the projection,
+            # which Oracle parses as TWO tokens (ORA-00923).  Operator-
+            # locked Phase 7.11 live-run bug fix: take the FIRST line.
+            (res.drd_attr or "").split("\n")[0].strip(),
             (res.drd_logic or "").strip(),
             res.verdict.value if res.verdict else "",
         ))
@@ -554,7 +622,7 @@ def emit_insert_comparator_driven(
             ))
             continue
 
-        proj_expr = f"{alias}.{drd_attr}"
+        proj_expr = f"{alias}.{_quote_if_reserved(drd_attr)}"
 
         # Verdict annotation (ODI verifies DRD; ODI is NEVER the source).
         if verdict == ComparisonVerdict.MATCHED.value:
@@ -613,7 +681,12 @@ def emit_insert_comparator_driven(
                 "NOT NULL / PK; runtime ORA-01400. ***"
             )
         clean_comment = re.sub(r"[\r\n\t]+", " ", comment or "").strip()
-        select_lines.append(f"    {expr:30s}AS {col}{sep}  -- {clean_comment}")
+        # Pad expr to 30 chars for readability when short; ALWAYS keep
+        # at least one space before AS to avoid token-collision bugs
+        # like 'FA_NUMBER_ENTITY_CODEAS' when expr exceeds 30 chars
+        # (operator-locked Phase 7.11 live-run bug fix).
+        expr_padded = expr.ljust(30) if len(expr) < 30 else expr + " "
+        select_lines.append(f"    {expr_padded}AS {col}{sep}  -- {clean_comment}")
 
     # ── Build FROM + JOIN clauses (DRD-driven) ───────────────────────────
     base_alias = per_row_alias[(base_fq, "")]

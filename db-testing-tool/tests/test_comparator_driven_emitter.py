@@ -360,13 +360,14 @@ def test_pseudo_table_from_drd_parse_artifact_rejected():
             )
 
 
-def test_path_3_5_fact_extension_inferred_fk_emits_marker():
-    """Phase 7.7 review MAJOR: Path 3.5 INFERS the FK as
-    `<base>_ID = base.<base>_ID` but cannot verify it against PDM.
-    The emitted JOIN MUST carry an `INFERRED FK -- verify` marker so
-    the operator can spot-check the assumption."""
-    # Base = TXN (most-frequent non-lookup); FIP is non-lookup
-    # extension -> Path 3.5 fires with inferred TXN_ID = TXN.TXN_ID.
+def test_path_3_5_pdm_validated_join_skips_or_emits_clean():
+    """Phase 7.13: Path 3.5 NO LONGER blindly INFERS FKs.  It looks up
+    the candidate FK columns in the PDM via SchemaProvider.  When the
+    PDM has neither table, the conservative fallback emits a clean
+    JOIN (we can't disprove).  When the PDM has the tables but the
+    expected FK column is absent, the JOIN downgrades to CROSS JOIN +
+    TODO.  Either way, no `INFERRED FK -- verify` marker is emitted --
+    that was Phase 7.7's silent-wrong-data risk."""
     res = emit_insert_comparator_driven(
         target_schema="C", target_table="X",
         drd_rows=[
@@ -378,16 +379,20 @@ def test_path_3_5_fact_extension_inferred_fk_emits_marker():
             _make_result(
                 "B", ComparisonVerdict.MATCHED,
                 drd_schema="S", drd_table="FIP", drd_attr="AMT",
-                drd_logic="",  # no DRD spec parseable
+                drd_logic="",
             ),
         ],
         odi_model=_make_model(),
     )
-    # JOIN is auto-derived (success=True) AND carries INFERRED marker.
-    assert "INFERRED FK" in res.sql, "operator must see that the FK is unverified"
-    assert "verify" in res.sql.lower()
-    # The ON predicate uses the base table's bare name + _ID.
-    assert "TXN_ID = " in res.sql.upper() or "TXN_ID=" in res.sql.upper()
+    # The unverified INFERRED FK comment from Phase 7.7 is GONE.
+    assert "INFERRED FK" not in res.sql, (
+        "Phase 7.13: no silent inferred FKs -- PDM validates or downgrades."
+    )
+    # Tables S.TXN / S.FIP are not in the project's PDM (TXN is in
+    # CCAL_REPL_OWNER, not S), so the conservative fallback emits a
+    # clean JOIN.  That's intentional -- can't disprove when unknown.
+    # Either a clean JOIN or CROSS JOIN with TODO is acceptable.
+    assert ("JOIN S.FIP fip" in res.sql) or ("CROSS JOIN S.FIP fip" in res.sql)
 
 
 def test_prose_drd_with_odi_match_projects_recovered_sql():

@@ -1221,3 +1221,89 @@ async def list_fix_mismatches():
     """Return all saved comparison verdict overrides."""
     records = _load_overrides()
     return {"overrides": records, "total": len(records)}
+
+
+# ── Phase 7.10 (operator-locked 2026-05-30): live Oracle execution ───────────
+
+@router.post("/live/execute")
+async def live_execute_sql(body: dict):
+    """Execute SQL against live Oracle (operator's FREEPDB1).
+
+    Body shape:
+        {
+          "sql": "...",                       # required
+          "commit": false,                     # default false
+          "allow_writes": false,               # default false
+          "allow_ddl": false,                  # default false
+          "allow_admin": false,                # default false
+          "config": {                          # optional override
+            "dsn": "localhost:1521/FREEPDB1",
+            "user": "SYS",
+            "password": "...",
+            "mode": "SYSDBA"
+          }
+        }
+
+    Operator-locked safety: writes/DDL/admin off by default; caller MUST
+    explicitly enable the corresponding flag.  Returns LiveSqlResult.to_dict().
+    """
+    from app.services.oracle_live_runner import (
+        LiveOracleConfig, execute_sql,
+    )
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        raise HTTPException(422, "Field 'sql' is required")
+    cfg = None
+    if body.get("config"):
+        cfg = LiveOracleConfig.from_env(body["config"])
+    result = await asyncio.to_thread(
+        execute_sql, sql,
+        config=cfg,
+        commit=bool(body.get("commit", False)),
+        allow_read=bool(body.get("allow_read", True)),
+        allow_writes=bool(body.get("allow_writes", False)),
+        allow_ddl=bool(body.get("allow_ddl", False)),
+        allow_admin=bool(body.get("allow_admin", False)),
+        allow_plsql=bool(body.get("allow_plsql", False)),
+        timeout_s=int(body.get("timeout_s", 60)),
+        sample_limit=int(body.get("sample_limit", 20)),
+    )
+    return result.to_dict()
+
+
+@router.post("/live/execute-multi")
+async def live_execute_multi_sql(body: dict):
+    """Execute a list of SQL statements sequentially against live Oracle.
+
+    Body shape:
+        {
+          "statements": ["...", "..."],
+          "commit_each": false,
+          "allow_writes": false,
+          ...same flags as /live/execute
+        }
+
+    Returns list of LiveSqlResult.to_dict(); stops on first failure
+    unless `commit_each=True`.
+    """
+    from app.services.oracle_live_runner import (
+        LiveOracleConfig, execute_multi,
+    )
+    stmts = body.get("statements") or []
+    if not isinstance(stmts, list) or not stmts:
+        raise HTTPException(422, "Field 'statements' must be a non-empty list")
+    cfg = None
+    if body.get("config"):
+        cfg = LiveOracleConfig.from_env(body["config"])
+    results = await asyncio.to_thread(
+        execute_multi, list(stmts),
+        config=cfg,
+        commit_each=bool(body.get("commit_each", False)),
+        allow_read=bool(body.get("allow_read", True)),
+        allow_writes=bool(body.get("allow_writes", False)),
+        allow_ddl=bool(body.get("allow_ddl", False)),
+        allow_admin=bool(body.get("allow_admin", False)),
+        allow_plsql=bool(body.get("allow_plsql", False)),
+        timeout_s=int(body.get("timeout_s", 60)),
+    )
+    return {"results": [r.to_dict() for r in results]}
