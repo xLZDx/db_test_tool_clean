@@ -573,6 +573,104 @@ def _dedupe_predicates(preds: List[str]) -> List[str]:
 _OUTER_JOIN_MARKER_RE = re.compile(r"\s*\(\s*\+\s*\)")
 
 
+# ── Generic ON-predicate alias validator (Phase 7.17, 2026-06-01) ────────────
+#
+# Operator-locked rule (verbatim, multiple sessions):
+#   "решение должно быть универсальное" -- no hardcoded table / column /
+#   schema names; the validator works for ANY DRD/ODI pair, not just
+#   AVY_FACT_SIDE.
+#
+# Root cause this addresses (operator-shown in v9 INSERT, 2026-06-01):
+#   `_harvest_odi_joins` copies `edge.on_sql` VERBATIM from ODI staging
+#   steps.  ODI's on_sql can reference aliases that exist only inside ODI's
+#   staging world (J$ change-data-capture tables, *_STG_RT intermediate
+#   staging steps, _V1 / _V2 ODI-local renames of the same source table,
+#   filtered-slice aliases like APA_CASH / APA_SECURITY that are SEMANTIC
+#   slices of one physical table but never declared in our compiled FROM
+#   tree).  When those references survive into the emitted SQL, Oracle
+#   rejects with ORA-00904 at runtime and step2's auto-recovery loop NULLs
+#   the corresponding SELECT projections one by one -- silent data loss.
+#
+# Generic fix: after harvesting JOINs but BEFORE the SELECT-rewrite pass,
+# split each ON predicate by AND, find every `<alias>.<col>` reference,
+# and reject the entire AND-conjunct when its alias is not in the declared
+# set.  When ALL conjuncts of a JOIN are rejected, the JOIN's on_predicates
+# becomes empty -- the existing filter at the "drop joins with no ON" step
+# removes the JOIN, and the existing safe_aliases rewrite then reroutes
+# SELECT projections referencing that alias to DRD physical / inline / NULL
+# fallbacks.
+
+# Conjunct splitter: split on top-level " AND " (case-insensitive).  Avoids
+# splitting on "AND" inside nested parens (function args).  We accept the
+# limitation that string-literal "AND" inside an ON clause (unusual) may
+# also split -- but ODI ON clauses are equality predicates joined by AND,
+# not string-containing.
+_AND_SPLIT_RE = re.compile(r"\s+AND\s+", re.IGNORECASE)
+# alias.col extractor.  Matches identifier . identifier ; excludes double-
+# dot (schema.table.col is rare in ON-clauses but if present, treat as
+# table.col by taking the right two tokens).
+_ALIAS_REF_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_$#]*)\.([A-Za-z][A-Za-z0-9_$#]*)\b")
+
+# SQL keywords / functions / pseudo-columns that look like alias.col but
+# aren't.  Kept GENERIC -- Oracle reserved set, not domain-specific.
+_NON_ALIAS_KEYWORDS: set = {
+    "NULL", "TRUE", "FALSE", "SYSDATE", "SYSTIMESTAMP", "ROWNUM", "ROWID",
+    "USER", "UID", "LEVEL", "CURRENT_DATE", "CURRENT_TIMESTAMP", "LOCALTIMESTAMP",
+    "DUAL", "SYS", "PUBLIC",
+}
+
+
+def _validate_join_on_predicates(
+    joins: "OrderedDict[Tuple[str, str], _JoinNeed]",
+    declared_aliases: set,
+) -> Dict[str, List[str]]:
+    """Strip every AND-conjunct of every JOIN's ON clause whose alias-refs
+    aren't in `declared_aliases`.  Returns a diagnostic dict
+    ``{alias: [stripped_conjuncts]}`` so the caller can surface what was
+    dropped (per Empiricism rule -- never silent).
+
+    Mutates `joins` in place.  After this call, any JOIN whose
+    on_predicates went empty will be dropped by the existing "skip empty
+    on_predicates" filter downstream.
+    """
+    stripped_log: Dict[str, List[str]] = {}
+    declared_upper = {a.upper() for a in declared_aliases}
+
+    for key, jn in joins.items():
+        new_preds: List[str] = []
+        for raw_pred in jn.on_predicates:
+            if not raw_pred:
+                continue
+            conjuncts = _AND_SPLIT_RE.split(raw_pred)
+            kept: List[str] = []
+            for conj in conjuncts:
+                conj_clean = conj.strip()
+                if not conj_clean:
+                    continue
+                # Find every alias.col reference; check all aliases declared
+                refs = _ALIAS_REF_RE.findall(conj_clean)
+                bad_alias = None
+                for alias, _col in refs:
+                    alias_u = alias.upper()
+                    if alias_u in _NON_ALIAS_KEYWORDS:
+                        continue
+                    if alias_u not in declared_upper:
+                        bad_alias = alias_u
+                        break
+                if bad_alias is not None:
+                    stripped_log.setdefault(jn.alias.upper(), []).append(
+                        f"{conj_clean}  /* undeclared alias: {bad_alias} */"
+                    )
+                    continue
+                kept.append(conj_clean)
+            if kept:
+                # Rejoin surviving conjuncts.
+                new_preds.append(" AND ".join(kept))
+        jn.on_predicates = new_preds
+
+    return stripped_log
+
+
 def _strip_oracle_outer_marker(on_sql: str) -> str:
     """Remove the Oracle 9i-style ``(+)`` outer-join markers from an ON clause.
 
@@ -1148,6 +1246,21 @@ def emit_insert_drd_first(
         used_aliases=used_aliases,
     )
 
+    # Phase 7.17 (operator 2026-06-01): validate ON-predicate alias refs.
+    # ODI's edge.on_sql can reference aliases that exist only inside ODI's
+    # staging world (J$, *_STG_RT, _V1/_V2 renames, _CASH/_SECURITY filtered
+    # slices).  Those references break our compiled SQL.  Strip every AND-
+    # conjunct whose alias is not in the declared set; if a JOIN's ON goes
+    # empty, the downstream "skip empty on_predicates" filter drops it and
+    # the safe_aliases pass reroutes affected SELECT projections.
+    _declared_aliases_after_harvest: set = {base_alias.upper()} | {
+        jn.alias.upper() for jn in joins_by_key.values()
+    }
+    stripped_predicates_log: Dict[str, List[str]] = _validate_join_on_predicates(
+        joins=joins_by_key,
+        declared_aliases=_declared_aliases_after_harvest,
+    )
+
     # Detect multi-role lookup tables (same fq joined under >=2 aliases in
     # ODI).  When a DRD-author reuses ONE alias for all such rows, the naive
     # harvest would AND every row's ON predicate onto the same alias and
@@ -1331,13 +1444,28 @@ def emit_insert_drd_first(
         join_lines.append(f"LEFT JOIN {jn.fq_table} {jn.alias} ON {on_text}")
     join_block = ("\n" + "\n".join(join_lines)) if join_lines else ""
 
-    header = (
-        f"-- Generated by drd_first_emitter v1\n"
-        f"-- Target: {target_fq}\n"
-        f"-- Columns: {len(plans)}  Joins: {len(joins_by_key)}  CTEs: {len(cte_assignments)}\n"
-        f"-- Provenance: " + ", ".join(f"{k}={v}" for k, v in sorted(provenance_counts.items()))
-        + "\n"
-    )
+    header_lines = [
+        "-- Generated by drd_first_emitter v1",
+        f"-- Target: {target_fq}",
+        f"-- Columns: {len(plans)}  Joins: {len(joins_by_key)}  CTEs: {len(cte_assignments)}",
+        "-- Provenance: " + ", ".join(f"{k}={v}" for k, v in sorted(provenance_counts.items())),
+    ]
+    # Phase 7.17: surface dropped ON-conjuncts (Empiricism rule -- never silent).
+    if stripped_predicates_log:
+        total_stripped = sum(len(v) for v in stripped_predicates_log.values())
+        header_lines.append(
+            f"-- Phase 7.17 ON-alias validator: stripped {total_stripped} AND-conjunct(s) "
+            f"across {len(stripped_predicates_log)} JOIN(s) referencing undeclared "
+            f"aliases (ODI staging J$ / *_STG_RT / *_V1 / filtered slices)."
+        )
+        for join_alias, dropped_list in sorted(stripped_predicates_log.items()):
+            for d in dropped_list[:5]:  # cap per-join lines so header stays sane
+                header_lines.append(f"--   [{join_alias}] {d}")
+            if len(dropped_list) > 5:
+                header_lines.append(
+                    f"--   [{join_alias}] ... ({len(dropped_list) - 5} more dropped)"
+                )
+    header = "\n".join(header_lines) + "\n"
 
     # Oracle does not allow ``WITH ... TRUNCATE`` -- a CTE is a SELECT-prefix.
     # Emit TRUNCATE FIRST as its own statement, then start the INSERT with WITH.

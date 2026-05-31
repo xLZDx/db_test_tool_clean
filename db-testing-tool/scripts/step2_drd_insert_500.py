@@ -75,9 +75,12 @@ def _http_post_multipart(url: str, files: dict, timeout: int = TIMEOUT_S) -> dic
 def sanitize_drd_insert(sql: str, target_cols: set[str], row_limit: int) -> str:
     """Strip SOURCE_MISSING columns from the INSERT and wrap with
     ROWNUM <= N."""
-    # Find INSERT column list block
+    # Find INSERT column list block.  Tolerate Oracle hint
+    # `INSERT /*+ APPEND PARALLEL(8) */ INTO <tab> (...)` -- the hint
+    # contains `(...)` which breaks a naive `INSERT\s+INTO`.  Optional
+    # hint block consumed first.
     m = re.search(
-        r"(INSERT\s+INTO\s+\S+\s*\()(.+?)(\)\s*SELECT\s*)",
+        r"(INSERT\s+(?:/\*\+.*?\*/\s+)?INTO\s+\S+\s*\()(.+?)(\)\s*SELECT)",
         sql, flags=re.DOTALL | re.IGNORECASE,
     )
     if not m:
