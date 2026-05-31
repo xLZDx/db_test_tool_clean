@@ -151,8 +151,16 @@ def sanitize_drd_insert(sql: str, target_cols: set[str], row_limit: int) -> str:
     # duplicate column names from many JOINs (ORA-00923 / similar).
     # Operator-locked (2026-05-30 Phase 7.11): inject ROWNUM filter
     # in-place; if the inner already has a WHERE clause we AND it.
+    #
+    # Phase 7.16 E2E bug fix: previous \bWHERE\b regex matched "where"
+    # tokens INSIDE DRD-notes line comments (-- DRD-notes: ... where ...),
+    # producing `AND ROWNUM <= N` after the last JOIN with no preceding
+    # WHERE clause -> ORA-03048 at runtime.  Strip line + block comments
+    # before checking.
     body = "SELECT\n" + after_select_clean
-    if re.search(r"\bWHERE\b", body, flags=re.IGNORECASE):
+    body_no_comments = re.sub(r"--[^\n]*", "", body)
+    body_no_comments = re.sub(r"/\*.*?\*/", "", body_no_comments, flags=re.DOTALL)
+    if re.search(r"\bWHERE\b", body_no_comments, flags=re.IGNORECASE):
         # Append as AND condition (keep operator's WHERE clause).
         body = body.rstrip() + f"\n  AND ROWNUM <= {row_limit}"
     else:
