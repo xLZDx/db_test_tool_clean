@@ -42,8 +42,16 @@ def _persist_terminal_state(state: Dict[str, Any]) -> None:
         line = _serialize_state(state) + "\n"
         with _history_path().open("a", encoding="utf-8") as fh:
             fh.write(line)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Phase 7.16 silent-failure round 2 fix: was bare `pass` -> terminal
+        # ops silently lost on disk-write failure -> dashboard shows 404 on
+        # status query after restart.  Log at ERROR so operator sees the
+        # audit gap.
+        import logging
+        logging.getLogger(__name__).error(
+            "Failed to persist operation terminal state id=%s: %s",
+            state.get("id"), exc, exc_info=True,
+        )
 
 
 def restore_persisted_operations(max_age_hours: int = 48) -> int:
@@ -83,8 +91,13 @@ def restore_persisted_operations(max_age_hours: int = 48) -> int:
             if op_id and op_id not in _OPERATIONS:
                 _OPERATIONS[op_id] = raw
                 loaded += 1
-    except Exception:
-        pass
+    except Exception as exc:
+        # Phase 7.16 silent-failure round 2 fix.
+        import logging
+        logging.getLogger(__name__).error(
+            "Failed to restore persisted operations from %s: %s",
+            path, exc, exc_info=True,
+        )
     return loaded
 
 

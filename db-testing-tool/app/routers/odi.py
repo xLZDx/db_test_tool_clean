@@ -1167,11 +1167,24 @@ class FixMismatchRequest(BaseModel):
 
 
 def _load_overrides() -> list:
+    """Load comparison verdict overrides from disk.
+
+    Phase 7.16 silent-failure round 2 fix: was bare `except: return []` ->
+    corrupt JSON silently discarded entire override history on next save.
+    Now: ERROR-level log on parse failure so the operator sees that
+    manually-curated overrides are about to be lost.  Caller may decide
+    to bail out instead of overwriting.
+    """
     if not _OVERRIDES_PATH.exists():
         return []
     try:
         return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError) as exc:
+        import logging
+        logging.getLogger(__name__).error(
+            "comparison_overrides.json is corrupt or unreadable; manually-"
+            "curated overrides at risk of being overwritten: %s", exc,
+        )
         return []
 
 

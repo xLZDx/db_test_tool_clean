@@ -456,13 +456,21 @@ def _analyze_sql_references(connector, sql: str) -> dict:
         table = r.get("table") or ""
         if not schema or not table:
             continue
-        exists = True
+        exists: Optional[bool] = True
         if hasattr(connector, "table_exists"):
             try:
                 exists = bool(connector.table_exists(schema, table))
-            except Exception:
-                exists = True
-        if not exists:
+            except Exception as exc:
+                # Phase 7.16 silent-failure round 2 fix: was `exists = True`
+                # which suppressed the missing-table warning when the probe
+                # itself failed.  Now: log + set None so the missing-table
+                # check is skipped (NOT silently assumed-True).
+                import logging
+                logging.getLogger(__name__).debug(
+                    "table_exists probe failed for %s.%s: %s", schema, table, exc,
+                )
+                exists = None
+        if exists is False:
             closest_table = None
             if hasattr(connector, "get_tables"):
                 try:
@@ -495,13 +503,23 @@ def _analyze_sql_references(connector, sql: str) -> dict:
             try:
                 cols = connector.get_columns(schema, table)
                 columns_cache[cache_key] = {c.column_name.upper() for c in cols}
-            except Exception:
-                columns_cache[cache_key] = set()
-        if columns_cache[cache_key] and col_name not in columns_cache[cache_key]:
+            except Exception as exc:
+                # Phase 7.16 silent-failure round 2 fix: was `set()` which
+                # silently skipped column-validation for the whole table
+                # (an empty set tests as falsy in `if columns_cache[...]`).
+                # Now: None distinguishes "probe failed" from "table has no
+                # known columns".
+                import logging
+                logging.getLogger(__name__).debug(
+                    "get_columns probe failed for %s.%s: %s", schema, table, exc,
+                )
+                columns_cache[cache_key] = None
+        cols_set = columns_cache[cache_key]
+        if cols_set and col_name not in cols_set:
             line, col = _line_col_from_index(sql or "", m.start(2))
             closest_column = None
             try:
-                matches = difflib.get_close_matches(col_name, list(columns_cache[cache_key]), n=1, cutoff=0.58)
+                matches = difflib.get_close_matches(col_name, list(cols_set), n=1, cutoff=0.58)
                 if matches:
                     closest_column = matches[0]
             except Exception:

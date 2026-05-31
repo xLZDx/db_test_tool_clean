@@ -985,11 +985,37 @@ async def validate_and_fix_sql_tests(
     db_dialect: str = "oracle",
     validation_datasource_id: Optional[int] = None,
 ) -> List[TestCaseDesign]:
-    """Validation Agent (Phase 4): Gatekeeper that checks SQL syntax and forces AI corrections."""
+    """Validation Agent (Phase 4): Gatekeeper that checks SQL syntax and forces AI corrections.
+
+    Phase 7.16 silent-failure round 2 fix:
+    - When the AI client is unavailable, drafts used to be returned unchanged
+      with no signal -- callers (orchestrator + router) stored them in DB
+      and the operator executed unvalidated tests that hallucinated tables.
+      Now: tag every draft with `validation_status='skipped_ai_unavailable'`
+      so the caller can warn the user.  (Still returns the drafts -- skipping
+      ALL tests would block the whole flow when AI is down -- but the tag
+      lets downstream report degraded mode.)
+    - When a test fails validation after 3 repair attempts, it used to be
+      silently dropped from the returned list with only a logger.warning.
+      Now: tag the candidate with `validation_status='rejected_after_3_attempts'`
+      + `validation_errors=[...]` and INCLUDE it in the return list, so
+      the caller can decide whether to surface or discard.
+    """
     provider = _normalize_provider()
     client, model, cfg_error = _get_client_and_model(provider)
     if not client:
-        return draft_tests  # fallback if AI not available
+        logger.warning(
+            "validate_and_fix_sql_tests: AI client unavailable (cfg_error=%s); "
+            "returning %d UNVALIDATED draft tests tagged 'skipped_ai_unavailable'",
+            cfg_error, len(draft_tests),
+        )
+        for t in draft_tests:
+            try:
+                setattr(t, "validation_status", "skipped_ai_unavailable")
+                setattr(t, "validation_errors", [f"AI client unavailable: {cfg_error or 'no_client'}"])
+            except Exception:
+                pass
+        return draft_tests
 
     connector = None
     validated = []
@@ -1004,6 +1030,10 @@ async def validate_and_fix_sql_tests(
             for _attempt in range(3):
                 all_errors = await _collect_sql_validation_errors(candidate, connector)
                 if not all_errors:
+                    try:
+                        setattr(candidate, "validation_status", "passed")
+                    except Exception:
+                        pass
                     validated.append(candidate)
                     break
 
@@ -1033,7 +1063,13 @@ Fix the SQL queries to resolve all errors and return ONLY a corrected object mat
                 )
                 candidate = TestCaseDesign.model_validate(_normalize_test_case_design_payload(parsed))
             else:
-                logger.warning("Validation Agent could not repair test '%s': %s", test.name, "; ".join(last_errors))
+                logger.warning("Validation Agent could not repair test '%s' after 3 attempts: %s", test.name, "; ".join(last_errors))
+                try:
+                    setattr(candidate, "validation_status", "rejected_after_3_attempts")
+                    setattr(candidate, "validation_errors", last_errors)
+                except Exception:
+                    pass
+                validated.append(candidate)
 
         return validated
     finally:

@@ -1163,9 +1163,18 @@ def extract_drd_metadata(file_bytes: bytes, filename: str, sheet_name: Optional[
     elif ext == "csv":
         rows = _read_csv(file_bytes)
     else:
+        # Phase 7.16 silent-failure round 2 fix: was bare except -> a
+        # malformed CSV was silently re-read as Excel (openpyxl parses
+        # binary as cell data, producing garbage rows downstream).  Now
+        # only specific CSV-parse exceptions trigger the Excel fallback.
         try:
             rows = _read_csv(file_bytes)
-        except Exception:
+        except (csv.Error, UnicodeDecodeError) as _csv_exc:
+            import logging
+            logging.getLogger(__name__).info(
+                "Ambiguous-extension file failed CSV parse (%s); trying Excel.",
+                _csv_exc,
+            )
             rows = _read_excel(file_bytes, sheet_name=sheet_name)
 
     meta: Dict[str, Any] = {"sheets": []}
@@ -1175,8 +1184,15 @@ def extract_drd_metadata(file_bytes: bytes, filename: str, sheet_name: Optional[
         try:
             wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
             meta["sheets"] = wb.sheetnames
-        except Exception:
-            pass
+        except Exception as _xlsx_exc:
+            # Phase 7.16 silent-failure round 2 fix: was bare pass.  Sheet
+            # names dropping silently looks identical to "single-sheet CSV"
+            # to callers downstream.  Now surface the error in meta.
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to read xlsx sheet names: %s", _xlsx_exc,
+            )
+            meta["sheets_error"] = f"{type(_xlsx_exc).__name__}: {_xlsx_exc}"
 
     # Scan first 12 rows for label-value metadata pairs
     _meta_keys = {

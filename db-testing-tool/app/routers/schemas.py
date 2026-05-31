@@ -123,8 +123,26 @@ async def hint_tables(datasource_id: int):
     def _bg_build():
         try:
             _build_hint_index_from_kb(datasource_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Phase 7.16 silent-failure round 2 fix: was bare `pass` -> if
+            # KB build failed (corrupt file, disk full), thread died silently
+            # and client polls `loading: True` forever.  Log ERROR + write
+            # a sentinel file so the next `hint_tables` poll can surface
+            # the error to the client instead of perpetual "loading".
+            import logging, json
+            logging.getLogger(__name__).error(
+                "Background hint-index build failed for ds=%s: %s",
+                datasource_id, exc, exc_info=True,
+            )
+            try:
+                sentinel = _kb_json_path(datasource_id).parent / f"hint_index_ds_{datasource_id}_error.json"
+                sentinel.write_text(
+                    json.dumps({"error": str(exc), "datasource_id": datasource_id}),
+                    encoding="utf-8",
+                )
+            except Exception:
+                # Even sentinel write failed; logged the original, nothing more we can do.
+                pass
 
     t = threading.Thread(target=_bg_build, daemon=True)
     t.start()
