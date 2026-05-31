@@ -107,7 +107,9 @@ Original AI response:
 {raw_text}
 """
     call_args = _build_chat_call_args([{"role": "user", "content": prompt}], 0.0, 4000, provider, model)
-    resp = _chat_completion_with_fallback(client, call_args, provider)
+    # Sync call site: `_repair_json_via_ai` is invoked from sync
+    # `_parse_or_repair_json_response`.  Use the _sync variant directly.
+    resp = _chat_completion_with_fallback_sync(client, call_args, provider)
     repaired_text = (resp.choices[0].message.content or "").strip()
     return _parse_json_response_text(repaired_text, expected=expected)
 
@@ -828,7 +830,7 @@ In the `join_conditions` field include the full SQL join logic you found in the 
 """
     messages = [{"role": "system", "content": agent_system_prompt}, {"role": "user", "content": prompt}]
     call_args = _build_chat_call_args(messages, 0.1, 6000, provider, model)
-    resp = _chat_completion_with_fallback(client, call_args, provider)
+    resp = await _chat_completion_with_fallback(client, call_args, provider)
     text = (resp.choices[0].message.content or "").strip()
     parsed = _parse_or_repair_json_response(
         client,
@@ -930,7 +932,7 @@ custom_sql. Use complete SQL statements with all required JOINs and WHERE clause
 """
     messages = [{"role": "system", "content": agent_system_prompt}, {"role": "user", "content": prompt}]
     call_args = _build_chat_call_args(messages, 0.1, 6000, provider, model)
-    resp = _chat_completion_with_fallback(client, call_args, provider)
+    resp = await _chat_completion_with_fallback(client, call_args, provider)
     text = (resp.choices[0].message.content or "").strip()
     parsed = _parse_or_repair_json_response(
         client,
@@ -1051,7 +1053,7 @@ ETL Spec Context:
 Fix the SQL queries to resolve all errors and return ONLY a corrected object matching the TestCaseDesign JSON schema. No markdown."""
 
                 call_args = _build_chat_call_args([{"role": "user", "content": prompt}], 0.1, 2200, provider, model)
-                resp = _chat_completion_with_fallback(client, call_args, provider)
+                resp = await _chat_completion_with_fallback(client, call_args, provider)
                 text = (resp.choices[0].message.content or "").strip()
                 parsed = _parse_or_repair_json_response(
                     client,
@@ -1254,7 +1256,12 @@ def _is_model_not_supported_error(exc: Exception) -> bool:
     return "model_not_supported" in text or "requested model is not supported" in text
 
 
-def _chat_completion_with_fallback(client, call_args: dict, provider: str):
+def _chat_completion_with_fallback_sync(client, call_args: dict, provider: str):
+    """Synchronous chat-completion call.  Reserved for sync code paths
+    (e.g. `_repair_json_via_ai`).  Async paths MUST use
+    `_chat_completion_with_fallback` (the awaitable wrapper) to avoid
+    blocking the FastAPI event loop for 5-30s per LLM call.
+    """
     try:
         if provider == "githubcopilot":
             logger.info(
@@ -1273,6 +1280,14 @@ def _chat_completion_with_fallback(client, call_args: dict, provider: str):
                 logger.warning("Copilot model '%s' not supported; retrying with '%s'", call_args.get("model"), fallback_model)
                 return client.chat.completions.create(**retry_args)
         raise
+
+
+async def _chat_completion_with_fallback(client, call_args: dict, provider: str):
+    """Phase 7.16 perf round-2 fix: was sync `def`, blocked the event loop
+    for 5-30s per LLM call.  Wraps the sync helper via `asyncio.to_thread`
+    so the event loop stays responsive during the request.
+    """
+    return await asyncio.to_thread(_chat_completion_with_fallback_sync, client, call_args, provider)
 
 
 def _merge_ai_suggested_tests_with_heuristic(ai_payload: dict, heuristic_payload: dict) -> dict:
@@ -1390,7 +1405,7 @@ SQL Code:
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = resp.choices[0].message.content.strip()
         # Strip markdown fences if present
         if text.startswith("```"):
@@ -1428,7 +1443,7 @@ Schema Info: {json.dumps(schema_info)}"""
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.2, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = resp.choices[0].message.content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
@@ -1462,7 +1477,7 @@ Failures: {json.dumps(failures)}"""
 
     try:
         call_args = _build_chat_call_args([{"role": "user", "content": prompt}], 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = resp.choices[0].message.content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
@@ -1502,7 +1517,7 @@ SQL:
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = resp.choices[0].message.content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
@@ -1574,7 +1589,7 @@ async def ai_chat(
 
     try:
         call_args = _build_chat_call_args(chat_messages, 0.3, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         reply = resp.choices[0].message.content.strip()
         return {"reply": reply}
     except Exception as e:
@@ -1635,7 +1650,7 @@ Mapping rows JSON:
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = (resp.choices[0].message.content or "").strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
@@ -1721,7 +1736,7 @@ Local schema/LDM knowledge:
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = (resp.choices[0].message.content or "").strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
@@ -1987,7 +2002,7 @@ Local schema/LDM knowledge:
             messages.append({"role": "system", "content": agent_system_prompt})
         messages.append({"role": "user", "content": prompt})
         call_args = _build_chat_call_args(messages, 0.1, 4000, provider, model)
-        resp = _chat_completion_with_fallback(client, call_args, provider)
+        resp = await _chat_completion_with_fallback(client, call_args, provider)
         text = (resp.choices[0].message.content or "").strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]

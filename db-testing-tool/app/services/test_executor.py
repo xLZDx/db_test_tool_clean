@@ -1,5 +1,6 @@
 """Test execution service – run test cases against live databases."""
 import asyncio
+import os
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -384,10 +385,16 @@ async def run_all_tests(db: AsyncSession, test_ids: Optional[List[int]] = None, 
     if not test_ids:
         summary["skipped_executed"] = max(0, len(all_tests) - len(tests))
 
+    # Phase 7.16 perf round-2 fix: hardcoded 3s inter-test sleep wasted
+    # ~3*N seconds per batch with no throttle reason documented.  Made
+    # configurable via env var `TEST_EXECUTOR_INTER_TEST_DELAY_S`
+    # (default 0).  Operator can re-enable if a rate-limit scenario
+    # surfaces.
+    inter_test_delay_s = float(os.environ.get("TEST_EXECUTOR_INTER_TEST_DELAY_S", "0"))
     for idx, test in enumerate(tests):
         run = await run_test(db, test.id, batch_id)
         summary[run.status] = summary.get(run.status, 0) + 1
-        if idx < len(tests) - 1:
-            await asyncio.sleep(3)
+        if inter_test_delay_s > 0 and idx < len(tests) - 1:
+            await asyncio.sleep(inter_test_delay_s)
 
     return summary
