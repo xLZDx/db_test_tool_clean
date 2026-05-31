@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.datasource import DataSource
 from app.connectors.factory import get_connector
 from app.config import settings
+from app.security import require_api_key
 from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime, timezone
@@ -49,6 +50,9 @@ class DataSourceOut(BaseModel):
 class QueryInput(BaseModel):
     sql: str
     row_limit: Optional[int] = None
+    allow_writes: bool = False
+    allow_ddl: bool = False
+    allow_admin: bool = False
 
 
 MAX_QUERY_ROWS = 50
@@ -175,6 +179,28 @@ def _statement_type(sql: str) -> str:
         return "UNKNOWN"
     token = (text.split(None, 1)[0] if text.split(None, 1) else "").upper()
     return token or "UNKNOWN"
+
+_DATA_WRITE_STATEMENTS = {"INSERT", "UPDATE", "DELETE", "MERGE", "CALL"}
+_DDL_STATEMENTS = {"CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "COMMENT"}
+_ADMIN_STATEMENTS = {"GRANT", "REVOKE", "PURGE", "FLASHBACK", "BEGIN", "DECLARE"}
+
+
+def _enforce_query_statement_allowed(stmt_type: str, runs_as_resultset: bool, body: QueryInput) -> None:
+    if runs_as_resultset:
+        return
+    if stmt_type in _DATA_WRITE_STATEMENTS and body.allow_writes:
+        return
+    if stmt_type in _DDL_STATEMENTS and body.allow_ddl:
+        return
+    if stmt_type in _ADMIN_STATEMENTS and body.allow_admin:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"Statement type {stmt_type!r} is blocked by default. "
+            "Set the matching allow_* flag and provide X-DBTOOL-API-Key."
+        ),
+    )
 
 
 def _split_sql_statements_with_lines(script: str) -> list[dict[str, Any]]:
@@ -477,7 +503,7 @@ async def export_datasources_env(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("")
-async def create_datasource(body: DataSourceCreate, db: AsyncSession = Depends(get_db)):
+async def create_datasource(body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     ds = DataSource(**body.model_dump())
     db.add(ds)
     await db.commit()
@@ -508,7 +534,7 @@ async def test_connection(ds_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{ds_id}")
-async def delete_datasource(ds_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_datasource(ds_id: int, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")
@@ -519,7 +545,7 @@ async def delete_datasource(ds_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{ds_id}")
-async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession = Depends(get_db)):
+async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")
@@ -533,7 +559,7 @@ async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession
 
 
 @router.post("/{ds_id}/query")
-async def query_datasource(ds_id: int, body: QueryInput, db: AsyncSession = Depends(get_db)):
+async def query_datasource(ds_id: int, body: QueryInput, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")
@@ -576,6 +602,7 @@ async def query_datasource(ds_id: int, body: QueryInput, db: AsyncSession = Depe
 
                 stmt_type = _statement_type(stmt_sql)
                 runs_as_resultset = _is_resultset_sql(stmt_sql)
+                _enforce_query_statement_allowed(stmt_type, runs_as_resultset, body)
                 use_oracle_native_cap = db_kind == "oracle" and runs_as_resultset
                 exec_sql = _apply_row_cap(ds.db_type, stmt_sql, row_cap) if (runs_as_resultset and not use_oracle_native_cap) else stmt_sql
 

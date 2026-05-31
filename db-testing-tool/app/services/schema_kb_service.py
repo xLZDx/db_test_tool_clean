@@ -84,10 +84,25 @@ def _pick_schemas(all_schemas: List[str], selected: Optional[List[str]]) -> List
     return [s for s in all_schemas if _safe_upper(s) in wanted]
 
 
-def _query_or_empty(connector, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+class SchemaMetadataQueryError(RuntimeError):
+    """Raised when required schema metadata cannot be read safely."""
+
+
+def _query_or_empty(
+    connector,
+    sql: str,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    required: bool = False,
+    label: str = "schema metadata query",
+) -> List[Dict[str, Any]]:
     try:
         return connector.execute_query(sql, params or {})
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("%s failed: %s", label, exc, exc_info=True)
+        if required:
+            raise SchemaMetadataQueryError(f"{label} failed: {exc}") from exc
         return []
 
 
@@ -116,7 +131,7 @@ def _oracle_has_dba_access(connector) -> bool:
         rows = connector.execute_query(
             "SELECT 1 FROM dba_users WHERE ROWNUM = 1", {},
         )
-        return rows is not None
+        return bool(rows)
     except Exception:
         return False
 
@@ -128,7 +143,7 @@ def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
     """
     use_dba = _oracle_has_dba_access(connector)
     prefix = "dba" if use_dba else "all"
-    schema_filter = "owner" if use_dba else "owner"
+    schema_filter = "owner"
     s_upper = (schema or "").upper()
 
     # 1. Object list (tables + views)
@@ -137,7 +152,7 @@ def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
         f"WHERE {schema_filter}=:o AND object_type IN "
         f"('TABLE','VIEW','MATERIALIZED VIEW') ORDER BY object_name"
     )
-    obj_rows = _query_or_empty(connector, obj_sql, {"o": s_upper}) or []
+    obj_rows = _query_or_empty(connector, obj_sql, {"o": s_upper}, required=True, label="oracle object metadata") or []
 
     # 2. All columns for the schema in one round trip
     col_sql = (
@@ -146,7 +161,7 @@ def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
         f"FROM {prefix}_tab_columns WHERE {schema_filter}=:o "
         f"ORDER BY table_name, column_id"
     )
-    col_rows = _query_or_empty(connector, col_sql, {"o": s_upper}) or []
+    col_rows = _query_or_empty(connector, col_sql, {"o": s_upper}, required=True, label="oracle column metadata") or []
 
     # 3. PK constraint columns
     pk_sql = (
@@ -157,7 +172,7 @@ def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
         f"WHERE c.{schema_filter}=:o AND c.constraint_type='P' "
         f"ORDER BY cc.table_name, cc.position"
     )
-    pk_rows = _query_or_empty(connector, pk_sql, {"o": s_upper}) or []
+    pk_rows = _query_or_empty(connector, pk_sql, {"o": s_upper}, required=True, label="oracle primary-key metadata") or []
 
     # 4. FK constraint columns -- joins forward to the referenced PK
     #    via R_OWNER / R_CONSTRAINT_NAME (THIS is what the old per-table
@@ -178,7 +193,7 @@ def oracle_bulk_extract_schema(connector, schema: str) -> Dict[str, Any]:
         f"WHERE c.{schema_filter}=:o AND c.constraint_type='R' "
         f"ORDER BY cc.table_name, c.constraint_name, cc.position"
     )
-    fk_rows = _query_or_empty(connector, fk_sql, {"o": s_upper}) or []
+    fk_rows = _query_or_empty(connector, fk_sql, {"o": s_upper}, required=True, label="oracle foreign-key metadata") or []
 
     # Index everything by table_name
     def _norm(rec: Dict[str, Any], key: str) -> Any:

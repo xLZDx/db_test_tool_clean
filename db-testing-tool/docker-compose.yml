@@ -7,7 +7,7 @@ services:
     container_name: db-testing-tool
     restart: unless-stopped
     ports:
-      - "8550:8550"
+      - "127.0.0.1:8550:8550"
     volumes:
       # Persistent data: SQLite DB, credential key, local KB, training packs, reports
       - db-testing-data:/data

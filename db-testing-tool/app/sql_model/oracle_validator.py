@@ -227,7 +227,11 @@ def _validate_one_statement(stmt: str, idx: int) -> Optional[StaticParseError]:
     # rule conservative: we never silently approve them.
     head = stmt.strip().upper()[:32]
     if head.startswith("BEGIN") or head.startswith("DECLARE"):
-        return None  # treat as not-parseable-by-static; caller may add a note
+        return StaticParseError(
+            statement_index=idx,
+            statement_preview=_statement_preview(stmt),
+            error_message="PL/SQL block is not statically validated; use an explicit admin-gated live runner",
+        )
 
     try:
         sqlglot.parse(stmt, dialect="oracle")

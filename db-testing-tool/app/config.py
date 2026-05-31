@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     WATCHDOG_ODI_STALE_SECONDS: int = 600
     WATCHDOG_ODI_MAX_RUNTIME_SECONDS: int = 7200
     WATCHDOG_ODI_RETAIN_SECONDS: int = 3600
+    # API key required by high-risk SQL/admin endpoints. If unset, those endpoints fail closed.
+    DBTOOL_API_KEY: str = ""
 
     class Config:
         env_file = str(BASE_DIR / ".env")

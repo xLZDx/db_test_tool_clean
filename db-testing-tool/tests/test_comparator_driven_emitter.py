@@ -301,10 +301,17 @@ def test_null_for_not_null_column_flagged_as_runtime_risk():
     assert "ORA-01400" in res.sql
 
 
-def test_oracle_parses_cleanly_with_auto_derived_joins():
+def test_oracle_parses_cleanly_with_auto_derived_joins(monkeypatch):
     """Phase 7.7: non-lookup tables now auto-derive a JOIN via the
     fact-extension convention (`<alias>.<base>_ID = base.<base>_ID`).
     SQL must parse cleanly under sqlglot Oracle dialect."""
+    class _PermissiveProvider:
+        def has_column(self, schema, table, col):
+            return True
+
+    from app.sql_model import schema_provider
+    monkeypatch.setattr(schema_provider, "_default_provider", _PermissiveProvider())
+
     res = emit_insert_comparator_driven(
         target_schema="C", target_table="X",
         drd_rows=[

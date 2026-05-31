@@ -59,6 +59,7 @@ class SchemaProvider:
                 preferred_ds_id = int(env_val)
         self._preferred_ds_id = preferred_ds_id
         self._loaded = False
+        self._metadata_unavailable = False
 
     def _load(self) -> None:
         if self._loaded:
@@ -94,10 +95,12 @@ class SchemaProvider:
                         "run `git lfs pull` to enable JOIN validation against it.",
                         path.name, len(text),
                     )
+                    self._metadata_unavailable = True
                     continue
                 payload = json.loads(text)
             except (OSError, json.JSONDecodeError) as exc:
                 _log.warning("SchemaProvider: cannot load %s: %s", path.name, exc)
+                self._metadata_unavailable = True
                 continue
             schemas = (payload.get("pdm") or {}).get("schemas") or []
             for sch_block in schemas:
@@ -127,10 +130,11 @@ class SchemaProvider:
         )
         cols = self._tables.get(key)
         if cols is None:
-            # Table not in PDM at all -- treat as "unknown" (return
-            # True to avoid false negatives).  Operator can switch to
-            # strict mode by checking `has_table()` first.
-            return True
+            # If no authoritative KB could be loaded at all (e.g. Git LFS pointer
+            # in a dev checkout), preserve legacy permissive behavior so emitters
+            # do not downgrade every inferred join. Once any KB is loaded, missing
+            # table means missing table and must return False.
+            return bool(self._metadata_unavailable and not self._tables)
         c = (col or "").strip().upper().strip('"')
         return c in cols
 

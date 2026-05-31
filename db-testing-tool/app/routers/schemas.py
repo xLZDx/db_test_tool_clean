@@ -453,13 +453,26 @@ async def _run_analyze_inline(db: AsyncSession, body: AnalyzeRequest):
     if not ds:
         raise ValueError(f"DataSource {body.datasource_id} not found")
     kb_payload = await _run_blocking(build_and_save_schema_kb, ds, body.schema_filters, body.operation_id)
+    kb_stats = kb_payload.get("stats", {}) or {}
+    schemas = [
+        str(src.get("schema") or "")
+        for src in (kb_payload.get("sources") or [])
+        if isinstance(src, dict) and str(src.get("schema") or "").strip()
+    ]
     kb_info = {
-        "stats": kb_payload.get("stats", {}),
+        "stats": kb_stats,
         "paths": kb_payload.get("paths", {}),
         "auto_saved": True,
     }
     mark_completed(body.operation_id, "Analyze finished")
-    return {"status": "ok", **stats, "kb": kb_info}
+    return {
+        "status": "ok",
+        "datasource_id": body.datasource_id,
+        "tables": int(kb_stats.get("tables") or 0),
+        "columns": int(kb_stats.get("columns") or 0),
+        "schemas": schemas,
+        "kb": kb_info,
+    }
 
 
 async def _run_analyze_job(

@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal
 import xml.etree.ElementTree as ET
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from app.security import require_api_key
 
 router = APIRouter(prefix="/api/odi", tags=["odi"])
 
@@ -1226,7 +1227,7 @@ async def list_fix_mismatches():
 # ── Phase 7.10 (operator-locked 2026-05-30): live Oracle execution ───────────
 
 @router.post("/live/execute")
-async def live_execute_sql(body: dict):
+async def live_execute_sql(body: dict, _auth: None = Depends(require_api_key)):
     """Execute SQL against live Oracle (operator's FREEPDB1).
 
     Body shape:
@@ -1272,7 +1273,7 @@ async def live_execute_sql(body: dict):
 
 
 @router.post("/live/execute-multi")
-async def live_execute_multi_sql(body: dict):
+async def live_execute_multi_sql(body: dict, _auth: None = Depends(require_api_key)):
     """Execute a list of SQL statements sequentially against live Oracle.
 
     Body shape:

@@ -12,13 +12,14 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.factory import get_connector_from_model
 from app.database import get_db
+from app.security import require_api_key_request
 from app.models.control_table_training import ControlTableCorrectionRule, ControlTableFileState
 from app.models.datasource import DataSource
 from app.models.test_case import TestCase, TestCaseFolder
@@ -854,11 +855,13 @@ async def save_control_table_insert_state(body: ControlTableSaveInsertStateReque
 
 
 @_ct_router.post("/control-table/check-insert")
-async def check_control_table_insert_sql(body: ControlTableInsertCheckRequest, db: AsyncSession = Depends(get_db)):
+async def check_control_table_insert_sql(body: ControlTableInsertCheckRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ds = await _ensure_non_redshift_datasource(db, body.target_datasource_id, "Target")
     sql = (body.sql or "").strip()
     if not sql:
         raise HTTPException(status_code=400, detail="sql is required")
+    if body.execute:
+        require_api_key_request(request)
 
     connector = get_connector_from_model(ds)
     try:

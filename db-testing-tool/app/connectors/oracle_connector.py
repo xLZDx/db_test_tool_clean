@@ -347,15 +347,25 @@ class OracleConnector(BaseConnector):
                     # Re-raise after no more retries
                     raise
         finally:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             if (used_pool or close_after_use) and conn is not None:
                 try:
                     conn.close()  # returns connection to pool
                 except Exception:
                     pass
 
+    def _quote_identifier(self, value: str) -> str:
+        text = str(value or "").strip()
+        if not text or '"' in text or "\x00" in text:
+            raise ValueError(f"unsafe Oracle identifier: {value!r}")
+        return f'"{text}"'
+
     def get_row_count(self, schema: str, table: str) -> int:
         rows = self.execute_query(
-            f'SELECT COUNT(*) AS cnt FROM "{schema}"."{table}"'
+            f"SELECT COUNT(*) AS cnt FROM {self._quote_identifier(schema)}.{self._quote_identifier(table)}"
         )
         return rows[0]["CNT"] if rows else 0
 
@@ -393,6 +403,9 @@ class OracleConnector(BaseConnector):
                 errors = []
                 for statement in self._split_sql_statements(sql):
                     if self._skip_explain_for_statement(statement):
+                        head = (statement or "").lstrip().upper()
+                        if head.startswith(("BEGIN", "DECLARE")):
+                            errors.append("PL/SQL block was not validated by EXPLAIN PLAN; use live execution in an explicit admin-gated path")
                         continue
                     cur = conn.cursor()
                     try:
@@ -406,6 +419,10 @@ class OracleConnector(BaseConnector):
                             pass
                 results.append("; ".join(errors) if errors else None)
         finally:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             if (used_pool or close_after_use) and conn is not None:
                 try:
                     conn.close()  # returns connection to pool

@@ -52,18 +52,18 @@ _ADMIN = ("GRANT", "REVOKE", "FLASHBACK", "PURGE", "SET", "BEGIN", "DECLARE")
 @dataclass
 class LiveOracleConfig:
     dsn: str = "localhost:1521/FREEPDB1"
-    user: str = "SYS"
-    password: str = "123456"
+    user: str = ""
+    password: str = ""
     # Connection mode: "DEFAULT", "SYSDBA", "SYSOPER"
-    mode: str = "SYSDBA"
+    mode: str = "DEFAULT"
 
     @classmethod
     def from_env(cls, override: Optional[Dict[str, str]] = None) -> "LiveOracleConfig":
         d = {
             "dsn": os.environ.get("ORA_LIVE_DSN", "localhost:1521/FREEPDB1"),
-            "user": os.environ.get("ORA_LIVE_USER", "SYS"),
-            "password": os.environ.get("ORA_LIVE_PASSWORD", "123456"),
-            "mode": os.environ.get("ORA_LIVE_MODE", "SYSDBA"),
+            "user": os.environ.get("ORA_LIVE_USER", ""),
+            "password": os.environ.get("ORA_LIVE_PASSWORD", ""),
+            "mode": os.environ.get("ORA_LIVE_MODE", "DEFAULT"),
         }
         if override:
             d.update({k: v for k, v in override.items() if v})
@@ -197,6 +197,11 @@ def execute_sql(
             note="pip install oracledb",
         )
     cfg = config or LiveOracleConfig.from_env()
+    if not (cfg.user or "").strip() or not (cfg.password or "").strip():
+        return LiveSqlResult(
+            sql=sql, statement_type="UNKNOWN", success=False,
+            note="ORA_LIVE_USER and ORA_LIVE_PASSWORD are required; no default SYSDBA credentials are allowed",
+        )
     stmt_type = classify_statement(sql)
     if not _statement_allowed(stmt_type, allow_read, allow_writes,
                               allow_ddl, allow_admin, allow_plsql):
