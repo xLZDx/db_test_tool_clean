@@ -183,6 +183,63 @@ def _statement_type(sql: str) -> str:
 _DATA_WRITE_STATEMENTS = {"INSERT", "UPDATE", "DELETE", "MERGE", "CALL"}
 _DDL_STATEMENTS = {"CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "COMMENT"}
 _ADMIN_STATEMENTS = {"GRANT", "REVOKE", "PURGE", "FLASHBACK", "BEGIN", "DECLARE"}
+_PRIVILEGED_ORACLE_MODES = {"SYSDBA", "SYSOPER", "SYSASM", "SYSBACKUP", "SYSDG", "SYSKM", "SYSRAC"}
+_SENSITIVE_EXTRA_PARAM_KEYS = {
+    "password",
+    "pwd",
+    "pass",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "key",
+    "wallet_password",
+}
+
+
+def _parse_extra_params(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _enforce_datasource_privilege_policy(body: DataSourceCreate) -> None:
+    db_kind = (body.db_type or "").strip().lower()
+    if db_kind != "oracle":
+        return
+
+    username = (body.username or "").strip().upper()
+    if username == "SYS":
+        raise HTTPException(status_code=403, detail="Oracle SYS datasource credentials are not allowed")
+
+    extras = _parse_extra_params(body.extra_params)
+    for key in ("mode", "auth_mode", "oracle_mode", "privilege"):
+        mode = str(extras.get(key) or "").strip().upper()
+        if mode in _PRIVILEGED_ORACLE_MODES:
+            raise HTTPException(status_code=403, detail=f"Oracle privileged mode {mode} is not allowed")
+
+
+def _redact_extra_params(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return "<redacted>"
+    if not isinstance(parsed, dict):
+        return "<redacted>"
+
+    redacted: dict[str, Any] = {}
+    for key, value in parsed.items():
+        if any(marker in str(key).lower() for marker in _SENSITIVE_EXTRA_PARAM_KEYS):
+            redacted[key] = "***"
+        else:
+            redacted[key] = value
+    return json.dumps(redacted, sort_keys=True)
 
 
 def _enforce_query_statement_allowed(stmt_type: str, runs_as_resultset: bool, body: QueryInput) -> None:
@@ -483,9 +540,8 @@ async def get_datasource(ds_id: int, db: AsyncSession = Depends(get_db)):
         "port": ds.port,
         "database_name": ds.database_name,
         "username": ds.username,
-        # SECURITY: Do not return plaintext password
-        # "password": ds.password,
-        "extra_params": ds.extra_params,
+        # SECURITY: Do not return plaintext password or raw extra_params.
+        "extra_params": _redact_extra_params(ds.extra_params),
         "status": ds.status,
         "is_active": ds.is_active,
         "last_tested_at": str(ds.last_tested_at) if ds.last_tested_at else None,
@@ -504,6 +560,7 @@ async def export_datasources_env(db: AsyncSession = Depends(get_db)):
 
 @router.post("")
 async def create_datasource(body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
+    _enforce_datasource_privilege_policy(body)
     ds = DataSource(**body.model_dump())
     db.add(ds)
     await db.commit()
@@ -546,6 +603,7 @@ async def delete_datasource(ds_id: int, db: AsyncSession = Depends(get_db), _aut
 
 @router.put("/{ds_id}")
 async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
+    _enforce_datasource_privilege_policy(body)
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")

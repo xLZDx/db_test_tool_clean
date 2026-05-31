@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.routers.datasources import QueryInput, _enforce_query_statement_allowed
+from app.routers.datasources import (
+    DataSourceCreate,
+    QueryInput,
+    _enforce_datasource_privilege_policy,
+    _enforce_query_statement_allowed,
+    _redact_extra_params,
+)
 from app.security import _verify_api_key_value
 from app.services import oracle_live_runner
 from app.services.oracle_live_runner import execute_sql
@@ -114,3 +120,52 @@ def test_oracle_connector_rejects_unsafe_quoted_identifier():
 
     with pytest.raises(ValueError):
         connector._quote_identifier('SCHEMA"; DROP TABLE X; --')
+
+
+def test_datasource_privilege_policy_blocks_oracle_sys_user():
+    body = DataSourceCreate(
+        name="sys",
+        db_type="oracle",
+        host="localhost",
+        username="SYS",
+        password="secret",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _enforce_datasource_privilege_policy(body)
+
+    assert exc.value.status_code == 403
+    assert "SYS" in exc.value.detail
+
+
+def test_datasource_privilege_policy_blocks_oracle_sysdba_mode():
+    body = DataSourceCreate(
+        name="privileged",
+        db_type="oracle",
+        host="localhost",
+        username="app_user",
+        password="secret",
+        extra_params='{"mode":"SYSDBA"}',
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _enforce_datasource_privilege_policy(body)
+
+    assert exc.value.status_code == 403
+    assert "SYSDBA" in exc.value.detail
+
+
+def test_datasource_extra_params_redacts_sensitive_values():
+    raw = '{"session_minutes":30,"wallet_password":"secret","api_key":"abc"}'
+
+    redacted = _redact_extra_params(raw)
+
+    assert '"session_minutes": 30' in redacted
+    assert '"wallet_password": "***"' in redacted
+    assert '"api_key": "***"' in redacted
+    assert "secret" not in redacted
+    assert "abc" not in redacted
+
+
+def test_datasource_extra_params_redacts_non_json_payload():
+    assert _redact_extra_params("wallet_password=secret") == "<redacted>"
