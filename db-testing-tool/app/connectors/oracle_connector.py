@@ -479,6 +479,11 @@ class OracleConnector(BaseConnector):
                 continue
 
             if not in_single and not in_double:
+                q_end = self._oracle_q_literal_end(text, i)
+                if q_end is not None:
+                    current.append(text[i:q_end])
+                    i = q_end
+                    continue
                 if ch == "-" and nxt == "-":
                     current.append(ch)
                     current.append(nxt)
@@ -525,6 +530,21 @@ class OracleConnector(BaseConnector):
         if tail:
             out.append(tail)
         return out
+
+    @staticmethod
+    def _oracle_q_literal_end(text: str, start: int) -> Optional[int]:
+        if start + 2 >= len(text):
+            return None
+        if text[start] not in {"q", "Q"} or text[start + 1] != "'":
+            return None
+        opener = text[start + 2]
+        closer = {"[": "]", "(": ")", "{": "}", "<": ">"}.get(opener, opener)
+        end_seq = closer + "'"
+        pos = text.find(end_seq, start + 3)
+        if pos < 0:
+            return None
+        return pos + len(end_seq)
+
 
     def _skip_explain_for_statement(self, statement: str) -> bool:
         stmt = (statement or "").lstrip().upper()

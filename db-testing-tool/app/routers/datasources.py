@@ -260,6 +260,20 @@ def _enforce_query_statement_allowed(stmt_type: str, runs_as_resultset: bool, bo
     )
 
 
+def _oracle_q_literal_end(text: str, start: int) -> Optional[int]:
+    if start + 2 >= len(text):
+        return None
+    if text[start] not in {"q", "Q"} or text[start + 1] != "'":
+        return None
+    opener = text[start + 2]
+    closer = {"[": "]", "(": ")", "{": "}", "<": ">"}.get(opener, opener)
+    end_seq = closer + "'"
+    pos = text.find(end_seq, start + 3)
+    if pos < 0:
+        return None
+    return pos + len(end_seq)
+
+
 def _split_sql_statements_with_lines(script: str) -> list[dict[str, Any]]:
     statements: list[dict[str, Any]] = []
     s = script or ""
@@ -297,6 +311,14 @@ def _split_sql_statements_with_lines(script: str) -> list[dict[str, Any]]:
             if ch == "/" and nxt == "*":
                 in_block_comment = True
                 i += 2
+                continue
+
+        if not in_single and not in_double:
+            q_end = _oracle_q_literal_end(s, i)
+            if q_end is not None:
+                if start_idx is None:
+                    start_idx = i
+                i = q_end
                 continue
 
         if ch == "'" and not in_double:

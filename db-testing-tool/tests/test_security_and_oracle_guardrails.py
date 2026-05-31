@@ -9,6 +9,7 @@ from app.routers.datasources import (
     _enforce_datasource_privilege_policy,
     _enforce_query_statement_allowed,
     _redact_extra_params,
+    _split_sql_statements_with_lines,
 )
 from app.security import _verify_api_key_value
 from app.services import oracle_live_runner
@@ -169,3 +170,18 @@ def test_datasource_extra_params_redacts_sensitive_values():
 
 def test_datasource_extra_params_redacts_non_json_payload():
     assert _redact_extra_params("wallet_password=secret") == "<redacted>"
+
+
+def test_oracle_connector_splitter_keeps_q_literal_semicolon_inside_statement():
+    connector = OracleConnector("host", 1521, "db", "u", "p")
+
+    statements = connector._split_sql_statements("select q'[a;b]' as x from dual; select 2 from dual;")
+
+    assert statements == ["select q'[a;b]' as x from dual", "select 2 from dual"]
+
+
+def test_datasource_splitter_keeps_q_literal_semicolon_inside_statement():
+    statements = _split_sql_statements_with_lines("select q'!a;b!' as x from dual;\nselect 2 from dual;")
+
+    assert [item["sql"] for item in statements] == ["select q'!a;b!' as x from dual", "select 2 from dual"]
+    assert statements[1]["start_line"] == 2
