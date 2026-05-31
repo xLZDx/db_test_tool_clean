@@ -1418,8 +1418,18 @@ def compare_drd_odi(
                             original_expr=src.original_expr,
                         )
                         step_id = ts_id
-                    except Exception:
-                        pass
+                    except (TypeError, ValueError, AttributeError) as _resolve_exc:
+                        # Phase 7.16 round 2 fix: was silent `pass`.  Failure
+                        # here leaves `src` pointing at the unresolved staging
+                        # reference -- comparator then emits a verdict on the
+                        # wrong column mapping (false MATCH or false MISS) with
+                        # no audit trail.  Log loudly + preserve original src.
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "comparator: failed to rebuild ResolvedColumn for "
+                            "%s.%s (step %s): %s -- verdict will use unresolved src",
+                            real_schema, real_table, ts_id, _resolve_exc,
+                        )
 
     # ── Shared rule engine: EXISTS-derived flag MATCH ───────────────────────
     # When DRD says ``If there is a record in T with <preds> then set to '<V>'``

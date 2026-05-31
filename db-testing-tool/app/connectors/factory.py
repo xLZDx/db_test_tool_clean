@@ -72,11 +72,17 @@ def get_connector(datasource_model) -> Optional[BaseConnector]:
             extra_params=extra_params,
         )
 
-    # Unsupported type — caller must handle None
-    return None
+    # Phase 7.16 (type-design MAJOR-6 fix): was `return None` which propagated
+    # silently into `schema_kb_service.py:627` `connector.connect()` -> raised
+    # AttributeError far from the root cause.  Now fail loud with the actual
+    # db_type so the operator gets one clear "unsupported X" message.
+    raise ValueError(
+        f"Unsupported datasource db_type={db_type!r}; supported: "
+        "oracle, redshift, sqlserver/mssql"
+    )
 
 
-def get_connector_from_model(datasource_model) -> Optional[BaseConnector]:
-    """Alias for get_connector."""
+def get_connector_from_model(datasource_model) -> BaseConnector:
+    """Alias for get_connector.  Raises ValueError on unsupported db_type."""
     return get_connector(datasource_model)
 

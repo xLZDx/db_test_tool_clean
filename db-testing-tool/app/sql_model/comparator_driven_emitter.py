@@ -193,7 +193,7 @@ def _lookup_discriminator(transformation_text: str) -> str:
 
 def _build_alias_map(
     rows: List[Tuple[str, str, str, str, str]],
-) -> Tuple[str, Dict[Tuple[str, str], str], Dict[str, str], Dict[Tuple[str, str], Tuple[str, str, str]]]:
+) -> Tuple[str, Dict[Tuple[str, str], str], Dict[str, List[str]], Dict[Tuple[str, str], Tuple[str, str, str]]]:
     """Return (base_fq_table, per_row_alias_map, per_table_alias_map,
     representative_row_per_alias).
 

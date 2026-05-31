@@ -123,6 +123,19 @@ class SchemaProvider:
         )
 
     def has_column(self, schema: str, table: str, col: str) -> bool:
+        """Return True iff `schema.table.col` is recorded in any loaded PDM.
+
+        Operator-locked semantics (Phase 7.16 round 2 fix):
+        - If at least one KB loaded successfully AND table is missing: return
+          False (strict — emitter must downgrade JOIN).
+        - If NO KB could be loaded at all (Git LFS pointer dev-checkout, all
+          files missing, parse errors on every file): emit a ONE-TIME WARNING
+          and return True (legacy permissive behaviour preserved so dev
+          checkouts without `git lfs pull` don't downgrade every JOIN).
+          Operator can suppress permissive fallback via env var
+          `PDM_STRICT_MODE=1` -- when set, missing tables ALWAYS return False
+          regardless of LFS state, and the dev must run `git lfs pull` first.
+        """
         self._load()
         key = (
             (schema or "").strip().upper(),
@@ -130,13 +143,31 @@ class SchemaProvider:
         )
         cols = self._tables.get(key)
         if cols is None:
-            # If no authoritative KB could be loaded at all (e.g. Git LFS pointer
-            # in a dev checkout), preserve legacy permissive behavior so emitters
-            # do not downgrade every inferred join. Once any KB is loaded, missing
-            # table means missing table and must return False.
-            return bool(self._metadata_unavailable and not self._tables)
+            if self._tables:
+                # At least one KB loaded; missing means missing.
+                return False
+            # No KB loaded at all -- permissive fallback.
+            if self._metadata_unavailable:
+                import os
+                if os.environ.get("PDM_STRICT_MODE", "").strip() in {"1", "true", "yes"}:
+                    return False
+                self._warn_permissive_once()
+                return True
+            # KB dir exists but had zero files -- treat as strict (no LFS issue).
+            return False
         c = (col or "").strip().upper().strip('"')
         return c in cols
+
+    def _warn_permissive_once(self) -> None:
+        if getattr(self, "_warned_permissive", False):
+            return
+        self._warned_permissive = True
+        _log.warning(
+            "SchemaProvider in PERMISSIVE FALLBACK MODE: no KB loaded (LFS "
+            "pointers / parse errors); has_column() returns True for unknown "
+            "tables.  This degrades JOIN-validation correctness.  Run "
+            "`git lfs pull` OR set PDM_STRICT_MODE=1 to fail-loud."
+        )
 
     def has_table(self, schema: str, table: str) -> bool:
         self._load()

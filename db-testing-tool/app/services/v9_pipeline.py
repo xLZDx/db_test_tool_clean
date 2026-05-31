@@ -127,14 +127,40 @@ def generate_v9(
 
     # 5) Target definition (PDM)
     from app.services.control_table_service import load_target_table_definition
+    import logging
+    _v9_log = logging.getLogger(__name__)
+    pdm_lookup_failed = False
+    pdm_lookup_error: Optional[str] = None
     try:
         tdef = load_target_table_definition(target_datasource_id, target_schema, target_table)
-    except Exception:
-        # Synthetic minimal target_definition if PDM not available
-        tdef = {"columns": [
-            {"name": c, "data_type": "VARCHAR2(4000)", "nullable": True}
-            for c in model.final_insert_columns
-        ]}
+    except Exception as _pdm_exc:
+        # Operator-locked (Phase 7.16 silent-failure round 2): PDM lookup
+        # failure used to silently substitute VARCHAR2(4000)/nullable for
+        # every column, dropping NOT NULL + type info and producing wrong
+        # INSERT SQL with NO indication that PDM was unavailable.  Now:
+        # (1) loud WARNING in logs with the exception, (2) tdef payload
+        # carries `pdm_missing=True` + `pdm_error=str(exc)` for the
+        # emitter to project as `-- PDM_MISS_TYPES_DEFAULTED VARCHAR2(4000)`
+        # markers, (3) `V9Result.warnings` will surface this so the
+        # caller / dashboard banner can show it.  Operator can no longer
+        # ship plausible-looking but type-wrong SQL silently.
+        pdm_lookup_failed = True
+        pdm_lookup_error = str(_pdm_exc)
+        _v9_log.warning(
+            "PDM target_definition lookup FAILED for %s.%s (ds=%s): %s -- "
+            "falling back to synthetic VARCHAR2(4000) nullable=True for ALL "
+            "columns.  Emitted SQL will carry PDM_MISS markers.",
+            target_schema, target_table, target_datasource_id, _pdm_exc,
+        )
+        tdef = {
+            "columns": [
+                {"name": c, "data_type": "VARCHAR2(4000)", "nullable": True,
+                 "pdm_missing": True}
+                for c in model.final_insert_columns
+            ],
+            "pdm_missing": True,
+            "pdm_error": str(_pdm_exc),
+        }
 
     # 6) Comparator (shared rule engine)
     from app.sql_model.comparator import (

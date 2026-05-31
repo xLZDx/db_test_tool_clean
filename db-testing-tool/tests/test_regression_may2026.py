@@ -64,12 +64,16 @@ def test_factory_sqlserver_returns_connector():
     assert isinstance(connector, SqlServerConnector)
 
 
-def test_factory_unknown_type_returns_none():
+def test_factory_unknown_type_raises():
+    """Phase 7.16 fix: unsupported db_type now raises ValueError (was None).
+    Silent None propagated into `connector.connect()` -> AttributeError far
+    from the root cause."""
+    import pytest
     from app.connectors.factory import get_connector
 
     ds = _make_ds("unknown_db_xyz")
-    connector = get_connector(ds)
-    assert connector is None
+    with pytest.raises(ValueError, match="Unsupported datasource db_type"):
+        get_connector(ds)
 
 
 # ── BaseConnector __init__ ───────────────────────────────────────────────────

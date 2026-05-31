@@ -49,13 +49,27 @@ _DDL = ("CREATE", "ALTER", "DROP", "RENAME", "COMMENT", "TRUNCATE")
 _ADMIN = ("GRANT", "REVOKE", "FLASHBACK", "PURGE", "SET", "BEGIN", "DECLARE")
 
 
+_VALID_MODES = ("DEFAULT", "SYSDBA", "SYSOPER")
+
+
 @dataclass
 class LiveOracleConfig:
     dsn: str = "localhost:1521/FREEPDB1"
     user: str = ""
     password: str = ""
-    # Connection mode: "DEFAULT", "SYSDBA", "SYSOPER"
+    # Connection mode: one of _VALID_MODES (case-insensitive, normalised in
+    # __post_init__).  Phase 7.16 type-design fix: invalid values RAISE
+    # ValueError instead of silently downgrading to DEFAULT.
     mode: str = "DEFAULT"
+
+    def __post_init__(self) -> None:
+        m = (self.mode or "").strip().upper()
+        if m not in _VALID_MODES:
+            raise ValueError(
+                f"LiveOracleConfig.mode={self.mode!r} invalid; "
+                f"must be one of {_VALID_MODES}"
+            )
+        self.mode = m
 
     @classmethod
     def from_env(cls, override: Optional[Dict[str, str]] = None) -> "LiveOracleConfig":
