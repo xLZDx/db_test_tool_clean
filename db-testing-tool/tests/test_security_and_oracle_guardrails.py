@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 from fastapi import HTTPException
 
 from app.routers.datasources import (
@@ -8,6 +9,7 @@ from app.routers.datasources import (
     QueryInput,
     _enforce_datasource_privilege_policy,
     _enforce_query_statement_allowed,
+    _prepare_datasource_payload,
     _redact_extra_params,
     _split_sql_statements_with_lines,
 )
@@ -185,3 +187,55 @@ def test_datasource_splitter_keeps_q_literal_semicolon_inside_statement():
 
     assert [item["sql"] for item in statements] == ["select q'!a;b!' as x from dual", "select 2 from dual"]
     assert statements[1]["start_line"] == 2
+
+
+def test_datasource_secret_payload_requires_encryption_key(monkeypatch):
+    monkeypatch.setattr("app.secret_store.settings.DBTOOL_SECRET_KEY", "")
+    body = DataSourceCreate(
+        name="plain",
+        db_type="oracle",
+        host="localhost",
+        username="app_user",
+        password="secret",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _prepare_datasource_payload(body)
+
+    assert exc.value.status_code == 503
+    assert "DBTOOL_SECRET_KEY" in exc.value.detail
+
+
+def test_datasource_secret_payload_encrypts_and_factory_decrypts(monkeypatch):
+    from app.connectors.factory import get_connector
+
+    monkeypatch.setattr("app.secret_store.settings.DBTOOL_SECRET_KEY", "unit-test-secret")
+    body = DataSourceCreate(
+        name="secure",
+        db_type="oracle",
+        host="localhost",
+        username="app_user",
+        password="secret",
+        extra_params='{"wallet_password":"wallet-secret","session_minutes":30}',
+    )
+
+    payload = _prepare_datasource_payload(body)
+
+    assert payload["password"].startswith("enc:v1:")
+    assert "secret" not in payload["password"]
+    assert "wallet-secret" not in payload["extra_params"]
+    ds = SimpleNamespace(
+        db_type="oracle",
+        host="localhost",
+        port=1521,
+        database_name="FREEPDB1",
+        username="app_user",
+        password=payload["password"],
+        extra_params=payload["extra_params"],
+    )
+
+    connector = get_connector(ds)
+
+    assert connector.password == "secret"
+    assert connector.extra_params["wallet_password"] == "wallet-secret"
+    assert connector.extra_params["session_minutes"] == 30

@@ -11,6 +11,11 @@ from app.models.datasource import DataSource
 from app.connectors.factory import get_connector
 from app.config import settings
 from app.security import require_api_key
+from app.secret_store import (
+    SecretStoreConfigError,
+    encrypt_secret,
+    encrypt_sensitive_extra_params,
+)
 from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime, timezone
@@ -221,6 +226,16 @@ def _enforce_datasource_privilege_policy(body: DataSourceCreate) -> None:
         mode = str(extras.get(key) or "").strip().upper()
         if mode in _PRIVILEGED_ORACLE_MODES:
             raise HTTPException(status_code=403, detail=f"Oracle privileged mode {mode} is not allowed")
+
+
+def _prepare_datasource_payload(body: DataSourceCreate) -> dict[str, Any]:
+    payload = body.model_dump()
+    try:
+        payload["password"] = encrypt_secret(payload.get("password"))
+        payload["extra_params"] = encrypt_sensitive_extra_params(payload.get("extra_params"))
+    except SecretStoreConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return payload
 
 
 def _redact_extra_params(raw: Optional[str]) -> Optional[str]:
@@ -583,7 +598,7 @@ async def export_datasources_env(db: AsyncSession = Depends(get_db)):
 @router.post("")
 async def create_datasource(body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     _enforce_datasource_privilege_policy(body)
-    ds = DataSource(**body.model_dump())
+    ds = DataSource(**_prepare_datasource_payload(body))
     db.add(ds)
     await db.commit()
     await db.refresh(ds)
@@ -626,11 +641,12 @@ async def delete_datasource(ds_id: int, db: AsyncSession = Depends(get_db), _aut
 @router.put("/{ds_id}")
 async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
     _enforce_datasource_privilege_policy(body)
+    payload = _prepare_datasource_payload(body)
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")
     await _close_cached_connector(ds_id)
-    for k, v in body.model_dump().items():
+    for k, v in payload.items():
         if k == "password" and (v is None or v == ""):
             continue
         setattr(ds, k, v)

@@ -1,6 +1,7 @@
 """Connector factory for getting database connectors."""
 from typing import Optional
 from app.connectors.base import BaseConnector
+from app.secret_store import decrypt_secret_if_needed, decrypt_sensitive_extra_params_dict
 
 
 def get_connector(datasource_model) -> Optional[BaseConnector]:
@@ -24,7 +25,7 @@ def get_connector(datasource_model) -> Optional[BaseConnector]:
         or ""
     )
     username = getattr(datasource_model, "username", "") or ""
-    password = getattr(datasource_model, "password", "") or ""
+    password = decrypt_secret_if_needed(getattr(datasource_model, "password", "") or "") or ""
     extra_params = getattr(datasource_model, "extra_params", None) or {}
     if isinstance(extra_params, str):
         import json
@@ -32,6 +33,8 @@ def get_connector(datasource_model) -> Optional[BaseConnector]:
             extra_params = json.loads(extra_params)
         except Exception:
             extra_params = {}
+    if isinstance(extra_params, dict):
+        extra_params = decrypt_sensitive_extra_params_dict(extra_params)
 
     if db_type == "oracle":
         from app.connectors.oracle_connector import OracleConnector
