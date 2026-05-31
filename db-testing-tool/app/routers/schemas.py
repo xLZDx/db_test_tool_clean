@@ -17,7 +17,12 @@ from app.services.operation_control import (
     mark_failed,
     add_notification,
 )
-from app.services.schema_task_queue import enqueue_schema_task, get_queue_depth, get_queue_health
+from app.services.schema_task_queue import (
+    SchemaTaskQueueFull,
+    enqueue_schema_task,
+    get_queue_depth,
+    get_queue_health,
+)
 from app.models.datasource import DataSource
 from app.connectors.factory import get_connector_from_model
 from app.config import BASE_DIR
@@ -26,6 +31,14 @@ from typing import Optional, List
 import uuid
 
 router = APIRouter(prefix="/api/schemas", tags=["schemas"])
+
+
+async def _enqueue_background_schema_task(operation_id: str, label: str, fn):
+    try:
+        return await enqueue_schema_task(operation_id, label, fn)
+    except SchemaTaskQueueFull as exc:
+        mark_failed(operation_id, str(exc))
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 class AnalyzeRequest(BaseModel):
@@ -60,7 +73,7 @@ async def analyze(body: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
     body.operation_id = op_id
     register_operation(op_id, "analyze")
     if body.background:
-        depth = await enqueue_schema_task(
+        depth = await _enqueue_background_schema_task(
             op_id,
             "analyze",
             lambda: _run_analyze_job(
@@ -147,7 +160,7 @@ async def generate_pdm(body: PdmRequest, db: AsyncSession = Depends(get_db)):
     body.operation_id = op_id
     register_operation(op_id, "pdm")
     if body.background:
-        depth = await enqueue_schema_task(
+        depth = await _enqueue_background_schema_task(
             op_id,
             "pdm",
             lambda: _run_pdm_job(body.datasource_id, body.schemas, body.save_to_kb, op_id),
@@ -176,7 +189,7 @@ async def save_schema_kb(body: PdmRequest, db: AsyncSession = Depends(get_db)):
     body.operation_id = op_id
     register_operation(op_id, "kb-save")
     if body.background:
-        depth = await enqueue_schema_task(
+        depth = await _enqueue_background_schema_task(
             op_id,
             "kb-save",
             lambda: _run_kb_save_job(body.datasource_id, body.schemas, op_id),
@@ -432,7 +445,7 @@ async def scan_owner_schemas(body: AnalyzeRequest):
     """Start background scan for schemas ending with _OWNER and save PDM/KB including view SQL for training."""
     op_id = body.operation_id or f"scan_owner_{uuid.uuid4().hex[:10]}"
     register_operation(op_id, "scan_owner")
-    depth = await enqueue_schema_task(
+    depth = await _enqueue_background_schema_task(
         op_id,
         "scan_owner",
         lambda: _run_scan_owner_job(body.datasource_id, op_id),

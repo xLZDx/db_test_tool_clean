@@ -9,6 +9,7 @@ Covers:
 - Background schema task queue returns immediately (non-blocking)
 - Schema task queue status endpoint returns correct shape
 """
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -108,25 +109,30 @@ def test_connection_result_has_server_version():
 
 # ── Schema task queue is non-blocking ────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_schema_task_queue_returns_immediately():
+def test_schema_task_queue_returns_immediately():
     """enqueue_schema_task must return a count without awaiting the coroutine."""
-    from app.services.schema_task_queue import enqueue_schema_task
+    asyncio.run(_assert_schema_task_queue_returns_immediately())
+
+
+async def _assert_schema_task_queue_returns_immediately():
+    from app.services.schema_task_queue import enqueue_schema_task, _reset_for_tests
 
     completed = []
+    release = asyncio.Event()
 
     async def _slow_job():
-        import asyncio
-        await asyncio.sleep(10)  # would block if run inline
+        await release.wait()
         completed.append(True)
 
-    import asyncio
-    depth = await enqueue_schema_task("test_op_001", "test", _slow_job)
-    # Should return immediately — completed list still empty
-    assert isinstance(depth, int)
-    assert len(completed) == 0, "Task should not have completed synchronously"
-    # Cleanup: cancel the background task if still running
-    await asyncio.sleep(0)  # yield to event loop once
+    await _reset_for_tests(worker_count=1, max_queue=2)
+    try:
+        depth = await enqueue_schema_task("test_op_001", "test", _slow_job)
+        # Should return immediately — completed list still empty
+        assert isinstance(depth, int)
+        assert len(completed) == 0, "Task should not have completed synchronously"
+    finally:
+        release.set()
+        await _reset_for_tests()
 
 
 # ── Mapping CRUD via live API ─────────────────────────────────────────────────

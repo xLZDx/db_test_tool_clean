@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     WATCHDOG_ODI_RETAIN_SECONDS: int = 3600
     # API key required by high-risk SQL/admin endpoints. If unset, those endpoints fail closed.
     DBTOOL_API_KEY: str = ""
+    # Bounded schema metadata/background task queue. Prevents request bursts from
+    # spawning unbounded asyncio tasks inside the API process.
+    SCHEMA_TASK_WORKER_COUNT: int = 2
+    SCHEMA_TASK_MAX_QUEUE: int = 50
 
     class Config:
         env_file = str(BASE_DIR / ".env")
