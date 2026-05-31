@@ -44,6 +44,11 @@ def _build_static_version() -> str:
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 
+# Phase 7.16 round-D: auth-by-default middleware.  See app.security for
+# allowlist + mode semantics (off / warn / enforce via DBTOOL_REQUIRE_AUTH).
+from app.security import install_auth_middleware
+install_auth_middleware(app)
+
 # Static files and templates
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
