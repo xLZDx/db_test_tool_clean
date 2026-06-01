@@ -217,38 +217,50 @@ def _compare_results(test: TestCase, src_res: dict, tgt_res: dict) -> tuple:
 
     # custom_sql / schema_drift – just check for rows
     # Pick whichever result set has data (single-DB mode: only src; dual-DB: prefer tgt)
-    result_set = src_res if (src_res["rows"] and not tgt_res["rows"]) else tgt_res
+    if test.test_type in ("custom_sql", "schema_drift"):
+        result_set = src_res if (src_res["rows"] and not tgt_res["rows"]) else tgt_res
 
-    if test.expected_result:
-        expected = json.loads(test.expected_result)
-        if isinstance(expected, (int, float)):
-            exp_val = expected
-        elif isinstance(expected, dict):
-            exp_val = expected.get("cnt", expected.get("count", expected.get("rows", None)))
-        else:
-            exp_val = None
-
-        if exp_val is not None:
-            # Extract actual value: first column of first row (for COUNT(*) etc.)
-            actual_val = None
-            if result_set["rows"]:
-                first_row = result_set["rows"][0]
-                # Get first column value from the row dict
-                first_col_val = next(iter(first_row.values())) if first_row else None
-                if isinstance(first_col_val, (int, float)):
-                    actual_val = first_col_val
-                else:
-                    try:
-                        actual_val = int(first_col_val) if first_col_val is not None else None
-                    except (ValueError, TypeError):
-                        actual_val = result_set["count"]
+        if test.expected_result:
+            expected = json.loads(test.expected_result)
+            if isinstance(expected, (int, float)):
+                exp_val = expected
+            elif isinstance(expected, dict):
+                exp_val = expected.get("cnt", expected.get("count", expected.get("rows", None)))
             else:
-                actual_val = result_set["count"]
+                exp_val = None
 
-            if actual_val is not None:
-                diff = abs(actual_val - exp_val)
-                passed = diff <= (test.tolerance or 0)
-                return passed, diff, f"Expected={exp_val}, Actual={actual_val}"
+            if exp_val is not None:
+                # Extract actual value: first column of first row (for COUNT(*) etc.)
+                actual_val = None
+                if result_set["rows"]:
+                    first_row = result_set["rows"][0]
+                    # Get first column value from the row dict
+                    first_col_val = next(iter(first_row.values())) if first_row else None
+                    if isinstance(first_col_val, (int, float)):
+                        actual_val = first_col_val
+                    else:
+                        try:
+                            actual_val = int(first_col_val) if first_col_val is not None else None
+                        except (ValueError, TypeError):
+                            actual_val = result_set["count"]
+                else:
+                    actual_val = result_set["count"]
+
+                if actual_val is not None:
+                    diff = abs(actual_val - exp_val)
+                    passed = diff <= (test.tolerance or 0)
+                    return passed, diff, f"Expected={exp_val}, Actual={actual_val}"
+
+        # Phase 7.19.6 (2026-06-01): custom_sql / schema_drift WITHOUT an
+        # explicit expected_result is a "ran to completion = pass" test
+        # (DDL bootstrap, INSERT loaders, idempotent housekeeping). Both
+        # src_res.error / tgt_res.error are already gate-checked above
+        # (lines 179-182); reaching this point means execution was clean.
+        # Pre-fix this branch silently fell through to the generic
+        # "Unknown test type" failure, which falsely flagged successful
+        # DDL/INSERT runs as failed.
+        rowcount = result_set.get("count", 0) if result_set else 0
+        return True, 0, f"OK (rows_returned={rowcount})"
 
     # CORRECTNESS FIX: Unknown test types should fail, not pass
     # Previously this was returning True (pass) which masked invalid test type configurations

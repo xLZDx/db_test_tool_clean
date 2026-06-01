@@ -1084,14 +1084,51 @@ def build_control_insert_sql(
     _PROSE_LEAK_KEYWORDS = (
         "IF THERE IS", "WHEN THERE IS A RECORD", "THEN SET",
         "SHOULD BE", "NOTE:", "REFER TO",
+        # Phase 7.19.6 (2026-06-01): audit-column DRD prose.
+        # DRD authors write "AUDIT COLUMN. DEFAULT SYSDATE" or
+        # ". DEFAULT USER" inside source_attribute. The embedded
+        # period + space + identifier was producing TABLE.AUDIT,
+        # TABLE.DEFAULT, etc. -> ORA-00936 missing expression.
+        # Caught below by _looks_like_drd_prose; the literal value
+        # (SYSDATE / USER) is extracted by _extract_default_expr
+        # which runs earlier and wins when matched.
+        "AUDIT COLUMN", ". DEFAULT ",
     )
     def _looks_like_drd_prose(text: str) -> bool:
         if not text:
             return False
         t = text.upper()
         if "\n" not in text and len(text) < 80:
+            # Short text path: still flag the audit-column variants
+            # since they're under 80 chars but produce invalid SQL.
+            if "AUDIT COLUMN" in t or ". DEFAULT " in t:
+                return True
             return False
         return any(kw in t for kw in _PROSE_LEAK_KEYWORDS)
+
+    # Phase 7.19.6 (2026-06-01): extract a SQL literal from prose
+    # of the shape "...DEFAULT <expr>..." where <expr> is SYSDATE,
+    # USER, NULL, a numeric literal, or a quoted string. Returns
+    # None when no DEFAULT clause is present. Generic; not bound to
+    # any specific column or table.
+    _DEFAULT_PROSE_RE = re.compile(
+        r"\bDEFAULT\s+(SYSDATE|SYSTIMESTAMP|USER|CURRENT_DATE|CURRENT_TIMESTAMP|NULL|-?\d+(?:\.\d+)?|'[^']*')",
+        flags=re.IGNORECASE,
+    )
+    def _extract_default_expr(text: str) -> Optional[str]:
+        if not text:
+            return None
+        m = _DEFAULT_PROSE_RE.search(text)
+        if not m:
+            return None
+        val = m.group(1).strip()
+        # Normalize bare keyword forms to upper-case canonical SQL.
+        if val.upper() in {
+            "SYSDATE", "SYSTIMESTAMP", "USER",
+            "CURRENT_DATE", "CURRENT_TIMESTAMP", "NULL",
+        }:
+            return val.upper()
+        return val
 
     select_lines = []
     insert_cols = []
@@ -1113,6 +1150,50 @@ def build_control_insert_sql(
         if _exists_spec:
             expr = compose_exists_case_expr(_exists_spec, else_value="NULL")
             select_lines.append(f"    {expr} AS {col_name}")
+            continue
+
+        # Phase 7.19.6 literal-value short-circuit (2026-06-01):
+        # DRD authors occasionally place bare SQL literals in the
+        # source_attribute column (numeric literals like "123456",
+        # quoted strings like "'Y'", or SQL keywords like NULL /
+        # SYSDATE). The downstream emitter would otherwise produce
+        # invalid output of the form ALIAS.123456 -> ORA-00923. Detect
+        # such literals and emit them as-is, bypassing all alias /
+        # qualification logic. Generic: no hardcoded column or table
+        # names; pure pattern match on source_attribute content.
+        def _is_sql_literal(text: str) -> bool:
+            s = (text or "").strip()
+            if not s:
+                return False
+            # Pure numeric literal (int or decimal, optional sign)
+            if re.match(r'^-?\d+(\.\d+)?$', s):
+                return True
+            # Single-quoted string literal (no embedded quote)
+            if re.match(r"^'[^']*'$", s):
+                return True
+            # SQL keyword literals
+            if s.upper() in {
+                "NULL", "SYSDATE", "SYSTIMESTAMP", "USER",
+                "CURRENT_DATE", "CURRENT_TIMESTAMP",
+            }:
+                return True
+            return False
+
+        if _is_sql_literal(_src_attr_raw):
+            select_lines.append(f"    {_src_attr_raw.strip()} AS {col_name}")
+            continue
+
+        # Phase 7.19.6 (2026-06-01) DEFAULT-extractor: DRD prose like
+        # "AUDIT COLUMN. DEFAULT SYSDATE" -> emit SYSDATE. Runs BEFORE
+        # the prose-leak fallback so the operator gets the intended
+        # default instead of a NULL/TODO comment. Generic; matches
+        # SYSDATE / USER / NULL / numeric / quoted string.
+        _default_expr = (
+            _extract_default_expr(_src_attr_raw)
+            or _extract_default_expr(_trans_raw)
+        )
+        if _default_expr is not None:
+            select_lines.append(f"    {_default_expr} AS {col_name}")
             continue
 
         # Phase 7.19.4 prose-leak fallback (no EXISTS pattern matched):
@@ -2213,7 +2294,81 @@ def replace_join_alias(sql: str, old_alias: str, new_alias: str) -> str:
 
 
 def sanitize_lookup_join_sql(join_sql: str) -> str:
+    """Strip DRD prose contamination from a lookup_join body before it is
+    spliced into the INSERT...SELECT FROM clause.
+
+    Phase 7.19.6 (2026-06-02). Generic: no hardcoded schema/table names;
+    pure structural cleanup. Two classes of leaks observed in real DRDs:
+
+    (1) Multi-line CASE-style prose embedded inside a JOIN block, e.g.
+        ``LEFT JOIN ... ON ...
+          USE AAS.AC_NUM
+          ELSE
+          CCAL_REPL_OWNER.TXN T``
+        The ``USE``/``ELSE``/``IF``/``WHEN``/``THEN``/``SHOULD``/``NOTE:``
+        line and everything after it are DRD authoring instructions, not
+        SQL; truncate at the first such line.
+
+    (2) Inline parenthetical commentary that wraps real SQL fragments,
+        e.g. ``AND CV.CL_SCM_ID = '99' (THIS IS EXCESSIVE; USING CL_VAL_ID
+        NO NEED TO USE CL_SCM. ...)``. The paren block is stripped
+        only when it contains prose markers (multi-word English with
+        commentary keywords) so legitimate `(col IN (1,2))` style
+        SQL parens are preserved.
+    """
     text = (join_sql or "").strip()
+    if not text:
+        return text
+
+    _PROSE_LINE_STARTERS = re.compile(
+        r"^\s*(USE|ELSE|IF\s+THERE|WHEN\s+THERE|THEN\s+SET|SHOULD\s+BE|NOTE\s*:|REFER\s+TO)\b",
+        flags=re.IGNORECASE,
+    )
+    cleaned_lines: List[str] = []
+    for ln in text.split("\n"):
+        if _PROSE_LINE_STARTERS.search(ln):
+            break
+        cleaned_lines.append(ln)
+    text = "\n".join(cleaned_lines).strip()
+
+    _PROSE_PAREN_RE = re.compile(
+        r"\([^()]*\b(THIS\s+IS|NO\s+NEED|FOR\s+CONSISTENCY|ADDED\s+FOR|EXCESSIVE|REDUNDANT|TODO|TBD|NOTE)\b[^()]*\)",
+        flags=re.IGNORECASE,
+    )
+    prev = None
+    while prev != text:
+        prev = text
+        text = _PROSE_PAREN_RE.sub("", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+
+    # Phase 7.19.6 (2026-06-02): DRD authors occasionally type a
+    # broken identifier with an embedded space + underscore, e.g.
+    # "NET_NEW _AST_CGY" (intent: "NET_NEW_AST_CGY"). Repair by
+    # gluing IDENT + " _" + IDENT back together when both halves
+    # look like identifier fragments. Generic; no table-name list.
+    text = re.sub(
+        r"\b([A-Z_][A-Z0-9_]*)\s+(_[A-Z_][A-Z0-9_]*)\b",
+        r"\1\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Phase 7.19.6 (2026-06-02): drop any stray semicolons inside
+    # the JOIN body. SQL statement terminators belong only at the
+    # final boundary of the outer INSERT, not inside the JOIN tree;
+    # leaked ";" mid-body breaks executors that split on ";".
+    text = text.replace(";", "")
+
+    text = text.strip()
+
+    # Defence in depth: the result must start with a JOIN keyword.
+    # Anything else is unrecoverable -> drop the whole join body so the
+    # SELECT emitter falls back to NULL/FK-default and the operator
+    # gets a clean compilable INSERT for review instead of ORA-03049.
+    if not re.match(r"^(LEFT\s+(OUTER\s+)?JOIN|RIGHT\s+(OUTER\s+)?JOIN|FULL\s+(OUTER\s+)?JOIN|INNER\s+JOIN|JOIN)\b",
+                    text, flags=re.IGNORECASE):
+        return ""
     return text
 
 
