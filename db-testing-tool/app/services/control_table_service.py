@@ -8,10 +8,13 @@ Builds a step-based control-table workflow from:
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from app.services.drd_import_service import (
     _extract_case_expression,

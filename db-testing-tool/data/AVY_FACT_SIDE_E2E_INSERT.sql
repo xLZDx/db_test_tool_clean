@@ -371,25 +371,25 @@ INSERT /*+ APPEND PARALLEL(32) */ INTO IKOROSTELEV.AVY_FACT_SIDE (
     REIVS_PRC
 )
 SELECT /*+ PARALLEL(32) */
-    EXG_DIM_1.EXG_DIM_ID AS EXG_DIM_ID,
-    AR_DIM_1.AR_DIM_ID AS AR_DIM_ID,
-    AR_DIM_10.AR_DIM_ID AS OFST_AR_DIM_ID,
-    ACG_TP_DIM_1.ACG_TP_DIM_ID AS ACG_TP_DIM_ID,
-    CASH_POS_TP_DIM_1.CASH_POS_TP_DIM_ID AS CASH_POS_TP_DIM_ID,
-    CCY_DIM_2.CCY_DIM_ID AS SBC_CCY_DIM_ID,
-    IMT_PD_DIM_1.IMT_PD_DIM_ID AS SEC_PD_DIM_ID,
-    IMT_PD_DIM_1.IMT_PD_DIM_ID AS CASH_PD_DIM_ID,
-    LGCY_CNCL_CMPLN_RSN_TP_DIM_1.LGCY_CNCL_CMPLN_RSN_TP_DIM_ID AS LGCY_CNCL_CMPLN_RSN_DIM_ID,
-    LGCY_CNCL_CMPLN_SRC_TP_DIM_1.LGCY_CNCL_CMPLN_SRC_TP_DIM_ID AS LGCY_CNCL_CMPLN_SRC_DIM_ID,
-    LGCY_MKT_TP_DIM_1.LGCY_MKT_TP_DIM_ID AS LGCY_MKT_TP_DIM_ID,
-    LGCY_TRD_CPCTY_TP_DIM_1.LGCY_TRD_CPCTY_TP_DIM_ID AS LGCY_TRD_CPCTY_TP_DIM_ID,
-    SRC_PCS_TP_DIM_1.SRC_PCS_TP_DIM_ID AS SRC_PCS_TP_DIM_ID,
-    SRC_ENTR_CNL_TP_DIM_1.SRC_ENTR_CNL_TP_DIM_ID AS SRC_ENTR_CNL_TP_DIM_ID,
-    TRD_SLCT_TP_DIM_1.TRD_SLCT_TP_DIM_ID AS TRD_SLCT_TP_DIM_ID,
-    SRC_STM_DIM_1.SRC_STM_DIM_ID AS TXN_SRC_STM_DIM_ID,
-    TXN_RLTNP_1.SRC_STM_DIM_ID AS REL_TXN_SRC_STM_DIM_ID,
-    AR_DIM.AR_DIM_ID AS BKR_AR_DIM_ID,
-    DATE_DIM_1.DT_DIM_ID AS TD_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) EXG_DIM_1 for EXG_DIM_ID -- add to PDM or correct DRD source_table */ AS EXG_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_9 for AR_DIM_ID -- add to PDM or correct DRD source_table */ AS AR_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_8 for OFST_AR_DIM_ID -- add to PDM or correct DRD source_table */ AS OFST_AR_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACG_TP_DIM_2 for ACG_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS ACG_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CASH_POS_TP_DIM_2 for CASH_POS_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS CASH_POS_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CCY_DIM_2 for SBC_CCY_DIM_ID -- add to PDM or correct DRD source_table */ AS SBC_CCY_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM_2 for SEC_PD_DIM_ID -- add to PDM or correct DRD source_table */ AS SEC_PD_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM_1 for CASH_PD_DIM_ID -- add to PDM or correct DRD source_table */ AS CASH_PD_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_RSN_TP_DIM_2 for LGCY_CNCL_CMPLN_RSN_DIM_ID -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_RSN_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_SRC_TP_DIM_2 for LGCY_CNCL_CMPLN_SRC_DIM_ID -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_SRC_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_MKT_TP_DIM_2 for LGCY_MKT_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS LGCY_MKT_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_TRD_CPCTY_TP_DIM_2 for LGCY_TRD_CPCTY_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS LGCY_TRD_CPCTY_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_PCS_TP_DIM_1 for SRC_PCS_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS SRC_PCS_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_ENTR_CNL_TP_DIM_2 for SRC_ENTR_CNL_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS SRC_ENTR_CNL_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TRD_SLCT_TP_DIM_1 for TRD_SLCT_TP_DIM_ID -- add to PDM or correct DRD source_table */ AS TRD_SLCT_TP_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_STM_DIM_3 for TXN_SRC_STM_DIM_ID -- add to PDM or correct DRD source_table */ AS TXN_SRC_STM_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_1 for REL_TXN_SRC_STM_DIM_ID -- add to PDM or correct DRD source_table */ AS REL_TXN_SRC_STM_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AR_DIM_ID -- add to PDM or correct DRD source_table */ AS BKR_AR_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) DATE_DIM_1 for TD_DIM_ID -- add to PDM or correct DRD source_table */ AS TD_DIM_ID,
     TXN.TD AS TD,
     NULL /* PDM_MISS: cannot resolve alias(es) DT_DIM_1 for SD_DIM_ID -- add to PDM or correct DRD source_table */ AS SD_DIM_ID,
     TXN.SD AS SD,
@@ -397,142 +397,142 @@ SELECT /*+ PARALLEL(32) */
     TXN.ORIG_BKG_DT AS ORIG_BKG_DT,
     TXN.EXEC_DTM AS EXEC_DTM,
     TXN.TXN_ID AS TXN_ID,
-    TXN_RLTNP_1.TRGT_TXN_ID AS REL_TXN_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_7 for REL_TXN_ID -- add to PDM or correct DRD source_table */ AS REL_TXN_ID,
     TXN.TRD_NUM AS TRD_NUM,
     TXN.ORIG_TRD_NUM AS ORIG_TRD_NUM,
     TXN.TXN_SRC_KEY AS TXN_SRC_KEY,
-    APA.APA_ID AS SEC_APA_ID,
-    APA.APA_ID AS CSH_APA_ID,
-    APA.SCR_PRC_IN_TXN_CCY AS SEC_PRC_IN_TXN_CCY,
-    APA.TXN_AMT AS SEC_TXN_AMT,
-    APA.TXN_AMT AS CASH_TXN_AMT,
-    APA.ORIG_QTY AS SEC_ORIG_QTY,
-    APA.SCR_PRC_IN_SBC AS SEC_SRC_PRC_IN_SBC,
-    CL_VAL_11.SALE_CHRG_RATE AS SALE_CHRG_RATE_PCT,
-    APA.SALE_CHRG_RATE_TP_ID AS SALE_CHRG_RATE_TP_ID,
-    CL_VAL_6.CL_VAL_CODE AS SALE_CHRG_RATE_TP_CD,
-    APA.STM_BASE_CCY_AMT AS SEC_SBC_AMT,
-    APA.STM_BASE_CCY_AMT AS CASH_SBC_AMT,
-    APA_9.STM_BASE_CCY_CLC_DTM AS SBC_CCY_CALC_DT,
-    APA_10.STM_BASE_CCY_EXG_RATE AS SBC_EXG_RATE,
-    CL_VAL_1.CL_VAL_CODE AS CASH_DB_CR_CD,
-    CL_VAL_11.CL_VAL_CODE AS SEC_DB_CR_CD,
-    APA.SRC_SEQ_NUM AS SEC_SRC_SEQ_NUM,
-    APA.APA_EXT_QUALFR AS SEC_APA_EXT_QUALFR,
-    APA.APA_DSC AS SEC_DSC_TRAILER_1,
-    APA.ALT_DSC AS SEC_ALT_DSC_TRAILER_2,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_APA_ID -- add to PDM or correct DRD source_table */ AS SEC_APA_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CSH_APA_ID -- add to PDM or correct DRD source_table */ AS CSH_APA_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_PRC_IN_TXN_CCY -- add to PDM or correct DRD source_table */ AS SEC_PRC_IN_TXN_CCY,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_TXN_AMT -- add to PDM or correct DRD source_table */ AS SEC_TXN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_TXN_AMT -- add to PDM or correct DRD source_table */ AS CASH_TXN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_ORIG_QTY -- add to PDM or correct DRD source_table */ AS SEC_ORIG_QTY,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_SRC_PRC_IN_SBC -- add to PDM or correct DRD source_table */ AS SEC_SRC_PRC_IN_SBC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SALE_CHRG_RATE_PCT -- add to PDM or correct DRD source_table */ AS SALE_CHRG_RATE_PCT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SALE_CHRG_RATE_TP_ID -- add to PDM or correct DRD source_table */ AS SALE_CHRG_RATE_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SALE_CHRG_RATE_TP_CD -- add to PDM or correct DRD source_table */ AS SALE_CHRG_RATE_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_SBC_AMT -- add to PDM or correct DRD source_table */ AS SEC_SBC_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_SBC_AMT -- add to PDM or correct DRD source_table */ AS CASH_SBC_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SBC_CCY_CALC_DT -- add to PDM or correct DRD source_table */ AS SBC_CCY_CALC_DT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SBC_EXG_RATE -- add to PDM or correct DRD source_table */ AS SBC_EXG_RATE,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for CASH_DB_CR_CD -- add to PDM or correct DRD source_table */ AS CASH_DB_CR_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SEC_DB_CR_CD -- add to PDM or correct DRD source_table */ AS SEC_DB_CR_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_SRC_SEQ_NUM -- add to PDM or correct DRD source_table */ AS SEC_SRC_SEQ_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_APA_EXT_QUALFR -- add to PDM or correct DRD source_table */ AS SEC_APA_EXT_QUALFR,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_DSC_TRAILER_1 -- add to PDM or correct DRD source_table */ AS SEC_DSC_TRAILER_1,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_ALT_DSC_TRAILER_2 -- add to PDM or correct DRD source_table */ AS SEC_ALT_DSC_TRAILER_2,
     TXN.BUY_SELL_IND AS BUY_SELL_IND,
     TXN.CF_GEN_F AS CF_GEN_F,
     TXN.TXN_CL_F AS TXN_CL_F,
     TXN.OPTS_CLSS_CODE AS OPT_CLSS_CD,
-    APA.SRC_PD_ID AS SEC_SRC_CUSIP,
-    APA.APA_DSC AS CASH_DSC_TRAILER_1,
-    APA.ALT_DSC AS CASH_ALT_DSC_TRAILER_2,
-    APA.SRC_SEQ_NUM AS CASH_SRC_SEQ_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_SRC_CUSIP -- add to PDM or correct DRD source_table */ AS SEC_SRC_CUSIP,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_DSC_TRAILER_1 -- add to PDM or correct DRD source_table */ AS CASH_DSC_TRAILER_1,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_ALT_DSC_TRAILER_2 -- add to PDM or correct DRD source_table */ AS CASH_ALT_DSC_TRAILER_2,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_SRC_SEQ_NUM -- add to PDM or correct DRD source_table */ AS CASH_SRC_SEQ_NUM,
     TXN.TXN_TP_ID AS TXN_TP_ID,
-    CL_VAL_11.CL_VAL_CODE AS TXN_TP_CD,
-    CL_VAL_11.CL_VAL_NM AS TXN_TP_NM,
-    CL_VAL_11.DSC AS TXN_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_TP_CD -- add to PDM or correct DRD source_table */ AS TXN_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_TP_NM -- add to PDM or correct DRD source_table */ AS TXN_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_TP_DSC -- add to PDM or correct DRD source_table */ AS TXN_TP_DSC,
     TXN.TXN_SBTP_ID AS TXN_SBTP_ID,
-    CL_VAL_9.CL_VAL_NM AS TXN_SUB_TP_NM,
-    CL_VAL_9.CL_VAL_CODE AS TXN_SUB_TP_CD,
-    CL_VAL_9.DSC AS TXN_SUB_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_SUB_TP_NM -- add to PDM or correct DRD source_table */ AS TXN_SUB_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_SUB_TP_CD -- add to PDM or correct DRD source_table */ AS TXN_SUB_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_SUB_TP_DSC -- add to PDM or correct DRD source_table */ AS TXN_SUB_TP_DSC,
     TXN.EXEC_TP_ID AS EXEC_TP_ID,
-    CL_VAL_4.CL_VAL_CODE AS EXEC_TP_CD,
-    CL_VAL_4.CL_VAL_NM AS EXEC_TP_NM,
-    CL_VAL_4.DSC AS EXEC_TP_DSC,
-    CL_VAL_3.CL_VAL_CODE AS EXEC_SBTP_CD,
-    CL_VAL_3.CL_VAL_NM AS EXEC_SBTP_NM,
-    CL_VAL_3.DSC AS EXEC_SBTP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_TP_CD -- add to PDM or correct DRD source_table */ AS EXEC_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_TP_NM -- add to PDM or correct DRD source_table */ AS EXEC_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_TP_DSC -- add to PDM or correct DRD source_table */ AS EXEC_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_SBTP_CD -- add to PDM or correct DRD source_table */ AS EXEC_SBTP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_SBTP_NM -- add to PDM or correct DRD source_table */ AS EXEC_SBTP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for EXEC_SBTP_DSC -- add to PDM or correct DRD source_table */ AS EXEC_SBTP_DSC,
     TXN.EXEC_SBTP_ID AS EXEC_SBTP_ID,
-    APA.APA_TP_ID AS SEC_APA_TP_ID,
-    CL_VAL.CL_VAL_CODE AS SCR_APA_TP_CD,
-    CL_VAL.CL_VAL_NM AS SCR_APA_TP_NM,
-    CL_VAL.DSC AS SCR_APA_TP_DSC,
-    APA.APA_TP_ID AS CSH_APA_TP_ID,
-    CL_VAL_11.CL_VAL_CODE AS CASH_APA_TP_CD,
-    CL_VAL_11.CL_VAL_NM AS CASH_APA_TP_NM,
-    CL_VAL_11.DSC AS CASH_APA_TP_DSC,
-    TXN_AVY_CL_1.AVY_CGY AS SCR_AVY_CGY,
-    TXN_AVY_CL_3.AVY_TP AS SCR_AVY_TP,
-    TXN_AVY_CL_4.AVY_CL_ID AS SEC_AVY_CL_ID,
-    TXN_AVY_CL_1.AVY_CGY AS CASH_AVY_CGY,
-    TXN_AVY_CL_4.AVY_TP AS CASH_AVY_TP,
-    TXN_AVY_CL_3.AVY_CL_ID AS CSH_AVY_CL_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_APA_TP_ID -- add to PDM or correct DRD source_table */ AS SEC_APA_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SCR_APA_TP_CD -- add to PDM or correct DRD source_table */ AS SCR_APA_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SCR_APA_TP_NM -- add to PDM or correct DRD source_table */ AS SCR_APA_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SCR_APA_TP_DSC -- add to PDM or correct DRD source_table */ AS SCR_APA_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CSH_APA_TP_ID -- add to PDM or correct DRD source_table */ AS CSH_APA_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for CASH_APA_TP_CD -- add to PDM or correct DRD source_table */ AS CASH_APA_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for CASH_APA_TP_NM -- add to PDM or correct DRD source_table */ AS CASH_APA_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for CASH_APA_TP_DSC -- add to PDM or correct DRD source_table */ AS CASH_APA_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_6 for SCR_AVY_CGY -- add to PDM or correct DRD source_table */ AS SCR_AVY_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_9 for SCR_AVY_TP -- add to PDM or correct DRD source_table */ AS SCR_AVY_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_8 for SEC_AVY_CL_ID -- add to PDM or correct DRD source_table */ AS SEC_AVY_CL_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_1 for CASH_AVY_CGY -- add to PDM or correct DRD source_table */ AS CASH_AVY_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_4 for CASH_AVY_TP -- add to PDM or correct DRD source_table */ AS CASH_AVY_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_3 for CSH_AVY_CL_ID -- add to PDM or correct DRD source_table */ AS CSH_AVY_CL_ID,
     TXN.CRT_DTM AS CRT_DTM,
     TXN.CRT_USR_NM AS CRT_USR_NM,
     123456 AS SESS_NO,
     TXN.SRC_ENTR_DTM AS SRC_ENTR_DTM,
     TXN.AR_ID AS AR_ID,
-    APA.PD_ID AS SEC_PD_ID,
-    APA.PD_ID AS CASH_PD_ID,
-    AR_DIM_9.AR_ID AS BKR_AR_ID,
-    APA_9.OFST_AR_ID AS OFST_AR_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SEC_PD_ID -- add to PDM or correct DRD source_table */ AS SEC_PD_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_PD_ID -- add to PDM or correct DRD source_table */ AS CASH_PD_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AR_ID -- add to PDM or correct DRD source_table */ AS BKR_AR_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for OFST_AR_ID -- add to PDM or correct DRD source_table */ AS OFST_AR_ID,
     TXN.BR_CODE AS BR_CD,
     TXN.FA_NUM AS FA_NUM,
     TXN.SRC_CRT_USRNM AS SRC_CRT_USRNM,
     TXN.ORIG_TD AS ORIG_TD,
-    SRC_PCS_TP_DIM_1.SRC_PCS_TP_CD AS SRC_PCS_TP_CD,
-    SRC_PCS_TP_DIM_1.SRC_PCS_TP_NM AS SRC_PCS_TP_NM,
-    CCY_DIM_2.CCY_DIM_ID AS CCY_DIM_ID,
-    APA.TXN_ISO_CCY_CODE AS CCY_CD,
-    APA_9.STM_BASE_ISO_CCY_CODE AS SBC_CCY_CD,
-    APA_10.SRC_EFF_DT AS SRC_EFF_DT,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_PCS_TP_DIM_3 for SRC_PCS_TP_CD -- add to PDM or correct DRD source_table */ AS SRC_PCS_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_PCS_TP_DIM_4 for SRC_PCS_TP_NM -- add to PDM or correct DRD source_table */ AS SRC_PCS_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CCY_DIM_1 for CCY_DIM_ID -- add to PDM or correct DRD source_table */ AS CCY_DIM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CCY_CD -- add to PDM or correct DRD source_table */ AS CCY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SBC_CCY_CD -- add to PDM or correct DRD source_table */ AS SBC_CCY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SRC_EFF_DT -- add to PDM or correct DRD source_table */ AS SRC_EFF_DT,
     TXN.DOL_IND_ID AS DOL_IND_ID,
-    CL_VAL_2.CL_VAL_CODE AS DOL_IND_CD,
-    CL_VAL_2.CL_VAL_NM AS DOL_IND_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for DOL_IND_CD -- add to PDM or correct DRD source_table */ AS DOL_IND_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for DOL_IND_NM -- add to PDM or correct DRD source_table */ AS DOL_IND_NM,
     TXN.OMS_ORDR_KEY AS OMS_ORDR_KEY,
     TXN.EXG_CODE AS EXG_CD,
-    EXG_DIM_1.EXG_NM AS EXG_NM,
-    ACG_TP_DIM_1.ACG_TP_CD AS ACG_TP_CD,
-    ACG_TP_DIM_1.ACG_TP_NM AS ACG_TP_NM,
-    CASH_POS_TP_DIM_1.CASH_POS_TP_CD AS CASH_POS_TP_CD,
-    CASH_POS_TP_DIM_1.CASH_POS_TP_NM AS CASH_POS_TP_NM,
-    LGCY_CNCL_CMPLN_RSN_TP_DIM_1.LGCY_CNCL_CMPLN_RSN_TP_CD AS LGCY_CNCL_CMPLN_RSN_TP_CD,
-    LGCY_CNCL_CMPLN_RSN_TP_DIM_1.LGCY_CNCL_CMPLN_RSN_TP_NM AS LGCY_CNCL_CMPLN_RSN_TP_NM,
-    LGCY_CNCL_CMPLN_SRC_TP_DIM_1.LGCY_CNCL_CMPLN_SRC_TP_CD AS LGCY_CNCL_CMPLN_SRC_TP_CD,
-    LGCY_CNCL_CMPLN_SRC_TP_DIM_1.LGCY_CNCL_CMPLN_SRC_TP_NM AS LGCY_CNCL_CMPLN_SRC_TP_NM,
-    LGCY_MKT_TP_DIM_1.LGCY_MKT_TP_CD AS LGCY_MKT_TP_CD,
-    LGCY_MKT_TP_DIM_1.LGCY_MKT_TP_NM AS LGCY_MKT_TP_NM,
-    LGCY_TRD_CPCTY_TP_DIM_1.LGCY_TRD_CPCTY_TP_CD AS LGCY_TRD_CPCTY_TP_CD,
-    LGCY_TRD_CPCTY_TP_DIM_1.LGCY_TRD_CPCTY_TP_NM AS LGCY_TRD_CPCTY_TP_NM,
-    SRC_ENTR_CNL_TP_DIM_1.SRC_ENTR_CNL_TP_CD AS SRC_ENTR_CNL_TP_CD,
-    SRC_ENTR_CNL_TP_DIM_1.SRC_ENTR_CNL_TP_NM AS SRC_ENTR_CNL_TP_NM,
-    TRD_SLCT_TP_DIM_1.TRD_SLCT_TP_CD AS TRD_SLCT_TP_CD,
-    TRD_SLCT_TP_DIM_1.TRD_SLCT_TP_NM AS TRD_SLCT_TP_NM,
-    CL_VAL_6.CL_VAL_NM AS SALE_CHRG_RATE_TP_NM,
-    CL_VAL_1.CL_VAL_NM AS CASH_DB_CR_NM,
-    CL_VAL_11.CL_VAL_NM AS SEC_DB_CR_NM,
-    SRC_STM_DIM_1.SRC_STM_CD AS SRC_STM_CD,
-    NULL /* PDM_MISS: cannot resolve alias(es) J_1 for BATCH_DT -- add to PDM or correct DRD source_table */ AS BATCH_DT,
-    CCAL_CIRD_PD_MAP_1.CIRD_PD_ID AS CASH_CIRD_PD_ID,
-    CCAL_CIRD_PD_MAP_2.CIRD_PD_ID AS SEC_CIRD_PD_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) EXG_DIM_2 for EXG_NM -- add to PDM or correct DRD source_table */ AS EXG_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACG_TP_DIM_1 for ACG_TP_CD -- add to PDM or correct DRD source_table */ AS ACG_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACG_TP_DIM_3 for ACG_TP_NM -- add to PDM or correct DRD source_table */ AS ACG_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CASH_POS_TP_DIM_1 for CASH_POS_TP_CD -- add to PDM or correct DRD source_table */ AS CASH_POS_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CASH_POS_TP_DIM_3 for CASH_POS_TP_NM -- add to PDM or correct DRD source_table */ AS CASH_POS_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_RSN_TP_DIM_1 for LGCY_CNCL_CMPLN_RSN_TP_CD -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_RSN_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_RSN_TP_DIM_3 for LGCY_CNCL_CMPLN_RSN_TP_NM -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_RSN_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_SRC_TP_DIM_1 for LGCY_CNCL_CMPLN_SRC_TP_CD -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_SRC_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_CNCL_CMPLN_SRC_TP_DIM_3 for LGCY_CNCL_CMPLN_SRC_TP_NM -- add to PDM or correct DRD source_table */ AS LGCY_CNCL_CMPLN_SRC_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_MKT_TP_DIM_1 for LGCY_MKT_TP_CD -- add to PDM or correct DRD source_table */ AS LGCY_MKT_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_MKT_TP_DIM_3 for LGCY_MKT_TP_NM -- add to PDM or correct DRD source_table */ AS LGCY_MKT_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_TRD_CPCTY_TP_DIM_1 for LGCY_TRD_CPCTY_TP_CD -- add to PDM or correct DRD source_table */ AS LGCY_TRD_CPCTY_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) LGCY_TRD_CPCTY_TP_DIM_3 for LGCY_TRD_CPCTY_TP_NM -- add to PDM or correct DRD source_table */ AS LGCY_TRD_CPCTY_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_ENTR_CNL_TP_DIM_1 for SRC_ENTR_CNL_TP_CD -- add to PDM or correct DRD source_table */ AS SRC_ENTR_CNL_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_ENTR_CNL_TP_DIM_3 for SRC_ENTR_CNL_TP_NM -- add to PDM or correct DRD source_table */ AS SRC_ENTR_CNL_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) TRD_SLCT_TP_DIM_2 for TRD_SLCT_TP_CD -- add to PDM or correct DRD source_table */ AS TRD_SLCT_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) TRD_SLCT_TP_DIM_3 for TRD_SLCT_TP_NM -- add to PDM or correct DRD source_table */ AS TRD_SLCT_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SALE_CHRG_RATE_TP_NM -- add to PDM or correct DRD source_table */ AS SALE_CHRG_RATE_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for CASH_DB_CR_NM -- add to PDM or correct DRD source_table */ AS CASH_DB_CR_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SEC_DB_CR_NM -- add to PDM or correct DRD source_table */ AS SEC_DB_CR_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_STM_DIM_2 for SRC_STM_CD -- add to PDM or correct DRD source_table */ AS SRC_STM_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) J for BATCH_DT -- add to PDM or correct DRD source_table */ AS BATCH_DT,
+    NULL /* PDM_MISS: cannot resolve alias(es) CCAL_CIRD_PD_MAP_1 for CASH_CIRD_PD_ID -- add to PDM or correct DRD source_table */ AS CASH_CIRD_PD_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CCAL_CIRD_PD_MAP_2 for SEC_CIRD_PD_ID -- add to PDM or correct DRD source_table */ AS SEC_CIRD_PD_ID,
     TXN.ACTV_F AS ACTV_F,
     TXN.SRC_TXN_CODE AS SRC_TXN_CODE,
     TXN.OMS_EXEC_TP_ID AS OMS_EXEC_TP_ID,
-    CL_VAL_5.CL_VAL_CODE AS OMS_EXEC_TP_CD,
-    CL_VAL_5.CL_VAL_NM AS OMS_EXEC_TP_NM,
-    CL_VAL_5.DSC AS OMS_EXEC_TP_DSC,
-    APA_10.CLNT_FRIENDLY_DESC AS CLNT_FRIENDLY_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for OMS_EXEC_TP_CD -- add to PDM or correct DRD source_table */ AS OMS_EXEC_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for OMS_EXEC_TP_NM -- add to PDM or correct DRD source_table */ AS OMS_EXEC_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for OMS_EXEC_TP_DSC -- add to PDM or correct DRD source_table */ AS OMS_EXEC_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CLNT_FRIENDLY_DSC -- add to PDM or correct DRD source_table */ AS CLNT_FRIENDLY_DSC,
     TXN.ORIG_SRC_STM_ID AS ORIG_SRC_STM_ID,
     TXN.ORIG_SRC_STM_CODE AS ORIG_SRC_STM_CD,
-    APA_1.ACG_TP_ID AS ACG_TP_ID,
-    APA.APA_EXT_QUALFR AS CASH_APA_EXT_QUALFR,
-    APA_2.CASH_POS_TP_ID AS CASH_POS_TP_ID,
-    CL_VAL_11.SALE_CHRG_RATE AS SALE_CHRG_RATE_MULTI_NUM,
-    AR_DIM_1.ORIG_SRC_STM_CD AS AR_ORIG_SRC_STM_CD,
-    AR_DIM_2.MF_DRC_EXT_AC_NUM AS MF_AC_NUM,
-    AR_DIM_3.ORIG_SRC_STM_AR_ID AS OFST_ORIG_SRC_STM_AR_ID,
-    AR_DIM_4.ORIG_SRC_STM_CD AS OFST_AR_ORIG_SRC_STM_CD,
-    AR_DIM_5.SETL_TP_CD AS OFST_AR_SETL_TP_CD,
-    AR_DIM_6.SETL_TP AS OFST_AR_SETL_TP_DSC,
-    AR_DIM_7.SETL_TP_CD AS AR_SETL_TP_CD,
-    AR_DIM_8.SETL_TP AS AR_SETL_TP_DSC,
-    AR_AC_SUBDIM_1.ORIG_SRC_STM_AR_ID AS ORIG_SRC_STM_AR_ID,
-    TXN_AVY_CL_4.DSPL_AVY_CGY AS CASH_SIMP_DSPL_AVY_CGY,
-    TXN_AVY_CL_5.DSPL_AVY_TP AS CASH_SIMP_DSPL_AVY_TP,
-    TXN_AVY_CL_7.DSPL_AVY_CGY AS SCR_SIMP_DSPL_AVY_CGY,
-    TXN_AVY_CL_5.DSPL_AVY_TP AS SCR_SIMP_DSPL_AVY_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for ACG_TP_ID -- add to PDM or correct DRD source_table */ AS ACG_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_APA_EXT_QUALFR -- add to PDM or correct DRD source_table */ AS CASH_APA_EXT_QUALFR,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for CASH_POS_TP_ID -- add to PDM or correct DRD source_table */ AS CASH_POS_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SALE_CHRG_RATE_MULTI_NUM -- add to PDM or correct DRD source_table */ AS SALE_CHRG_RATE_MULTI_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for AR_ORIG_SRC_STM_CD -- add to PDM or correct DRD source_table */ AS AR_ORIG_SRC_STM_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_1 for MF_AC_NUM -- add to PDM or correct DRD source_table */ AS MF_AC_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_2 for OFST_ORIG_SRC_STM_AR_ID -- add to PDM or correct DRD source_table */ AS OFST_ORIG_SRC_STM_AR_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_3 for OFST_AR_ORIG_SRC_STM_CD -- add to PDM or correct DRD source_table */ AS OFST_AR_ORIG_SRC_STM_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_4 for OFST_AR_SETL_TP_CD -- add to PDM or correct DRD source_table */ AS OFST_AR_SETL_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_5 for OFST_AR_SETL_TP_DSC -- add to PDM or correct DRD source_table */ AS OFST_AR_SETL_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_6 for AR_SETL_TP_CD -- add to PDM or correct DRD source_table */ AS AR_SETL_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM_7 for AR_SETL_TP_DSC -- add to PDM or correct DRD source_table */ AS AR_SETL_TP_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_AC_SUBDIM_1 for ORIG_SRC_STM_AR_ID -- add to PDM or correct DRD source_table */ AS ORIG_SRC_STM_AR_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_2 for CASH_SIMP_DSPL_AVY_CGY -- add to PDM or correct DRD source_table */ AS CASH_SIMP_DSPL_AVY_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_5 for CASH_SIMP_DSPL_AVY_TP -- add to PDM or correct DRD source_table */ AS CASH_SIMP_DSPL_AVY_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_7 for SCR_SIMP_DSPL_AVY_CGY -- add to PDM or correct DRD source_table */ AS SCR_SIMP_DSPL_AVY_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_10 for SCR_SIMP_DSPL_AVY_TP -- add to PDM or correct DRD source_table */ AS SCR_SIMP_DSPL_AVY_TP,
     TXN.SRC_TXN_TP AS SHDW_TXN_TP_CD,
     TXN.SRC_ACTN_CODE AS IMP_SRC_ACTN_CD,
     TXN.SRC_BUY_SELL_MULTI_ID AS SIS_DLTD_EV_ID,
@@ -542,7 +542,7 @@ SELECT /*+ PARALLEL(32) */
     TXN.SRC_TXN_SEQ_NUM AS SRC_TXN_SEQ_NUM,
     TXN.DVDN_RCRD_DT AS DVDN_RCRD_DT,
     TXN.SALE_PSN_NUM AS OWN_IMP_FA_NUM,
-    AR_GRP_SUBDIM_1.FA_NUM AS OWN_FA_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_GRP_SUBDIM_1 for OWN_FA_NUM -- add to PDM or correct DRD source_table */ AS OWN_FA_NUM,
     TXN.ORIG_SRC_STM_CODE AS ACAT_CNTRA_FIRM_CLRG_NUM,
     TXN.ORIG_SRC_STM_CODE AS MM_ALT_ID,
     TXN.SRC_STM_ID AS SRC_STM_ID,
@@ -554,404 +554,190 @@ SELECT /*+ PARALLEL(32) */
     TXN.LGCY_CNCL_CMPLN_SRC_TP_ID AS LGCY_CNCL_CMPLN_SRC_TP_ID,
     TXN.LGCY_MKT_TP_ID AS LGCY_MKT_TP_ID,
     TXN.LGCY_TRD_CPCTY_TP_ID AS LGCY_TRD_CPCTY_TP_ID,
-    TXN_RLTNP_2.SRC_TXN_ID AS REL_TXN_SRC_STM_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_2 for REL_TXN_SRC_STM_ID -- add to PDM or correct DRD source_table */ AS REL_TXN_SRC_STM_ID,
     TXN.SRC_ENTR_CNL_TP_ID AS SRC_ENTR_CNL_TP_ID,
-    SRC_PCS_TP_DIM_1.SRC_PCS_TP_ID AS SRC_PCS_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_PCS_TP_DIM_2 for SRC_PCS_TP_ID -- add to PDM or correct DRD source_table */ AS SRC_PCS_TP_ID,
     TXN.TRD_SLCT_TP_ID AS TRD_SLCT_TP_ID,
     SYSDATE AS LAST_UDT_USR_NM,
     USER AS LAST_UDT_DTM,
-    TXN_RLTNP_3.TXN_RLTNP_TP_ID AS REL_TXN_RLTNP_TP_ID,
-    ACATS_BROKER_3.BROKER_NAME AS ACAT_CNTRA_FIRM_NM,
-    ACATS_BROKER_3.BROKER_SHORT_NAME AS ACAT_CNTRA_FIRM_SHRT_NM,
-    ACATS_BROKER_3.BROKER_ID_TYPE AS ACAT_CNTRA_FIRM_CLRG_ID_TP_CD,
-    CL_VAL_11.CL_VAL_NM AS SIS_DLTD_EV_NM,
-    CL_VAL_8.CL_VAL_CODE AS SRC_CNCL_RSN_CD,
-    CL_VAL_8.CL_VAL_NM AS SRC_CNCL_RSN_NM,
-    CL_VAL_10.CL_VAL_CODE AS TXN_RCNCL_ST_CD,
-    CL_VAL_10.CL_VAL_NM AS TXN_RCNCL_ST_NM,
-    TXN_RLTNP_2.CL_VAL_CODE AS REL_TXN_RLTNP_TP_CD,
-    TXN_RLTNP_1.CL_VAL_NM AS REL_TXN_RLTNP_TP_NM,
-    SRC_STM_DIM_1.SRC_STM_NM AS SRC_STM_NM,
-    TXN_RLTNP_3.SRC_STM_CD AS REL_TXN_SRC_STM_CD,
-    SHDW_TXN_TP_1.SRC_TXN_TP_NM AS SHDW_TXN_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_4 for REL_TXN_RLTNP_TP_ID -- add to PDM or correct DRD source_table */ AS REL_TXN_RLTNP_TP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACATS_BROKER for ACAT_CNTRA_FIRM_NM -- add to PDM or correct DRD source_table */ AS ACAT_CNTRA_FIRM_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACATS_BROKER for ACAT_CNTRA_FIRM_SHRT_NM -- add to PDM or correct DRD source_table */ AS ACAT_CNTRA_FIRM_SHRT_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) ACATS_BROKER_1 for ACAT_CNTRA_FIRM_CLRG_ID_TP_CD -- add to PDM or correct DRD source_table */ AS ACAT_CNTRA_FIRM_CLRG_ID_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SIS_DLTD_EV_NM -- add to PDM or correct DRD source_table */ AS SIS_DLTD_EV_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SRC_CNCL_RSN_CD -- add to PDM or correct DRD source_table */ AS SRC_CNCL_RSN_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SRC_CNCL_RSN_NM -- add to PDM or correct DRD source_table */ AS SRC_CNCL_RSN_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_RCNCL_ST_CD -- add to PDM or correct DRD source_table */ AS TXN_RCNCL_ST_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for TXN_RCNCL_ST_NM -- add to PDM or correct DRD source_table */ AS TXN_RCNCL_ST_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_5 for REL_TXN_RLTNP_TP_CD -- add to PDM or correct DRD source_table */ AS REL_TXN_RLTNP_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_6 for REL_TXN_RLTNP_TP_NM -- add to PDM or correct DRD source_table */ AS REL_TXN_RLTNP_TP_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) SRC_STM_DIM_1 for SRC_STM_NM -- add to PDM or correct DRD source_table */ AS SRC_STM_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_RLTNP_3 for REL_TXN_SRC_STM_CD -- add to PDM or correct DRD source_table */ AS REL_TXN_SRC_STM_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) SHDW_TXN_TP_1 for SHDW_TXN_TP_NM -- add to PDM or correct DRD source_table */ AS SHDW_TXN_TP_NM,
     NULL /* PDM_MISS: cannot resolve alias(es) IMPCT_ACTION_LKU_1 for IMP_SRC_ACTN_NM -- add to PDM or correct DRD source_table */ AS IMP_SRC_ACTN_NM,
-    FA_NUMBER_V_1.FA_NUMBER_ENTITY_CODE AS OWN_FA_NUM_ENT_CD,
-    FA_NUMBER_V.RESPONSIBLE_PARTY_EMPLOYEE_ID AS FA_OWN_EMPE_ID,
-    ENTERPRISE_ENTITY_DIM_V_1.ENTITY_ENTERPRISE_ID AS OWN_FA_NUM_ENT_ENTP_ID,
-    FIP_1.FIP_ORIG_AMT AS AGRT_ORIG_FEES,
-    FIP_1.FIP_STMT_AMT AS AGRT_STMT_FEES,
-    CL_VAL_11.CL_VAL_CODE AS DRVD_TRD_CPCTY_CD,
-    CL_VAL_11.CL_VAL_NM AS DRVD_TRD_CPCTY_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) FA_NUMBER_V_1 for OWN_FA_NUM_ENT_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_NUM_ENT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) FA_NUMBER_V for FA_OWN_EMPE_ID -- add to PDM or correct DRD source_table */ AS FA_OWN_EMPE_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) ENTERPRISE_ENTITY_DIM_V_1 for OWN_FA_NUM_ENT_ENTP_ID -- add to PDM or correct DRD source_table */ AS OWN_FA_NUM_ENT_ENTP_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP_1 for AGRT_ORIG_FEES -- add to PDM or correct DRD source_table */ AS AGRT_ORIG_FEES,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP_2 for AGRT_STMT_FEES -- add to PDM or correct DRD source_table */ AS AGRT_STMT_FEES,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for DRVD_TRD_CPCTY_CD -- add to PDM or correct DRD source_table */ AS DRVD_TRD_CPCTY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for DRVD_TRD_CPCTY_NM -- add to PDM or correct DRD source_table */ AS DRVD_TRD_CPCTY_NM,
     TXN.DRVD_TRD_CPCTY_TP_ID AS DRVD_TRD_CPCTY_ID,
-    APA.OPT_SYMB AS SCR_OPT_SYMB,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SCR_OPT_SYMB -- add to PDM or correct DRD source_table */ AS SCR_OPT_SYMB,
     TXN.ADL_TRD_INSR AS ADL_TRD_INSR,
-    APA.TRD_FCTR_RATE AS TRD_FCTR_RATE,
-    APA.MRKUP_RATE AS MRKUP_RATE,
-    APA.STD_CMSN_AMT AS STD_CMSN_AMT,
-    FIP.STM_BASE_CCY_AMT AS ACT_CMSN_AMT,
-    FIP.STM_BASE_CCY_AMT AS TRD_PCS_FEE_AMT,
-    FIP.STM_BASE_CCY_AMT AS SEC_FEE_AMT,
-    FIP.STM_BASE_CCY_AMT AS ACR_INT_AMT,
-    FIP.STM_BASE_CCY_AMT AS CNCSN_AMT,
-    FIP.STM_BASE_CCY_AMT AS CDSC_AMT,
-    FIP.STM_BASE_CCY_AMT AS OTHR_FEE_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for TRD_FCTR_RATE -- add to PDM or correct DRD source_table */ AS TRD_FCTR_RATE,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for MRKUP_RATE -- add to PDM or correct DRD source_table */ AS MRKUP_RATE,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for STD_CMSN_AMT -- add to PDM or correct DRD source_table */ AS STD_CMSN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for ACT_CMSN_AMT -- add to PDM or correct DRD source_table */ AS ACT_CMSN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for TRD_PCS_FEE_AMT -- add to PDM or correct DRD source_table */ AS TRD_PCS_FEE_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for SEC_FEE_AMT -- add to PDM or correct DRD source_table */ AS SEC_FEE_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for ACR_INT_AMT -- add to PDM or correct DRD source_table */ AS ACR_INT_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for CNCSN_AMT -- add to PDM or correct DRD source_table */ AS CNCSN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for CDSC_AMT -- add to PDM or correct DRD source_table */ AS CDSC_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) FIP for OTHR_FEE_AMT -- add to PDM or correct DRD source_table */ AS OTHR_FEE_AMT,
     CASE WHEN EXISTS (SELECT /*+ PARALLEL(32) */ 1 FROM CCAL_REPL_OWNER.TXN_RLTNP WHERE TXN.TXN_ID = TXN_RLTNP.TRGT_TXN_ID AND TXN_RLTNP_TP_ID = 69 AND TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID) THEN 'Y' ELSE NULL END AS TRD_CNCLD_F,
-    APA.SYMB AS SYMB,
-    APA.ISIN AS ISIN,
-    TXN_SRC_TAX_CODE_LKUP_1.SRC_TAX_CODE AS TXN_SRC_TAX_CD,
-    TXN_SRC_TAX_CODE_LKUP_1.SRC_TAX_CODE_DSC AS TXN_SRC_TAX_CD_DSC,
-    TXN.TM_PRC_DSCTN_F AS TM_PRC_DISCRETION_F,
-    TXN_AVY_CL_7.NNA_CGY_ID AS CASH_NNA_CGY_ID,
-    TXN_AVY_CL_1.NNA_CGY_NM AS CASH_NNA_CGY_NM,
-    TXN_AVY_CL_1.NNA_CGY_ID AS SCR_NNA_CGY_ID,
-    TXN_AVY_CL_1.NNA_CGY_NM AS SCR_NNA_CGY_NM,
-    APA.YIELD AS YLD,
-    APA.YIELD_TO_WORST AS YTW,
-    APA.YIELD_TO_WORST_CD AS YTW_CD,
-    AR_DIM_12.ORIG_SRC_STM_AR_ID AS BKR_AC_NUM,
-    CL_VAL_7.CL_VAL_CODE AS SIS_DLTD_EV_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for SYMB -- add to PDM or correct DRD source_table */ AS SYMB,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for ISIN -- add to PDM or correct DRD source_table */ AS ISIN,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_SRC_TAX_CODE_LKUP_1 for TXN_SRC_TAX_CD -- add to PDM or correct DRD source_table */ AS TXN_SRC_TAX_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_SRC_TAX_CODE_LKUP_2 for TXN_SRC_TAX_CD_DSC -- add to PDM or correct DRD source_table */ AS TXN_SRC_TAX_CD_DSC,
+    TXN.TM_PRC_DISCRETION_F AS TM_PRC_DISCRETION_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_11 for CASH_NNA_CGY_ID -- add to PDM or correct DRD source_table */ AS CASH_NNA_CGY_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_12 for CASH_NNA_CGY_NM -- add to PDM or correct DRD source_table */ AS CASH_NNA_CGY_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_13 for SCR_NNA_CGY_ID -- add to PDM or correct DRD source_table */ AS SCR_NNA_CGY_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) TXN_AVY_CL_14 for SCR_NNA_CGY_NM -- add to PDM or correct DRD source_table */ AS SCR_NNA_CGY_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for YLD -- add to PDM or correct DRD source_table */ AS YLD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for YTW -- add to PDM or correct DRD source_table */ AS YTW,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for YTW_CD -- add to PDM or correct DRD source_table */ AS YTW_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AC_NUM -- add to PDM or correct DRD source_table */ AS BKR_AC_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SIS_DLTD_EV_CD -- add to PDM or correct DRD source_table */ AS SIS_DLTD_EV_CD,
     TXN.ORIG_TD AS DB_CARD_TXN_DT,
-    APA_10.CCY_CODE AS DB_CARD_ORIG_CCY_CD,
-    APA_9.CCY_NM AS DB_CARD_ORIG_CCY,
-    CL_VAL_11.CL_VAL_CODE AS SDIRA_TXN_TP_CD,
-    CL_VAL_11.CL_VAL_NM AS SDIRA_TXN_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for DB_CARD_ORIG_CCY_CD -- add to PDM or correct DRD source_table */ AS DB_CARD_ORIG_CCY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for DB_CARD_ORIG_CCY -- add to PDM or correct DRD source_table */ AS DB_CARD_ORIG_CCY,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SDIRA_TXN_TP_CD -- add to PDM or correct DRD source_table */ AS SDIRA_TXN_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) CL_VAL for SDIRA_TXN_TP -- add to PDM or correct DRD source_table */ AS SDIRA_TXN_TP,
     TXN.TRD_NUM AS SDIRA_TXN_YR,
-    APA_1.CCY_NM AS TXN_CCY,
-    AR_DIM_1.IRA_F AS BKR_IRA_F,
-    AR_DIM_1.ERISSA_F AS BKR_ERISA_F,
-    AR_DIM_1.ORIG_SRC_STM_CD AS BKR_ORIG_SRC_STM_CD,
-    AR_DIM_1.ABC_CLSS_CD AS BKR_ABC_CLSS_CD,
-    AR_DIM_1.ABC_CLSS_NM AS BKR_ABC_CLSS,
-    AR_DIM_1.AR_CGY_CD AS AC_CGY_CD,
-    AR_DIM_1.AR_CGY_CD AS BKR_AC_CGY_CD,
-    AR_DIM_1.AR_CGY AS AC_CGY,
-    AR_DIM_1.AR_CGY AS BKR_AC_CGY,
-    AR_DIM_1.BSN_LINE_AFFLT AS BKR_BSN_LINE_AFFLT,
-    AR_DIM_1.BSN_LINE_AFFLT_CD AS BKR_BSN_LINE_AFFLT_CD,
-    AR_DIM_1.TST_AR_F AS TST_AC_F,
-    AR_DIM_1.TST_AR_F AS BKR_TST_AC_F,
-    AR_DIM_1.TAX_RPT_PARTY_ID AS TAX_RPT_CLNT_ID,
-    AR_DIM_1.TAX_RPT_PARTY_ID AS BKR_TAX_RPT_CLNT_ID,
-    AR_DIM_1.TAX_AC_F AS TAX_AC_F,
-    AR_DIM_1.TAX_AC_F AS BKR_TAX_AC_F,
-    AR_DIM_1.RJ_TAX_RPT_RSPL_F AS BKR_RJ_TAX_RPT_RSPL_F,
-    AR_DIM_1.RJ_BSN_UNIT_CD AS RJ_BSN_UNIT_CD,
-    AR_DIM_1.RJ_BSN_UNIT_CD AS BKR_RJ_BSN_UNIT_CD,
-    AR_DIM_1.RJ_BSN_UNIT AS RJ_BSN_UNIT,
-    AR_DIM_1.RJ_BSN_UNIT AS BKR_RJ_BSN_UNIT,
-    AR_DIM_1.OWNSHP_TP_CD AS AC_OWNSHP_TP_CD,
-    AR_DIM_1.OWNSHP_TP_CD AS BKR_AC_OWNSHP_TP_CD,
-    AR_DIM_1.OWNSHP_TP AS AC_OWNSHP_TP,
-    AR_DIM_1.OWNSHP_TP AS BKR_AC_OWNSHP_TP,
-    AR_DIM_1.FIRM_AC_F AS BKR_FIRM_AC_F,
-    AR_DIM_1.FEE_BASE_F AS BKR_FEE_BASE_AC_F,
-    AR_DIM_1.BSN_LINE_AFFLT_CD AS BKR_RJ_TRUST_F,
-    AR_DIM_8.FA_NUMBER AS OWN_PRIM_FA_NUM,
-    AR_DIM_2.CSS_PERSON_ID AS OWN_FA_CSS_PSN_ID,
-    AR_DIM_3.CURRENT_ADVISOR_FLAG AS OWN_FA_CRN_ADV_F,
-    AR_DIM_4.DEPARTMENT_BRANCH_CODE AS OWN_FA_DEPT_BR_CD,
-    AR_DIM_5.DISCRETIONARY_INDICATOR AS OWN_FA_DSCR_F,
-    AR_DIM_6.DISCRETIONARY_STATUS AS OWN_FA_DSCR_ST,
-    AR_DIM_7.DISCRETIONARY_STATUS_CODE AS OWN_FA_DSCR_ST_CD,
-    AR_DIM_9.FINRA_CRD_CLASS_CODE AS OWN_FA_FINRA_CRD_CLSS_CD,
-    AR_DIM_10.HR_STATUS_CODE AS OWN_FA_HR_ST_CD,
-    AR_DIM_1.PRODUCER_FLAG AS OWN_FA_PRODUCER_F,
-    AR_DIM_12.QUALIFIED_ADVISOR_FLAG AS OWN_FA_QUALF_ADV_F,
-    AR_DIM_1.ENTITY_BRANCH_CODE AS OWN_FA_ENT_BR_CD,
-    AR_DIM_1.ENTITY_BUSINESS_STATUS AS OWN_FA_ENT_BSN_ST,
-    AR_DIM_1.ENTITY_DIVISION_CODE AS OWN_FA_ENT_DIV_CD,
-    AR_DIM_1.ENTITY_DIVISION_DESCRIPTION AS OWN_FA_ENT_DIV_DSC,
-    AR_DIM_1.ENTITY_DIVISION_NODE AS OWN_FA_ENT_DIV_NODE,
-    AR_DIM_1.ENTITY_MAIN_BRANCH_STATE AS OWN_FA_ENT_MAIN_BR_STE,
-    AR_DIM_1.ENTITY_OSJ AS OWN_FA_ENT_OSJ,
-    AR_DIM_1.ENTITY_RETAIL_BUSINESS_MODEL_CODE AS OWN_FA_ENT_RTL_HIER_BSN_MODL_CD,
-    AR_DIM_1.ENTITY_RETAIL_BUSINESS_MODEL_DESCRIPTION AS OWN_FA_ENT_RTL_HIER_BSN_MODL_DSC,
-    AR_DIM_1.ENTITY_RETAIL_SALES_LOB_CODE AS OWN_FA_ENT_RTL_SALE_HIER_LOB_CD,
-    AR_DIM_1.ENTITY_RETAIL_SALES_LOB_DESCRIPTION AS OWN_FA_ENT_RTL_SALE_HIER_LOB_DSC,
-    AR_DIM_1.ENTITY_RETAIL_REPORTING_UNIT_CODE AS OWN_FA_ENT_RTL_HIER_RPT_UNIT_CD,
-    AR_DIM_1.ENTITY_RETAIL_REPORTING_UNIT_DESCRIPTION AS OWN_FA_ENT_RTL_HIER_RPT_UNIT_DSC,
-    AR_DIM_1.ENTITY_RETAIL_SALES_DIVISION_CODE AS OWN_FA_ENT_RTL_SALE_DIV_CD,
-    AR_DIM_1.ENTITY_RETAIL_SALES_REGION_CODE AS OWN_FA_ENT_RTL_SALE_HIER_RGON_CD,
-    AR_DIM_1.ENTITY_RETAIL_SALES_REGION_DESCRIPTION AS OWN_FA_ENT_RTL_SALE_HIER_RGON_DSC,
-    AR_DIM_1.ENTITY_RETAIL_TERRITORY_CODE AS OWN_FA_ENT_RTL_HIER_TERR_CD,
-    AR_DIM_1.ENTITY_RETAIL_TERRITORY_DESCRIPTION AS OWN_FA_ENT_RTL_HIER_TERR_DSC,
-    AR_DIM_1.ENTITY_RISK_BUSINESS_UNIT_CODE AS OWN_FA_ENT_RSK_HIER_BSN_UNIT_CD,
-    AR_DIM_1.ENTITY_RISK_BUSINESS_UNIT_DESCRIPTION AS OWN_FA_ENT_RSK_HIER_BSN_UNIT_DSC,
-    NULL AS OWN_FA_ENT_RJAS_ID_F,
-    AR_DIM_1.ENTITY_SUBDIVISION_CODE AS OWN_FA_ENT_SUBDIV_CD,
-    AR_DIM_1.ENTITY_SUBDIVISION_DESCRIPTION AS OWN_FA_ENT_SUBDIV_DSC,
-    AR_DIM_1.ENTITY_SUBSIDIARY AS OWN_FA_ENT_SUBS,
-    AR_DIM_1.ENTITY_SUBTYPE AS OWN_FA_ENT_SBTP,
-    AR_DIM_1.ENTITY_SUBTYPE_CODE AS OWN_FA_ENT_SBTP_CD,
-    AR_DIM_1.ENTITY_TYPE AS OWN_FA_ENT_TP,
-    AR_DIM_1.ENTITY_TYPE_CODE AS OWN_FA_ENT_TP_CD,
-    NULL AS OWN_FA_ENT_LOB_AB_F,
-    NULL AS OWN_FA_ENT_LOB_AMS_F,
-    AR_DIM_1.LOB_BUSINESS_MODEL AS OWN_FA_ENT_LOB_BSN_MODL,
-    AR_DIM_1.ENTITY_BUSINESS_OPEN_DATE AS OWN_FA_ENT_BSN_OPN_DT,
-    AR_DIM_1.ENTITY_CODE_LONG AS OWN_FA_ENT_LONG_CD,
-    AR_DIM_1.ENTITY_CODE_SHORT AS OWN_FA_ENT_SHRT_CD,
-    AR_DIM_1.ENTITY_CSS_ID AS OWN_FA_ENT_CSS_ID,
-    AR_DIM_1.ENTITY_RETAIL_SALES_COMPLEX_CODE AS OWN_FA_ENT_RTL_SALE_CPX_CD,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_4 AS EQTY_IDY,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_4_CD AS EQTY_IDY_CD,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_3 AS EQTY_IDY_GRP,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_3_CD AS EQTY_IDY_GRP_CD,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_2 AS EQTY_SECT,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_2_CD AS EQTY_SECT_CD,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_1 AS EQTY_SUP_SECT,
-    CCAL_CIRD_PD_MAP_1.EQTY_SECT_LVL_1_CD AS EQTY_SUP_SECT_CD,
-    CCAL_CIRD_PD_MAP_1.FIRM_MODL_LVL_2 AS MODL_STRTG_DTL_AST_CLSS,
-    CCAL_CIRD_PD_MAP_1.FIRM_MODL_LVL_2_CD AS MODL_STRTG_DTL_AST_CLSS_CD,
-    CCAL_CIRD_PD_MAP_1.FIRM_MODL_LVL_1 AS MODL_STRTG_SMY_AST_CLSS,
-    CCAL_CIRD_PD_MAP_1.FIRM_MODL_LVL_1_CD AS MODL_STRTG_SMY_AST_CLSS_CD,
-    TXN_1.PD_CMPOS_DSC AS PD_CMPOS_DSC,
-    CCAL_CIRD_PD_MAP_1.PD_NM AS PD_SHRT_NM,
-    CCAL_CIRD_PD_MAP_1.PD_DSC AS PD_DSC,
-    CCAL_CIRD_PD_MAP_1.RPT_CL_LVL_1 AS RPT_CL_LVL_1,
-    CCAL_CIRD_PD_MAP_1.RPT_CL_LVL_2 AS RPT_CL_LVL_2,
-    CCAL_CIRD_PD_MAP_1.FIRM_RPT_LVL_2 AS RPT_STRTG_DTL_AST_CLSS,
-    CCAL_CIRD_PD_MAP_1.FIRM_RPT_LVL_2_CD AS RPT_STRTG_DTL_AST_CLSS_CD,
-    CCAL_CIRD_PD_MAP_1.FIRM_RPT_LVL_1 AS RPT_STRTG_SMY_AST_CLSS,
-    CCAL_CIRD_PD_MAP_1.FIRM_RPT_LVL_1_CD AS RPT_STRTG_SMY_AST_CLSS_CD,
-    CCAL_CIRD_PD_MAP_1.FND_FAM AS FND_FAM,
-    CCAL_CIRD_PD_MAP_1.SHR_CLSS_TP_CD AS SHR_CLSS_TP_CD,
-    CCAL_CIRD_PD_MAP_1.SHR_CLSS_TP_NM AS SHR_CLSS_TP,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_1 AS IMT_CL_LVL_1,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_1_CD AS IMT_CL_LVL_1_CD,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_2 AS IMT_CL_LVL_2,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_2_CD AS IMT_CL_LVL_2_CD,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_3 AS IMT_CL_LVL_3,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_3_CD AS IMT_CL_LVL_3_CD,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_4 AS IMT_CL_LVL_4,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_4_CD AS IMT_CL_LVL_4_CD,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_5 AS IMT_CL_LVL_5,
-    CCAL_CIRD_PD_MAP_1.IMT_CL_LVL_5_CD AS IMT_CL_LVL_5_CD,
-    FA_NUMBER_V_2.FA_NUMBER_TYPE_CODE AS OWN_FA_NUM_TP_CD,
-    FA_NUMBER_V_2.CODE_VALUE_DESCRIPTION AS OWN_FA_NUM_TP,
-    APA.ORIG_QTY AS BOND_ACRTN_DCN_AMT,
-    APA.ORIG_QTY AS BOND_AMRZ_PREM_AMT,
-    APA.ORIG_QTY AS RJ_TRUST_BOOK_VAL_AMT,
-    APA.ORIG_QTY AS RJ_TRUST_RLZD_TAX_GAIN_OR_LOSS_AMT,
-    APA.ORIG_QTY AS BFR_REPYMT_FACE_VAL_AMT,
-    APA.ORIG_QTY AS BFR_INCM_PYMT_FACE_VAL_AMT,
-    APA.ORIG_QTY AS BASE_POS_QTY,
-    APA.ORIG_QTY AS NO_SIS_SCR_MVMT_TXN_QTY,
-    APA.SCR_PRC_IN_TXN_CCY AS NO_SIS_SCR_MVMT_TXN_PRC,
-    APA.ORIG_QTY AS REIVS_SHR_QTY,
-    APA.SCR_PRC_IN_TXN_CCY AS REIVS_PRC
-FROM CCAL_REPL_OWNER.TXN TXN
-LEFT JOIN CCAL_REPL_OWNER.ACATS_BROKER ACATS_BROKER_1
-ON NVL(TO_CHAR(ACATS_BROKER_1.BROKER_ID), '-999') = NVL(TO_CHAR(ACATS_BROKER.BROKER_ID_TYPE), '-999')AND
-T.SRC_STM_ID IN ( 53, 54 )
-LEFT JOIN CCAL_REPL_OWNER.ACATS_BROKER ACATS_BROKER_2
-ON NVL(TO_CHAR(ACATS_BROKER_2.BROKER_ID), '-999') = NVL(TO_CHAR(ACATS_BROKER.BROKER_NAME), '-999')
-LEFT JOIN CCAL_REPL_OWNER.ACATS_BROKER ACATS_BROKER_3
-ON NVL(TO_CHAR(ACATS_BROKER_3.BROKER_ID), '-999') = NVL(TO_CHAR(ACATS_BROKER.BROKER_SHORT_NAME), '-999')
-LEFT JOIN COMMON_OWNER.ACG_TP_DIM ACG_TP_DIM_1
-ON NVL(TO_CHAR(ACG_TP_DIM_1.ACG_TP_ID), '-999') = NVL(TO_CHAR(TXN.TXN_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_1
-ON NVL(TO_CHAR(APA_1.EXEC_ID), '-999') = NVL(TO_CHAR(APA.ACG_TP_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_2
-ON NVL(TO_CHAR(APA_2.EXEC_ID), '-999') = NVL(TO_CHAR(APA.CASH_POS_TP_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_3
-ON NVL(TO_CHAR(APA_3.EXEC_ID), '-999') = NVL(TO_CHAR(CCY.CCY_CODE), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_4
-ON NVL(TO_CHAR(APA_4.EXEC_ID), '-999') = NVL(TO_CHAR(CCY.CCY_NM), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_5
-ON NVL(TO_CHAR(APA_5.EXEC_ID), '-999') = NVL(TO_CHAR(APA.CLNT_FRIENDLY_DESC), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_6
-ON NVL(TO_CHAR(APA_6.EXEC_ID), '-999') = NVL(TO_CHAR(APA.OFST_AR_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_7
-ON NVL(TO_CHAR(APA_7.EXEC_ID), '-999') = NVL(TO_CHAR(APA.SRC_EFF_DT), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_8
-ON NVL(TO_CHAR(APA_8.EXEC_ID), '-999') = NVL(TO_CHAR(APA.STM_BASE_CCY_CLC_DTM), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_9
-ON NVL(TO_CHAR(APA_9.EXEC_ID), '-999') = NVL(TO_CHAR(APA.STM_BASE_CCY_EXG_RATE), '-999')
-LEFT JOIN CCAL_REPL_OWNER.APA APA_10
-ON NVL(TO_CHAR(APA_10.EXEC_ID), '-999') = NVL(TO_CHAR(APA.STM_BASE_ISO_CCY_CODE), '-999')
-LEFT JOIN CCSI_OWNER.AR_AC_SUBDIM AR_AC_SUBDIM_1
-ON NVL(TO_CHAR(AR_AC_SUBDIM_1.AR_ID), '-999') = NVL(TO_CHAR(TXN.AR_ID), '-999')AND AAS.DEP_AC_SETUP_ID = APA.AC_ID
-AND AAS.EFF_DT <= T.TD
-AND AAS.END_DT > T.TD
-
-LEFT JOIN CCSI_OWNER.AR_DIM ARD ON ARD.AR_ID = T.AR_ID
-AND ARD.EFF_DT <= T.TD
-AND ARD.END_DT > T.TD
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_1
-ON NVL(TO_CHAR(AR_DIM_1.AR_ID), '-999') = NVL(TO_CHAR(TXN.AR_ID), '-999')AND ARD.EFF_DT <= T.TD
-AND ARD.END_DT > T.TD
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_2
-ON NVL(TO_CHAR(AR_DIM_2.AR_ID), '-999') = NVL(TO_CHAR(PERSON_RV.CSS_PERSON_ID), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_3
-ON NVL(TO_CHAR(AR_DIM_3.AR_ID), '-999') = NVL(TO_CHAR(PERSON_BROKERAGE_SUBDIMENSION_V.CURRENT_ADVISOR_FLAG), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_4
-ON NVL(TO_CHAR(AR_DIM_4.AR_ID), '-999') = NVL(TO_CHAR(PERSON_RV.DEPARTMENT_BRANCH_CODE), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_5
-ON NVL(TO_CHAR(AR_DIM_5.AR_ID), '-999') = NVL(TO_CHAR(PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_INDICATOR), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_6
-ON NVL(TO_CHAR(AR_DIM_6.AR_ID), '-999') = NVL(TO_CHAR(PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_STATUS), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_7
-ON NVL(TO_CHAR(AR_DIM_7.AR_ID), '-999') = NVL(TO_CHAR(PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_STATUS_CODE), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_8
-ON NVL(TO_CHAR(AR_DIM_8.AR_ID), '-999') = NVL(TO_CHAR(FA_NUMBER_V.FA_NUMBER), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_9
-ON NVL(TO_CHAR(AR_DIM_9.AR_ID), '-999') = NVL(TO_CHAR(PERSON_RV.FINRA_CRD_CLASS_CODE), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_10
-ON NVL(TO_CHAR(AR_DIM_10.AR_ID), '-999') = NVL(TO_CHAR(PERSON_RV.HR_STATUS_CODE), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_11
-ON NVL(TO_CHAR(AR_DIM_11.AR_ID), '-999') = NVL(TO_CHAR(PERSON_RV.PRODUCER_FLAG), '-999')
-LEFT JOIN CCSI_OWNER.AR_DIM AR_DIM_12
-ON NVL(TO_CHAR(AR_DIM_12.AR_ID), '-999') = NVL(TO_CHAR(PERSON_BROKERAGE_SUBDIMENSION_V.QUALIFIED_ADVISOR_FLAG), '-999')
-LEFT JOIN CCSI_OWNER.AR_GRP_SUBDIM AR_GRP_SUBDIM_1
-ON NVL(TO_CHAR(AR_GRP_SUBDIM_1.AR_ID), '-999') = NVL(TO_CHAR(AR_GRP_SUBDIM.AR_ID), '-999')AND T.TD >= FA.EFF_DT
-AND T.TD < FA.END_DT
-LEFT JOIN COMMON_OWNER.CASH_POS_TP_DIM CASH_POS_TP_DIM_1
-ON NVL(TO_CHAR(CASH_POS_TP_DIM_1.CASH_POS_TP_ID), '-999') = NVL(TO_CHAR(TXN.CASH_POS_TP_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.CCAL_CIRD_PD_MAP CCAL_CIRD_PD_MAP_1
-ON NVL(TO_CHAR(CCAL_CIRD_PD_MAP_1.CCAL_PD_ID), '-999') = NVL(TO_CHAR(TXN.ACTV_F), '-999')
-AND CCAL_CIRD_PD_MAP_1.ACTV_F = 'Y'
-AND CCPM.ACTV_F = 'Y'
-LEFT JOIN CCAL_REPL_OWNER.CCAL_CIRD_PD_MAP CCAL_CIRD_PD_MAP_2
-ON NVL(TO_CHAR(CCAL_CIRD_PD_MAP_2.CCAL_PD_ID), '-999') = NVL(TO_CHAR(TXN.TXN_ID), '-999')
-AND CCAL_CIRD_PD_MAP_2.ACTV_F = 'Y'
-AND CCPM.ACTV_F = 'Y'
-LEFT JOIN CIRD_OWNER.CCY_DIM CCY_DIM_1
-ON NVL(TO_CHAR(CCY_DIM_1.CCY_CD), '-999') = NVL(TO_CHAR(TXN.STM_BASE_ISO_CCY_CODE), '-999')
-LEFT JOIN CIRD_OWNER.CCY_DIM CCY_DIM_2
-ON NVL(TO_CHAR(CCY_DIM_2.CCY_CD), '-999') = NVL(TO_CHAR(TXN.TXN_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_1
-ON NVL(TO_CHAR(CL_VAL_1.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.DB_CR_ID), '-999')
-AND CV.CL_SCM_ID = '15'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_2
-ON NVL(TO_CHAR(CL_VAL_2.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.DOL_IND_ID), '-999')
-AND CV.CL_SCM_ID = '35'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_3
-ON NVL(TO_CHAR(CL_VAL_3.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.EXEC_SBTP_ID), '-999')
-AND CV.CL_SCM_ID = '6'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_4
-ON NVL(TO_CHAR(CL_VAL_4.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.EXEC_TP_ID), '-999')
-AND CV.CL_SCM_ID = '5'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_5
-ON NVL(TO_CHAR(CL_VAL_5.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.OMS_EXEC_TP_ID), '-999')
-AND CV.CL_SCM_ID = '96'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_6
-ON NVL(TO_CHAR(CL_VAL_6.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.SALE_CHRG_RATE_TP_ID), '-999')
-AND CV.CL_SCM_ID = '73'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_7
-ON NVL(TO_CHAR(CL_VAL_7.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.SRC_BUY_SELL_MULTI_ID), '-999')
-AND CV.CL_SCM_ID = '99' 
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_8
-ON NVL(TO_CHAR(CL_VAL_8.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.SRC_CNCL_RSN_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_9
-ON NVL(TO_CHAR(CL_VAL_9.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.TXN_SBTP_ID), '-999')
-AND CV.CL_SCM_ID = '3'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_10
-ON NVL(TO_CHAR(CL_VAL_10.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.TXN_ST_ID), '-999')
-AND CL_VAL_10.CL_SCM_ID = 12 AND CV.CL_SCM_ID = 12
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CL_VAL_11
-ON NVL(TO_CHAR(CL_VAL_11.CL_VAL_ID), '-999') = NVL(TO_CHAR(TXN.TXN_TP_ID), '-999')
-AND CV.CL_SCM_ID = '2'
-LEFT JOIN COMMON_OWNER.DATE_DIM DATE_DIM_1
-ON NVL(TO_CHAR(DATE_DIM_1.CAL_DT), '-999') = NVL(TO_CHAR(TXN.TD), '-999')
-LEFT JOIN SSDS_DAL_OWNER.ENTERPRISE_ENTITY_DIM_V ENTERPRISE_ENTITY_DIM_V_1
-ON NVL(TO_CHAR(ENTERPRISE_ENTITY_DIM_V_1.ENTITY_CODE_LONG), '-999') = NVL(TO_CHAR(TXN.TD), '-999')AND T.TD >= E.EFF_DT
-AND T.TD < E.END_DT
-AND E.ENTITY_RECYCLED_BOOLEAN='0'
-AND E.ENTITY_FINANCIAL_RIA_BOOLEAN = '0'
-LEFT JOIN CIRD_OWNER.EXG_DIM EXG_DIM_1
-ON NVL(TO_CHAR(EXG_DIM_1.EXG_CD), '-999') = NVL(TO_CHAR(TXN.EXG_CODE), '-999')
-LEFT JOIN SSDS_DAL_OWNER.FA_NUMBER_V FA_NUMBER_V_1
-ON NVL(TO_CHAR(FA_NUMBER_V_1.FA_NUMBER), '-999') = NVL(TO_CHAR(FA_NUMBER_V.FA_NUMBER_ENTITY_CODE), '-999')AND T.TD >= FN.EFF_DT
-AND T.TD < FN.END_DT
-LEFT JOIN SSDS_DAL_OWNER.FA_NUMBER_V FA_NUMBER_V_2
-ON NVL(TO_CHAR(FA_NUMBER_V_2.FA_NUMBER), '-999') = NVL(TO_CHAR(CODE_SET_VALUE_V.CODE_VALUE_DESCRIPTION), '-999')AND TXN.TD >= FA_NUMBER_V.EFFECTIVE_DATE
-AND TXN.TD < FA_NUMBER_V.END_DATE
-LEFT JOIN SSDS_DAL_OWNER.CODE_SET_VALUE_V CODE_SET_VALUE_V ON CODE_SET_VALUE_V.CODE_VALUE_ID = FA_NUMBER_V.FA_NUMBER_TYPE_CODE_ID
-AND TXN.TD >= CODE_SET_VALUE_V.EFFECTIVE_DATE
-AND TXN.TD < CODE_SET_VALUE_V.END_DATE
-LEFT JOIN CCAL_REPL_OWNER.FIP FIP_1
-ON NVL(TO_CHAR(FIP_1.APA_ID), '-999') = NVL(TO_CHAR(FIP.APA_ID), '-999')
-LEFT JOIN CIRD_OWNER.IMT_PD_DIM IMT_PD_DIM_1
-ON NVL(TO_CHAR(IMT_PD_DIM_1.CCAL_PD_ID), '-999') = NVL(TO_CHAR(TXN.TXN_ID), '-999')AND IPD.EFF_DT <= T.TD
-AND IPD.END_DT > T.TD
-LEFT JOIN TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_RSN_TP_DIM LGCY_CNCL_CMPLN_RSN_TP_DIM_1
-ON NVL(TO_CHAR(LGCY_CNCL_CMPLN_RSN_TP_DIM_1.LGCY_CNCL_CMPLN_RSN_TP_ID), '-999') = NVL(TO_CHAR(TXN.LGCY_CNCL_CMPLN_RSN_TP_ID), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_SRC_TP_DIM LGCY_CNCL_CMPLN_SRC_TP_DIM_1
-ON NVL(TO_CHAR(LGCY_CNCL_CMPLN_SRC_TP_DIM_1.LGCY_CNCL_CMPLN_SRC_TP_ID), '-999') = NVL(TO_CHAR(TXN.LGCY_CNCL_CMPLN_SRC_TP_ID), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.LGCY_MKT_TP_DIM LGCY_MKT_TP_DIM_1
-ON NVL(TO_CHAR(LGCY_MKT_TP_DIM_1.LGCY_MKT_TP_ID), '-999') = NVL(TO_CHAR(TXN.LGCY_MKT_TP_ID), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.LGCY_TRD_CPCTY_TP_DIM LGCY_TRD_CPCTY_TP_DIM_1
-ON NVL(TO_CHAR(LGCY_TRD_CPCTY_TP_DIM_1.LGCY_TRD_CPCTY_TP_ID), '-999') = NVL(TO_CHAR(TXN.LGCY_TRD_CPCTY_TP_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.SHDW_TXN_TP SHDW_TXN_TP_1
-ON NVL(TO_CHAR(SHDW_TXN_TP_1.SRC_TXN_TP), '-999') = NVL(TO_CHAR(SHDW_TXN_TP.SRC_TXN_TP), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.SRC_ENTR_CNL_TP_DIM SRC_ENTR_CNL_TP_DIM_1
-ON NVL(TO_CHAR(SRC_ENTR_CNL_TP_DIM_1.SRC_ENTR_CNL_TP_ID), '-999') = NVL(TO_CHAR(TXN.SRC_ENTR_CNL_TP_ID), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.SRC_PCS_TP_DIM SRC_PCS_TP_DIM_1
-ON NVL(TO_CHAR(SRC_PCS_TP_DIM_1.SRC_PCS_TP_ID), '-999') = NVL(TO_CHAR(TXN.SRC_PCS_TP_ID), '-999')
-LEFT JOIN COMMON_OWNER.SRC_STM_DIM SRC_STM_DIM_1
-ON NVL(TO_CHAR(SRC_STM_DIM_1.SRC_STM_ID), '-999') = NVL(TO_CHAR(TXN.SRC_STM_ID), '-999')
-LEFT JOIN TRANSACTIONS_OWNER.TRD_SLCT_TP_DIM TRD_SLCT_TP_DIM_1
-ON NVL(TO_CHAR(TRD_SLCT_TP_DIM_1.TRD_SLCT_TP_ID), '-999') = NVL(TO_CHAR(TXN.TRD_SLCT_TP_ID), '-999')
-LEFT JOIN CCAL_REPL_OWNER.TXN TXN_1
-ON NVL(TO_CHAR(TXN_1.TXN_ID), '-999') = NVL(TO_CHAR(APA.PD_CMPOS_DSC), '-999')
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_1
-ON NVL(TO_CHAR(TXN_AVY_CL_1.TXN_ID), '-999') = NVL(TO_CHAR(AVY_CL.AVY_CGY), '-999')
-AND TXN_AVY_CL_1.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_2
-ON NVL(TO_CHAR(TXN_AVY_CL_2.TXN_ID), '-999') = NVL(TO_CHAR(AVY_CL.AVY_CL_ID), '-999')
-AND TXN_AVY_CL_2.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_3
-ON NVL(TO_CHAR(TXN_AVY_CL_3.TXN_ID), '-999') = NVL(TO_CHAR(AVY_CL.AVY_TP), '-999')
-AND TXN_AVY_CL_3.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_4
-ON NVL(TO_CHAR(TXN_AVY_CL_4.TXN_ID), '-999') = NVL(TO_CHAR(AVY_CL.DSPL_AVY_CGY), '-999')
-AND TXN_AVY_CL_4.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_5
-ON NVL(TO_CHAR(TXN_AVY_CL_5.TXN_ID), '-999') = NVL(TO_CHAR(AVY_CL.DSPL_AVY_TP), '-999')
-AND TXN_AVY_CL_5.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_6
-ON NVL(TO_CHAR(TXN_AVY_CL_6.TXN_ID), '-999') = NVL(TO_CHAR(NNA_CGY.NNA_CGY_NM), '-999')
-AND TXN_AVY_CL_6.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.NET_NEW_AST_CGY NNA ON NNA.NET_NEW_AST_CGY_ID = TAC.NET_NEW_AST_CGY_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_AVY_CL TXN_AVY_CL_7
-ON NVL(TO_CHAR(TXN_AVY_CL_7.TXN_ID), '-999') = NVL(TO_CHAR(TXN_AVY_CL.TXN_ID), '-999')
-AND TXN_AVY_CL_7.ACTV_F = 'Y'
-AND TAC.ACTV_F = 'Y'
-AND AP.APA_ID = TAC.APA_ID
-LEFT JOIN CCAL_REPL_OWNER.AVY_CL ACL ON ACL.AVY_CL_ID = TAC.AVY_CL_ID
-LEFT JOIN CCAL_REPL_OWNER.TXN_RLTNP TXN_RLTNP_1
-ON NVL(TO_CHAR(TXN_RLTNP_1.SRC_TXN_ID), '-999') = NVL(TO_CHAR(TXN_RLTNP.TRGT_TXN_ID), '-999')
-AND TXN_RLTNP_1.ACTV_F = 'Y'
-AND TR.ACTV_F = 'Y'
-LEFT JOIN CCAL_REPL_OWNER.TXN_RLTNP TXN_RLTNP_2
-ON NVL(TO_CHAR(TXN_RLTNP_2.SRC_TXN_ID), '-999') = NVL(TO_CHAR(TXN.TXN_ID), '-999')
-AND TXN_RLTNP_2.ACTV_F = 'Y'
-AND TR.ACTV_F = 'Y'
-LEFT JOIN CCAL_REPL_OWNER.CL_VAL CV ON CL_VAL_ID = TR.TXN_RLTNP_TP_ID
-AND CV.CL_SCM_ID = '4'
-LEFT JOIN CCAL_REPL_OWNER.TXN_RLTNP TXN_RLTNP_3
-ON NVL(TO_CHAR(TXN_RLTNP_3.SRC_TXN_ID), '-999') = NVL(TO_CHAR(TXN_RLTNP.TXN_RLTNP_TP_ID), '-999')
-AND TXN_RLTNP_3.ACTV_F = 'Y'
-AND TR.ACTV_F = 'Y'
-LEFT JOIN CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP TXN_SRC_TAX_CODE_LKUP_1
-ON NVL(TO_CHAR(TXN_SRC_TAX_CODE_LKUP_1.SRC_TAX_CODE_ID), '-999') = NVL(TO_CHAR(TXN_SRC_TAX_CODE_LKUP.SRC_TAX_CODE_ID), '-999')
-AND TXN_SRC_TAX_CODE_LKUP_1.ACTV_F = 'Y'
-AND LKP.ACTV_F = 'Y'
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for TXN_CCY -- add to PDM or correct DRD source_table */ AS TXN_CCY,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_IRA_F -- add to PDM or correct DRD source_table */ AS BKR_IRA_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_ERISA_F -- add to PDM or correct DRD source_table */ AS BKR_ERISA_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_ORIG_SRC_STM_CD -- add to PDM or correct DRD source_table */ AS BKR_ORIG_SRC_STM_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_ABC_CLSS_CD -- add to PDM or correct DRD source_table */ AS BKR_ABC_CLSS_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_ABC_CLSS -- add to PDM or correct DRD source_table */ AS BKR_ABC_CLSS,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for AC_CGY_CD -- add to PDM or correct DRD source_table */ AS AC_CGY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AC_CGY_CD -- add to PDM or correct DRD source_table */ AS BKR_AC_CGY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for AC_CGY -- add to PDM or correct DRD source_table */ AS AC_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AC_CGY -- add to PDM or correct DRD source_table */ AS BKR_AC_CGY,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_BSN_LINE_AFFLT -- add to PDM or correct DRD source_table */ AS BKR_BSN_LINE_AFFLT,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_BSN_LINE_AFFLT_CD -- add to PDM or correct DRD source_table */ AS BKR_BSN_LINE_AFFLT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for TST_AC_F -- add to PDM or correct DRD source_table */ AS TST_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_TST_AC_F -- add to PDM or correct DRD source_table */ AS BKR_TST_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for TAX_RPT_CLNT_ID -- add to PDM or correct DRD source_table */ AS TAX_RPT_CLNT_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_TAX_RPT_CLNT_ID -- add to PDM or correct DRD source_table */ AS BKR_TAX_RPT_CLNT_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for TAX_AC_F -- add to PDM or correct DRD source_table */ AS TAX_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_TAX_AC_F -- add to PDM or correct DRD source_table */ AS BKR_TAX_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_RJ_TAX_RPT_RSPL_F -- add to PDM or correct DRD source_table */ AS BKR_RJ_TAX_RPT_RSPL_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for RJ_BSN_UNIT_CD -- add to PDM or correct DRD source_table */ AS RJ_BSN_UNIT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_RJ_BSN_UNIT_CD -- add to PDM or correct DRD source_table */ AS BKR_RJ_BSN_UNIT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for RJ_BSN_UNIT -- add to PDM or correct DRD source_table */ AS RJ_BSN_UNIT,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_RJ_BSN_UNIT -- add to PDM or correct DRD source_table */ AS BKR_RJ_BSN_UNIT,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for AC_OWNSHP_TP_CD -- add to PDM or correct DRD source_table */ AS AC_OWNSHP_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AC_OWNSHP_TP_CD -- add to PDM or correct DRD source_table */ AS BKR_AC_OWNSHP_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for AC_OWNSHP_TP -- add to PDM or correct DRD source_table */ AS AC_OWNSHP_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_AC_OWNSHP_TP -- add to PDM or correct DRD source_table */ AS BKR_AC_OWNSHP_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_FIRM_AC_F -- add to PDM or correct DRD source_table */ AS BKR_FIRM_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_FEE_BASE_AC_F -- add to PDM or correct DRD source_table */ AS BKR_FEE_BASE_AC_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for BKR_RJ_TRUST_F -- add to PDM or correct DRD source_table */ AS BKR_RJ_TRUST_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_PRIM_FA_NUM -- add to PDM or correct DRD source_table */ AS OWN_PRIM_FA_NUM,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_CSS_PSN_ID -- add to PDM or correct DRD source_table */ AS OWN_FA_CSS_PSN_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_CRN_ADV_F -- add to PDM or correct DRD source_table */ AS OWN_FA_CRN_ADV_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_DEPT_BR_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_DEPT_BR_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_DSCR_F -- add to PDM or correct DRD source_table */ AS OWN_FA_DSCR_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_DSCR_ST -- add to PDM or correct DRD source_table */ AS OWN_FA_DSCR_ST,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_DSCR_ST_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_DSCR_ST_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_FINRA_CRD_CLSS_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_FINRA_CRD_CLSS_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_HR_ST_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_HR_ST_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_PRODUCER_F -- add to PDM or correct DRD source_table */ AS OWN_FA_PRODUCER_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_QUALF_ADV_F -- add to PDM or correct DRD source_table */ AS OWN_FA_QUALF_ADV_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_BR_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_BR_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_BSN_ST -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_BSN_ST,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_DIV_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_DIV_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_DIV_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_DIV_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_DIV_NODE -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_DIV_NODE,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_MAIN_BR_STE -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_MAIN_BR_STE,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_OSJ -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_OSJ,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_BSN_MODL_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_BSN_MODL_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_BSN_MODL_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_BSN_MODL_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_HIER_LOB_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_HIER_LOB_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_HIER_LOB_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_HIER_LOB_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_RPT_UNIT_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_RPT_UNIT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_RPT_UNIT_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_RPT_UNIT_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_DIV_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_DIV_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_HIER_RGON_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_HIER_RGON_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_HIER_RGON_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_HIER_RGON_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_TERR_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_TERR_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_HIER_TERR_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_HIER_TERR_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RSK_HIER_BSN_UNIT_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RSK_HIER_BSN_UNIT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RSK_HIER_BSN_UNIT_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RSK_HIER_BSN_UNIT_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) ENTERPRISE_ENTITY_DIM_V for OWN_FA_ENT_RJAS_ID_F -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RJAS_ID_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SUBDIV_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SUBDIV_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SUBDIV_DSC -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SUBDIV_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SUBS -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SUBS,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SBTP -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SBTP,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SBTP_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SBTP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_TP -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_TP_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) ENTERPRISE_ENTITY_DIM_V for OWN_FA_ENT_LOB_AB_F -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_LOB_AB_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) ENTERPRISE_ENTITY_DIM_V for OWN_FA_ENT_LOB_AMS_F -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_LOB_AMS_F,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_LOB_BSN_MODL -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_LOB_BSN_MODL,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_BSN_OPN_DT -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_BSN_OPN_DT,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_LONG_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_LONG_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_SHRT_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_SHRT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_CSS_ID -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_CSS_ID,
+    NULL /* PDM_MISS: cannot resolve alias(es) AR_DIM for OWN_FA_ENT_RTL_SALE_CPX_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_ENT_RTL_SALE_CPX_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_IDY -- add to PDM or correct DRD source_table */ AS EQTY_IDY,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_IDY_CD -- add to PDM or correct DRD source_table */ AS EQTY_IDY_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_IDY_GRP -- add to PDM or correct DRD source_table */ AS EQTY_IDY_GRP,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_IDY_GRP_CD -- add to PDM or correct DRD source_table */ AS EQTY_IDY_GRP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_SECT -- add to PDM or correct DRD source_table */ AS EQTY_SECT,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_SECT_CD -- add to PDM or correct DRD source_table */ AS EQTY_SECT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_SUP_SECT -- add to PDM or correct DRD source_table */ AS EQTY_SUP_SECT,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for EQTY_SUP_SECT_CD -- add to PDM or correct DRD source_table */ AS EQTY_SUP_SECT_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for MODL_STRTG_DTL_AST_CLSS -- add to PDM or correct DRD source_table */ AS MODL_STRTG_DTL_AST_CLSS,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for MODL_STRTG_DTL_AST_CLSS_CD -- add to PDM or correct DRD source_table */ AS MODL_STRTG_DTL_AST_CLSS_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for MODL_STRTG_SMY_AST_CLSS -- add to PDM or correct DRD source_table */ AS MODL_STRTG_SMY_AST_CLSS,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for MODL_STRTG_SMY_AST_CLSS_CD -- add to PDM or correct DRD source_table */ AS MODL_STRTG_SMY_AST_CLSS_CD,
+    TXN.PD_CMPOS_DSC AS PD_CMPOS_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for PD_SHRT_NM -- add to PDM or correct DRD source_table */ AS PD_SHRT_NM,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for PD_DSC -- add to PDM or correct DRD source_table */ AS PD_DSC,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_CL_LVL_1 -- add to PDM or correct DRD source_table */ AS RPT_CL_LVL_1,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_CL_LVL_2 -- add to PDM or correct DRD source_table */ AS RPT_CL_LVL_2,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_STRTG_DTL_AST_CLSS -- add to PDM or correct DRD source_table */ AS RPT_STRTG_DTL_AST_CLSS,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_STRTG_DTL_AST_CLSS_CD -- add to PDM or correct DRD source_table */ AS RPT_STRTG_DTL_AST_CLSS_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_STRTG_SMY_AST_CLSS -- add to PDM or correct DRD source_table */ AS RPT_STRTG_SMY_AST_CLSS,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for RPT_STRTG_SMY_AST_CLSS_CD -- add to PDM or correct DRD source_table */ AS RPT_STRTG_SMY_AST_CLSS_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for FND_FAM -- add to PDM or correct DRD source_table */ AS FND_FAM,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for SHR_CLSS_TP_CD -- add to PDM or correct DRD source_table */ AS SHR_CLSS_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for SHR_CLSS_TP -- add to PDM or correct DRD source_table */ AS SHR_CLSS_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_1 -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_1,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_1_CD -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_1_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_2 -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_2,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_2_CD -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_2_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_3 -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_3,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_3_CD -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_3_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_4 -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_4,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_4_CD -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_4_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_5 -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_5,
+    NULL /* PDM_MISS: cannot resolve alias(es) IMT_PD_DIM for IMT_CL_LVL_5_CD -- add to PDM or correct DRD source_table */ AS IMT_CL_LVL_5_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) FA_NUMBER_V_2 for OWN_FA_NUM_TP_CD -- add to PDM or correct DRD source_table */ AS OWN_FA_NUM_TP_CD,
+    NULL /* PDM_MISS: cannot resolve alias(es) FA_NUMBER_V_3 for OWN_FA_NUM_TP -- add to PDM or correct DRD source_table */ AS OWN_FA_NUM_TP,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for BOND_ACRTN_DCN_AMT -- add to PDM or correct DRD source_table */ AS BOND_ACRTN_DCN_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for BOND_AMRZ_PREM_AMT -- add to PDM or correct DRD source_table */ AS BOND_AMRZ_PREM_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for RJ_TRUST_BOOK_VAL_AMT -- add to PDM or correct DRD source_table */ AS RJ_TRUST_BOOK_VAL_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for RJ_TRUST_RLZD_TAX_GAIN_OR_LOSS_AMT -- add to PDM or correct DRD source_table */ AS RJ_TRUST_RLZD_TAX_GAIN_OR_LOSS_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for BFR_REPYMT_FACE_VAL_AMT -- add to PDM or correct DRD source_table */ AS BFR_REPYMT_FACE_VAL_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for BFR_INCM_PYMT_FACE_VAL_AMT -- add to PDM or correct DRD source_table */ AS BFR_INCM_PYMT_FACE_VAL_AMT,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for BASE_POS_QTY -- add to PDM or correct DRD source_table */ AS BASE_POS_QTY,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for NO_SIS_SCR_MVMT_TXN_QTY -- add to PDM or correct DRD source_table */ AS NO_SIS_SCR_MVMT_TXN_QTY,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for NO_SIS_SCR_MVMT_TXN_PRC -- add to PDM or correct DRD source_table */ AS NO_SIS_SCR_MVMT_TXN_PRC,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for REIVS_SHR_QTY -- add to PDM or correct DRD source_table */ AS REIVS_SHR_QTY,
+    NULL /* PDM_MISS: cannot resolve alias(es) APA for REIVS_PRC -- add to PDM or correct DRD source_table */ AS REIVS_PRC
+FROM CCAL_REPL_OWNER.TXN TXN;
