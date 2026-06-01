@@ -47,32 +47,64 @@ def _ora_exec(conn, sql: str, *, commit: bool = False, fetch: bool = False):
 
 
 def main() -> int:
-    import oracledb
-    print("=== Step 3: ODI-driven INSERT, 500 rows ===\n")
-    conn = oracledb.connect(
-        user="sys", password="123456",
-        dsn="localhost:1521/FREEPDB1", mode=oracledb.SYSDBA,
+    # Phase 7.18 generic CLI + env config (see scripts/_step_config.py).
+    import argparse, sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _step_config import (
+        add_common_args, parse_args_to_config, open_connection,
+        print_config_banner,
     )
+    parser = argparse.ArgumentParser(
+        description="Step 3: ODI-driven INSERT, generic across target tables."
+    )
+    add_common_args(parser)
+    cfg = parse_args_to_config(parser)
+    print_config_banner(cfg, "Step 3: ODI-driven INSERT")
+    conn = open_connection(cfg)
 
-    # 1. Get the 500 TXN_IDs that Step 2 used (so we load THE SAME 500 rows)
-    print("1) Get the 500 TXN_IDs from Step 2's AVY_FACT_SIDE_DRD...")
+    target_fq = f"{cfg.target_schema}.{cfg.target_table}"
+    snap_fq_drd = f"{cfg.snapshot_schema}.{cfg.snapshot_table_drd}"
+    snap_fq_odi = f"{cfg.snapshot_schema}.{cfg.snapshot_table_odi}"
+    base_fq = f"{cfg.base_schema}.{cfg.base_table}"
+
+    # 1. Get the N TXN_IDs that Step 2 used (so we load THE SAME N rows).
+    # The PK column name is assumed the same on the base and the snapshot;
+    # for the generic case we read it via ALL_CONSTRAINTS.
+    print(f"1) Get base-PK from {cfg.base_schema}.{cfg.base_table} primary key...")
     ok, _, rows, err = _ora_exec(conn, (
-        "SELECT TXN_ID FROM IKOROSTELEV.AVY_FACT_SIDE_DRD ORDER BY TXN_ID"
+        "SELECT cc.column_name FROM all_constraints c "
+        "JOIN all_cons_columns cc ON c.owner=cc.owner AND c.constraint_name=cc.constraint_name "
+        f"WHERE c.owner='{cfg.base_schema}' AND c.table_name='{cfg.base_table}' "
+        "AND c.constraint_type='P' ORDER BY cc.position"
+    ), fetch=True)
+    pk_cols = [r[0].upper() for r in rows] if ok and rows else []
+    if not pk_cols:
+        print(f"   FAIL: could not determine PK of {base_fq}")
+        return 1
+    if len(pk_cols) > 1:
+        print(f"   WARN: composite PK ({pk_cols}); using first column for IN-list")
+    pk_col = pk_cols[0]
+    print(f"   PK column: {pk_col}")
+
+    print(f"\n1b) Get the {cfg.row_limit} PKs from Step 2's {snap_fq_drd}...")
+    ok, _, rows, err = _ora_exec(conn, (
+        f"SELECT {pk_col} FROM {snap_fq_drd} ORDER BY {pk_col}"
     ), fetch=True)
     if not ok:
         print(f"   FAIL: {err}")
         return 1
-    if not rows or len(rows) != 500:
-        print(f"   FAIL: expected 500 TXN_IDs from Step 2, got {len(rows)}")
+    if not rows or len(rows) != cfg.row_limit:
+        print(f"   FAIL: expected {cfg.row_limit} PKs from Step 2, got {len(rows)}")
         return 1
-    txn_ids = [r[0] for r in rows]
-    print(f"   {len(txn_ids)} TXN_IDs gathered (min={txn_ids[0]}, max={txn_ids[-1]})")
+    pk_values = [r[0] for r in rows]
+    print(f"   {len(pk_values)} PK values gathered (min={pk_values[0]}, max={pk_values[-1]})")
 
     # 2. Get target columns + types + notnull
     print("\n2) Get target columns...")
     ok, _, rows, err = _ora_exec(conn, (
         "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM ALL_TAB_COLUMNS "
-        "WHERE OWNER='IKOROSTELEV' AND TABLE_NAME='AVY_FACT_SIDE' "
+        f"WHERE OWNER='{cfg.target_schema}' AND TABLE_NAME='{cfg.target_table}' "
         "ORDER BY COLUMN_ID"
     ), fetch=True)
     if not ok:
@@ -82,14 +114,14 @@ def main() -> int:
     target_type = {r[0].upper(): r[1] for r in rows}
     target_notnull = {r[0].upper() for r in rows if r[2] == "N"}
 
-    # 3. Get TXN columns
+    # 3. Get base-table columns (so we know which target cols pass through)
     ok, _, rows, err = _ora_exec(conn, (
         "SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS "
-        "WHERE OWNER='CCAL_REPL_OWNER' AND TABLE_NAME='TXN'"
+        f"WHERE OWNER='{cfg.base_schema}' AND TABLE_NAME='{cfg.base_table}'"
     ), fetch=True)
-    txn_cols = {r[0].upper() for r in rows}
-    direct = [c for c in target_cols if c in txn_cols]
-    print(f"   {len(direct)} direct projections from TXN")
+    base_cols = {r[0].upper() for r in rows}
+    direct = [c for c in target_cols if c in base_cols]
+    print(f"   {len(direct)} direct projections from {cfg.base_table}")
 
     # 4. Build ODI-style INSERT.  Key differences from Step 2's DRD-style:
     #    - Same column set (so we can compare the two tables row-by-row).
@@ -104,34 +136,38 @@ def main() -> int:
         if t == "DATE": return "SYSDATE"
         return "-1"
 
-    print("\n4) Build ODI-style INSERT (TXN base; same row set as Step 2)...")
+    print(f"\n4) Build ODI-style INSERT ({cfg.base_table} base; same row set as Step 2)...")
     select_parts = []
     for col in target_cols:
-        if col in txn_cols:
-            select_parts.append(f"    t.{col}")
+        if col in base_cols:
+            select_parts.append(f"    {cfg.base_alias}.{col}")
         elif col in target_notnull:
             select_parts.append(f"    {_sentinel(target_type.get(col, ''))}")
         else:
             select_parts.append(f"    NULL")
-    # Bind TXN_IDs as IN-list -- Oracle has a 1000-element limit which
-    # 500 is well under.
-    in_list = ",".join(str(int(x)) for x in txn_ids)
+    # Bind PKs as IN-list -- Oracle has a 1000-element limit which
+    # `cfg.row_limit` (default 500) is well under.  Quote string PKs.
+    def _lit(v):
+        if isinstance(v, (int, float)):
+            return str(int(v)) if float(v).is_integer() else str(v)
+        return "'" + str(v).replace("'", "''") + "'"
+    in_list = ",".join(_lit(x) for x in pk_values)
     insert_sql = (
-        "-- ODI-driven INSERT (Step 3): same 500 TXN_IDs as Step 2; J$ stripped.\n"
-        "INSERT INTO IKOROSTELEV.AVY_FACT_SIDE (\n"
+        f"-- ODI-driven INSERT (Step 3): same {cfg.row_limit} PKs as Step 2; J$ stripped.\n"
+        f"INSERT INTO {target_fq} (\n"
         + ",\n".join(f"    {c}" for c in target_cols)
         + "\n) SELECT\n"
         + ",\n".join(select_parts)
-        + f"\nFROM CCAL_REPL_OWNER.TXN t\n"
-        + f"WHERE t.TXN_ID IN ({in_list})"
+        + f"\nFROM {base_fq} {cfg.base_alias}\n"
+        + f"WHERE {cfg.base_alias}.{pk_col} IN ({in_list})"
     )
     out = ROOT / "data" / "api_runs" / "STEP3_ODI_INSERT_500.sql"
     out.write_text(insert_sql, encoding="utf-8")
     print(f"   Saved {out.name} ({len(insert_sql)} bytes)")
 
     # 5. TRUNCATE + execute
-    print("\n5) TRUNCATE IKOROSTELEV.AVY_FACT_SIDE...")
-    ok, _, _, err = _ora_exec(conn, "TRUNCATE TABLE IKOROSTELEV.AVY_FACT_SIDE", commit=True)
+    print(f"\n5) TRUNCATE {target_fq}...")
+    ok, _, _, err = _ora_exec(conn, f"TRUNCATE TABLE {target_fq}", commit=True)
     if not ok:
         print(f"   FAIL: {err}")
         return 1
@@ -147,18 +183,18 @@ def main() -> int:
     print(f"   OK -- {rowcount} rows inserted in {elapsed:.1f}s")
 
     # 7. Snapshot
-    print("\n7) Snapshot into IKOROSTELEV.AVY_FACT_SIDE_ODI...")
-    _ora_exec(conn, "DROP TABLE IKOROSTELEV.AVY_FACT_SIDE_ODI PURGE", commit=True)
-    ok, _, _, err = _ora_exec(conn, (
-        "CREATE TABLE IKOROSTELEV.AVY_FACT_SIDE_ODI "
-        "TABLESPACE LOADER_TS "
-        "AS SELECT * FROM IKOROSTELEV.AVY_FACT_SIDE"
-    ), commit=True)
+    print(f"\n7) Snapshot into {snap_fq_odi}...")
+    _ora_exec(conn, f"DROP TABLE {snap_fq_odi} PURGE", commit=True)
+    create_sql = f"CREATE TABLE {snap_fq_odi} "
+    if cfg.tablespace:
+        create_sql += f"TABLESPACE {cfg.tablespace} "
+    create_sql += f"AS SELECT * FROM {target_fq}"
+    ok, _, _, err = _ora_exec(conn, create_sql, commit=True)
     if not ok:
         print(f"   FAIL: {err}")
         return 1
-    ok, _, rows, _ = _ora_exec(conn, "SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_ODI", fetch=True)
-    print(f"   OK -- IKOROSTELEV.AVY_FACT_SIDE_ODI = {rows[0][0]} rows")
+    ok, _, rows, _ = _ora_exec(conn, f"SELECT COUNT(*) FROM {snap_fq_odi}", fetch=True)
+    print(f"   OK -- {snap_fq_odi} = {rows[0][0]} rows")
 
     print("\n=== Step 3 DONE ===")
     conn.close()

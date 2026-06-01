@@ -1,4 +1,4 @@
-"""Step 5: generate verification SQL between IKOROSTELEV.AVY_FACT_SIDE_DRD
+"""Step 5: generate verification SQL between {snap_drd}
 (populated via DRD-driven INSERT in Step 2) and IKOROSTELEV.AVY_FACT_SIDE_ODI
 (populated via ODI-driven INSERT in Step 3), plus comparison against
 TRANSACTIONS_OWNER.AVY_FACT (production target).
@@ -19,6 +19,7 @@ existing Tests page).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -45,12 +46,51 @@ def _ora_exec(conn, sql: str, *, commit: bool = False, fetch: bool = False):
 
 
 def main() -> int:
-    import oracledb
-    print("=== Step 5: verification suite ===\n")
-    conn = oracledb.connect(
-        user="sys", password="123456",
-        dsn="localhost:1521/FREEPDB1", mode=oracledb.SYSDBA,
+    # Phase 7.18 generic CLI + env config (see scripts/_step_config.py).
+    import argparse
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _step_config import (
+        add_common_args, parse_args_to_config, open_connection,
+        print_config_banner,
     )
+    parser = argparse.ArgumentParser(
+        description="Step 5: DRD-vs-ODI verification suite (generic)."
+    )
+    add_common_args(parser)
+    cfg = parse_args_to_config(parser)
+    print_config_banner(cfg, "Step 5: verification suite")
+    conn = open_connection(cfg)
+
+    snap_schema = cfg.snapshot_schema
+    snap_drd = f"{snap_schema}.{cfg.snapshot_table_drd}"
+    snap_odi = f"{snap_schema}.{cfg.snapshot_table_odi}"
+
+    # Discover PK column generically (same logic as step3)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT cc.column_name FROM all_constraints c "
+        "JOIN all_cons_columns cc ON c.owner=cc.owner AND c.constraint_name=cc.constraint_name "
+        "WHERE c.owner=:o AND c.table_name=:t AND c.constraint_type='P' "
+        "ORDER BY cc.position",
+        o=cfg.target_schema, t=cfg.target_table,
+    )
+    pk_rows = cur.fetchall()
+    cur.close()
+    pk_col = pk_rows[0][0].upper() if pk_rows else None
+    if pk_col is None:
+        # Fall back to first column of snapshot table; warn loudly.
+        print(f"   WARN: no PK on {cfg.target_schema}.{cfg.target_table}; "
+              "using first column of snapshot for joins")
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT column_name FROM all_tab_columns WHERE owner=:o "
+            "AND table_name=:t AND column_id=1",
+            o=snap_schema, t=cfg.snapshot_table_drd,
+        )
+        r = cur.fetchone()
+        cur.close()
+        pk_col = r[0].upper() if r else "ROWID"
+
     tests: list[dict] = []
     tid = 0
 
@@ -72,23 +112,23 @@ def main() -> int:
     # ── Test 1: row count parity ────────────────────────────────────────
     print("1) Row-count parity DRD vs ODI...")
     sql1 = (
-        "SELECT "
-        "(SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_DRD) AS drd_count, "
-        "(SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_ODI) AS odi_count "
-        "FROM dual"
+        f"SELECT "
+        f"(SELECT COUNT(*) FROM {snap_drd}) AS drd_count, "
+        f"(SELECT COUNT(*) FROM {snap_odi}) AS odi_count "
+        f"FROM dual"
     )
     ok, _, rows, err = _ora_exec(conn, sql1, fetch=True)
     if not ok:
         print(f"   FAIL: {err}")
         return 1
     drd_c, odi_c = rows[0]
-    passed = (drd_c == odi_c == 500)
+    passed = (drd_c == odi_c == cfg.row_limit)
     print(f"   DRD={drd_c}, ODI={odi_c} -- {'PASS' if passed else 'FAIL'}")
     add_test(
         category="row count parity",
-        title="DRD row count == ODI row count == 500",
+        title=f"DRD row count == ODI row count == {cfg.row_limit}",
         sql=sql1,
-        expected="500 / 500",
+        expected=f"{cfg.row_limit} / {cfg.row_limit}",
         actual=f"{drd_c} / {odi_c}",
         passed=passed,
     )
@@ -97,17 +137,24 @@ def main() -> int:
     print("\n2) Per-column NULL parity (top 10 mismatches)...")
     ok, _, cols, _ = _ora_exec(conn, (
         "SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS "
-        "WHERE OWNER='IKOROSTELEV' AND TABLE_NAME='AVY_FACT_SIDE_DRD' "
+        f"WHERE OWNER='{snap_schema}' AND TABLE_NAME='{cfg.snapshot_table_drd}' "
         "ORDER BY COLUMN_ID"
     ), fetch=True)
     col_names = [r[0] for r in cols]
+    # Generic reserved-word quoting -- Oracle's full reserved set is large
+    # but the column name comes from a real table so most are non-reserved.
+    _ORA_RESERVED = {"CHECK", "ORDER", "GROUP", "SELECT", "FROM", "WHERE",
+                     "TABLE", "INDEX", "LEVEL", "ROWNUM", "USER", "DATE",
+                     "NUMBER", "VARCHAR", "VARCHAR2"}
+    def _quote_if_reserved(c: str) -> str:
+        return f'"{c}"' if c.upper() in _ORA_RESERVED else c
     union_parts = []
     for c in col_names:
-        cq = f'"{c}"' if c.upper() in ("CHECK", "ORDER", "GROUP") else c
+        cq = _quote_if_reserved(c)
         union_parts.append(
             f"SELECT '{c}' AS col, "
-            f"(SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_DRD WHERE {cq} IS NULL) drd_null, "
-            f"(SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_ODI WHERE {cq} IS NULL) odi_null "
+            f"(SELECT COUNT(*) FROM {snap_drd} WHERE {cq} IS NULL) drd_null, "
+            f"(SELECT COUNT(*) FROM {snap_odi} WHERE {cq} IS NULL) odi_null "
             "FROM dual"
         )
     null_parity_sql = (
@@ -132,20 +179,20 @@ def main() -> int:
             f"{r[0]}(diff={r[3]})" for r in rows[:5]
         ),
         passed=(n_mismatches == 0),
-        note="When DRD-emitter and ODI-emitter project from the same TXN row set, NULL pattern should match.",
+        note=f"When DRD-emitter and ODI-emitter project from the same {cfg.base_table} row set, NULL pattern should match.",
     )
 
-    # ── Test 3: per-column value drift (joined on TXN_ID) ───────────────
+    # ── Test 3: per-column value drift (joined on PK) ───────────────────
     print("\n3) Per-column value drift...")
     diff_parts = []
     for c in col_names:
-        if c.upper() == "TXN_ID":
+        if c.upper() == pk_col.upper():
             continue
-        cq = f'"{c}"' if c.upper() in ("CHECK", "ORDER", "GROUP") else c
+        cq = _quote_if_reserved(c)
         diff_parts.append(
             f"SELECT '{c}' AS col, COUNT(*) AS drift_rows "
-            "FROM IKOROSTELEV.AVY_FACT_SIDE_DRD d "
-            "JOIN IKOROSTELEV.AVY_FACT_SIDE_ODI o ON d.TXN_ID = o.TXN_ID "
+            f"FROM {snap_drd} d "
+            f"JOIN {snap_odi} o ON d.{pk_col} = o.{pk_col} "
             f"WHERE DECODE(d.{cq}, o.{cq}, 0, 1) = 1"
         )
     drift_sql = (
@@ -170,19 +217,19 @@ def main() -> int:
             f"{r[0]}({r[1]} rows)" for r in rows[:5]
         ),
         passed=(n_drift == 0),
-        note="DECODE handles NULL==NULL as match.  Drift means DRD and ODI populate different values for this column on the same TXN_ID.",
+        note=f"DECODE handles NULL==NULL as match.  Drift means DRD and ODI populate different values for this column on the same {pk_col}.",
     )
 
     # ── Test 4: symmetric MINUS (DRD - ODI / ODI - DRD) on PK ───────────
     print("\n4) Symmetric MINUS (PK only)...")
     sql4 = (
-        "SELECT 'DRD_NOT_IN_ODI' AS side, COUNT(*) AS n FROM ("
-        "SELECT TXN_ID FROM IKOROSTELEV.AVY_FACT_SIDE_DRD MINUS "
-        "SELECT TXN_ID FROM IKOROSTELEV.AVY_FACT_SIDE_ODI) "
-        "UNION ALL "
-        "SELECT 'ODI_NOT_IN_DRD', COUNT(*) FROM ("
-        "SELECT TXN_ID FROM IKOROSTELEV.AVY_FACT_SIDE_ODI MINUS "
-        "SELECT TXN_ID FROM IKOROSTELEV.AVY_FACT_SIDE_DRD)"
+        f"SELECT 'DRD_NOT_IN_ODI' AS side, COUNT(*) AS n FROM ("
+        f"SELECT {pk_col} FROM {snap_drd} MINUS "
+        f"SELECT {pk_col} FROM {snap_odi}) "
+        f"UNION ALL "
+        f"SELECT 'ODI_NOT_IN_DRD', COUNT(*) FROM ("
+        f"SELECT {pk_col} FROM {snap_odi} MINUS "
+        f"SELECT {pk_col} FROM {snap_drd})"
     )
     ok, _, rows, err = _ora_exec(conn, sql4, fetch=True)
     if not ok:
@@ -194,48 +241,59 @@ def main() -> int:
     print(f"   DRD-ODI={minus_drd}, ODI-DRD={minus_odi} -- {'PASS' if passed else 'FAIL'}")
     add_test(
         category="PK overlap parity",
-        title="DRD TXN_ID set == ODI TXN_ID set (symmetric MINUS)",
+        title=f"DRD {pk_col} set == ODI {pk_col} set (symmetric MINUS)",
         sql=sql4,
         expected="0 / 0",
         actual=f"{minus_drd} / {minus_odi}",
         passed=passed,
     )
 
-    # ── Test 5: PK overlap vs TARGET (TRANSACTIONS_OWNER) ───────────────
-    print("\n5) PK overlap vs TRANSACTIONS_OWNER.AVY_FACT...")
+    # ── Test 5: PK overlap vs base table (data-existence sanity) ────────
+    # Generic: check that the PKs we loaded actually exist in the base
+    # production table (the source we emitted FROM).  Operator can override
+    # the "production target" check via env DBT_PROD_TARGET_FQ (full qual).
+    prod_target = os.environ.get("DBT_PROD_TARGET_FQ", f"{cfg.base_schema}.{cfg.base_table}")
+    print(f"\n5) PK overlap vs {prod_target}...")
     sql5 = (
-        "SELECT COUNT(*) FROM IKOROSTELEV.AVY_FACT_SIDE_DRD d "
-        "WHERE d.TXN_ID IN (SELECT TXN_ID FROM TRANSACTIONS_OWNER.AVY_FACT)"
+        f"SELECT COUNT(*) FROM {snap_drd} d "
+        f"WHERE d.{pk_col} IN (SELECT {pk_col} FROM {prod_target})"
     )
     ok, _, rows, err = _ora_exec(conn, sql5, fetch=True)
     target_overlap = rows[0][0] if ok and rows else 0
-    print(f"   {target_overlap} of 500 IDs also present in production target")
+    print(f"   {target_overlap} of {cfg.row_limit} PKs also present in {prod_target}")
     add_test(
         category="DRD vs TARGET",
-        title="DRD TXN_IDs present in TRANSACTIONS_OWNER.AVY_FACT",
+        title=f"DRD {pk_col} present in {prod_target}",
         sql=sql5,
-        expected="500 (all PKs should exist in target)",
+        expected=f"{cfg.row_limit} (all PKs should exist in target)",
         actual=f"{target_overlap}",
-        passed=(target_overlap == 500),
-        note="Production target stores rows by TXN_ID; our 500 sample should all be present (loaded via real ODI).",
+        passed=(target_overlap == cfg.row_limit),
+        note=f"Production target stores rows by {pk_col}; our {cfg.row_limit} sample should all be present.",
     )
 
     # ── Save as test suite (standard tool format) ──────────────────────
-    print("\n6) Save as test suite...")
+    # Phase 7.18 generic: suite name + JSON filename derived from target
+    # so this works for any (schema, table) pair, not just AVY_FACT_SIDE.
+    suite_name = f"{cfg.target_table}_DRD_VS_ODI_LIVE"
+    suite_file = f"{suite_name}.json"
+    print(f"\n6) Save as test suite ({suite_name})...")
     suite = {
-        "suite_name": "AVY_FACT_SIDE_DRD_VS_ODI_LIVE",
+        "suite_name": suite_name,
         "pbi_id": "LIVE_TEST",
-        "project": "AVY_FACT_SIDE",
+        "project": cfg.target_table,
         "description": (
-            "Live verification suite (Phase 7.12).  Compares "
-            "IKOROSTELEV.AVY_FACT_SIDE_DRD (500 rows loaded via Step 2 "
-            "DRD-driven INSERT) vs IKOROSTELEV.AVY_FACT_SIDE_ODI (same "
-            "500 rows loaded via Step 3 ODI-driven INSERT, J$ stripped, "
-            "base from CCAL_REPL_OWNER.TXN).  Generated by "
-            "scripts/step5_verification_suite.py."
+            f"Live verification suite.  Compares {snap_drd} ({cfg.row_limit} "
+            f"rows loaded via Step 2 DRD-driven INSERT) vs {snap_odi} (same "
+            f"{cfg.row_limit} rows loaded via Step 3 ODI-driven INSERT, J$ "
+            f"stripped, base from {cfg.base_schema}.{cfg.base_table}).  "
+            "Generated by scripts/step5_verification_suite.py."
         ),
-        "datasource": "FREEPDB1",
-        "datasource_id": 1,
+        "datasource": cfg.dsn,
+        "datasource_user": cfg.user,
+        "target_fq": f"{cfg.target_schema}.{cfg.target_table}",
+        "base_fq": f"{cfg.base_schema}.{cfg.base_table}",
+        "pk_col": pk_col,
+        "row_limit": cfg.row_limit,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tests": tests,
         "_summary": {
@@ -244,7 +302,8 @@ def main() -> int:
             "failed": sum(1 for t in tests if not t["passed"]),
         },
     }
-    out = ROOT / "data" / "test_suites" / "AVY_FACT_SIDE_DRD_VS_ODI_LIVE.json"
+    out = ROOT / "data" / "test_suites" / suite_file
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(suite, indent=2, default=str), encoding="utf-8")
     print(f"   Saved {out.name}")
     print(f"   Tests: {suite['_summary']['total']} total, "

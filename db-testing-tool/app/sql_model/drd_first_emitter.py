@@ -622,52 +622,75 @@ _NON_ALIAS_KEYWORDS: set = {
 
 def _validate_join_on_predicates(
     joins: "OrderedDict[Tuple[str, str], _JoinNeed]",
-    declared_aliases: set,
+    base_alias: str,
 ) -> Dict[str, List[str]]:
     """Strip every AND-conjunct of every JOIN's ON clause whose alias-refs
-    aren't in `declared_aliases`.  Returns a diagnostic dict
+    aren't in the declared-alias set.  Returns a diagnostic dict
     ``{alias: [stripped_conjuncts]}`` so the caller can surface what was
     dropped (per Empiricism rule -- never silent).
 
-    Mutates `joins` in place.  After this call, any JOIN whose
-    on_predicates went empty will be dropped by the existing "skip empty
-    on_predicates" filter downstream.
+    Phase 7.17.1 (operator 2026-06-01 live E2E): iterate to fix point.
+    Dropping a JOIN removes ITS alias from declared set; OTHER JOINs that
+    reference that alias in their ON clauses then become invalid too.
+    Without iteration, those orphan references survive into the emitted
+    SQL and Oracle parses but yields 0 rows (the orphan-alias becomes
+    an implicit cross-join with no matching key).
+
+    Algorithm:
+      1. Compute declared_aliases = {base} ∪ {jn.alias for all joins}
+      2. For each join, strip conjuncts whose alias isn't declared
+      3. Drop joins whose on_predicates went empty
+      4. If any join was dropped: repeat from step 1
+      5. Bounded by len(joins) iterations (each iteration removes >= 1
+         join or terminates -- guarantees termination)
+
+    Mutates `joins` in place.
     """
     stripped_log: Dict[str, List[str]] = {}
-    declared_upper = {a.upper() for a in declared_aliases}
-
-    for key, jn in joins.items():
-        new_preds: List[str] = []
-        for raw_pred in jn.on_predicates:
-            if not raw_pred:
-                continue
-            conjuncts = _AND_SPLIT_RE.split(raw_pred)
-            kept: List[str] = []
-            for conj in conjuncts:
-                conj_clean = conj.strip()
-                if not conj_clean:
+    max_iters = max(1, len(joins))
+    for _ in range(max_iters + 1):
+        declared_upper = {base_alias.upper()} | {jn.alias.upper() for jn in joins.values()}
+        for key, jn in joins.items():
+            new_preds: List[str] = []
+            for raw_pred in jn.on_predicates:
+                if not raw_pred:
                     continue
-                # Find every alias.col reference; check all aliases declared
-                refs = _ALIAS_REF_RE.findall(conj_clean)
-                bad_alias = None
-                for alias, _col in refs:
-                    alias_u = alias.upper()
-                    if alias_u in _NON_ALIAS_KEYWORDS:
+                conjuncts = _AND_SPLIT_RE.split(raw_pred)
+                kept: List[str] = []
+                for conj in conjuncts:
+                    conj_clean = conj.strip()
+                    if not conj_clean:
                         continue
-                    if alias_u not in declared_upper:
-                        bad_alias = alias_u
-                        break
-                if bad_alias is not None:
-                    stripped_log.setdefault(jn.alias.upper(), []).append(
-                        f"{conj_clean}  /* undeclared alias: {bad_alias} */"
-                    )
-                    continue
-                kept.append(conj_clean)
-            if kept:
-                # Rejoin surviving conjuncts.
-                new_preds.append(" AND ".join(kept))
-        jn.on_predicates = new_preds
-
+                    refs = _ALIAS_REF_RE.findall(conj_clean)
+                    bad_alias = None
+                    for alias, _col in refs:
+                        alias_u = alias.upper()
+                        if alias_u in _NON_ALIAS_KEYWORDS:
+                            continue
+                        if alias_u not in declared_upper:
+                            bad_alias = alias_u
+                            break
+                    if bad_alias is not None:
+                        # Only log this stripped conjunct ONCE -- subsequent
+                        # iterations re-evaluate already-removed predicates.
+                        log_key = jn.alias.upper()
+                        log_entry = f"{conj_clean}  /* undeclared alias: {bad_alias} */"
+                        if log_entry not in stripped_log.get(log_key, []):
+                            stripped_log.setdefault(log_key, []).append(log_entry)
+                        continue
+                    kept.append(conj_clean)
+                if kept:
+                    new_preds.append(" AND ".join(kept))
+            jn.on_predicates = new_preds
+        # Drop joins with no surviving on_predicates -- next iteration's
+        # declared_aliases set will shrink accordingly.
+        before = len(joins)
+        for key in list(joins.keys()):
+            if not joins[key].on_predicates:
+                del joins[key]
+        if len(joins) == before:
+            # Fix point reached -- no joins dropped this iteration.
+            break
     return stripped_log
 
 
@@ -1246,19 +1269,18 @@ def emit_insert_drd_first(
         used_aliases=used_aliases,
     )
 
-    # Phase 7.17 (operator 2026-06-01): validate ON-predicate alias refs.
+    # Phase 7.17 (operator 2026-06-01) + 7.17.1 iterate-to-fix-point.
     # ODI's edge.on_sql can reference aliases that exist only inside ODI's
     # staging world (J$, *_STG_RT, _V1/_V2 renames, _CASH/_SECURITY filtered
     # slices).  Those references break our compiled SQL.  Strip every AND-
     # conjunct whose alias is not in the declared set; if a JOIN's ON goes
     # empty, the downstream "skip empty on_predicates" filter drops it and
-    # the safe_aliases pass reroutes affected SELECT projections.
-    _declared_aliases_after_harvest: set = {base_alias.upper()} | {
-        jn.alias.upper() for jn in joins_by_key.values()
-    }
+    # the safe_aliases pass reroutes affected SELECT projections.  Iterate
+    # because dropping a JOIN removes ITS alias -- other JOINs referencing
+    # it then need re-validation.
     stripped_predicates_log: Dict[str, List[str]] = _validate_join_on_predicates(
         joins=joins_by_key,
-        declared_aliases=_declared_aliases_after_harvest,
+        base_alias=base_alias,
     )
 
     # Detect multi-role lookup tables (same fq joined under >=2 aliases in
