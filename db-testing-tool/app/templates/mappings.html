@@ -2837,21 +2837,29 @@ async function saveE2ECycleToSuite() {
     if (!_lastE2ERecord) { showToast('Run E2E cycle first', 'error'); return; }
     const rec = _lastE2ERecord.test_run_record || {};
     const scripts = _lastE2ERecord.scripts || {};
+    // Phase 7.19.1 fix (operator 2026-06-01): two bugs in this save flow:
+    //  (a) URL was `/api/tests/control-table/save-suite` but backend
+    //      registered `/api/tests/control-table/suite` (no `save-` prefix)
+    //      -> every Save attempt returned 404.
+    //  (b) Payload used `sql_query` field but TestCase model + backend
+    //      handler read `source_query` -- so even with 200, the SQL was
+    //      silently dropped and saved tests had no body.
+    // Both addressed below.
     const payload = {
         suite_name: rec.suite_name || `DRD E2E - ${_lastE2ERecord.target_schema}.${_lastE2ERecord.target_table}`,
         tests: [
             { name: 'CREATE TABLE DDL', test_type: 'ddl', severity: 'critical',
-              sql_query: scripts.create_table_sql || '', description: 'CREATE TABLE from DRD column types' },
+              source_query: scripts.create_table_sql || '', description: 'CREATE TABLE from DRD column types' },
             { name: 'INSERT synthetic data', test_type: 'dml', severity: 'high',
-              sql_query: scripts.insert_sql || '', description: `Insert ${_lastE2ERecord.column_count} columns` },
+              source_query: scripts.insert_sql || '', description: `Insert ${_lastE2ERecord.column_count} columns` },
             ...(scripts.validation_sqls || []).map(vq => ({
                 name: `Validate: ${vq.label}`, test_type: 'validation', severity: 'medium',
-                sql_query: vq.sql, description: vq.label,
+                source_query: vq.sql, description: vq.label,
             })),
         ],
     };
     try {
-        const resp = await fetch('/api/tests/control-table/save-suite', {
+        const resp = await fetch('/api/tests/control-table/suite', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
