@@ -1058,6 +1058,41 @@ def build_control_insert_sql(
             if _st:
                 all_valid_aliases.add(_st)
 
+    # Phase 7.19.4 fix (operator 2026-06-01 B1): DRD authors sometimes shove
+    # multi-line English prose into the `source_attribute` / `transformation`
+    # cell instead of a SQL identifier.  Example (real, from DRD_Activity_Fact
+    # column TRD_CNCLD_F):
+    #   "If there is a record in CCAL_REPL_OWNER.TXN_RLTNP table with
+    #    TXN.TXN_ID = TXN_RLTNP.TRGT_TXN_ID and TXN_RLTNP_TP_ID = 69 (Cancel)
+    #    and TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID then set to 'Y'..."
+    # Without recognition, drd_expression becomes "TRD_CNCLD_F.IF THERE IS..."
+    # and ends up as a literal projection line that breaks the SELECT.
+    #
+    # The drd_rules module already has `extract_exists_derived_flag` +
+    # `compose_exists_case_expr` (used by drd_first_emitter for the same
+    # pattern with provenance DRD_EXISTS_DERIVED_FLAG).  Wire it here too.
+    # Generic: no hardcoded table / column / value.
+    from app.sql_model.drd_rules import (
+        extract_exists_derived_flag, compose_exists_case_expr,
+    )
+    # Loose prose-leak detector for cases where the EXISTS regex does NOT match
+    # but the source_attribute still contains multi-line English (then the
+    # column gets NULL'd with the prose preserved as a SQL comment so the
+    # operator can convert manually).  Conservative: requires (a) newline AND
+    # (b) one of the imperative English keywords.  No false positives on
+    # legitimate SQL CASE WHEN / SUBSTR / DECODE expressions.
+    _PROSE_LEAK_KEYWORDS = (
+        "IF THERE IS", "WHEN THERE IS A RECORD", "THEN SET",
+        "SHOULD BE", "NOTE:", "REFER TO",
+    )
+    def _looks_like_drd_prose(text: str) -> bool:
+        if not text:
+            return False
+        t = text.upper()
+        if "\n" not in text and len(text) < 80:
+            return False
+        return any(kw in t for kw in _PROSE_LEAK_KEYWORDS)
+
     select_lines = []
     insert_cols = []
     for col in target_definition.get("columns", []) or []:
@@ -1066,6 +1101,40 @@ def build_control_insert_sql(
             continue
         insert_cols.append(col_name)
         row = row_map.get(col_name, {}) or {}
+
+        # Phase 7.19.4 short-circuit: if DRD describes EXISTS-style derived
+        # flag, build CASE WHEN EXISTS(...) THEN ... ELSE NULL END.
+        _src_attr_raw = row.get("source_attribute") or ""
+        _trans_raw = row.get("transformation") or ""
+        _exists_spec = (
+            extract_exists_derived_flag(_trans_raw)
+            or extract_exists_derived_flag(_src_attr_raw)
+        )
+        if _exists_spec:
+            expr = compose_exists_case_expr(_exists_spec, else_value="NULL")
+            select_lines.append(f"    {expr} AS {col_name}")
+            continue
+
+        # Phase 7.19.4 prose-leak fallback (no EXISTS pattern matched):
+        # if `source_attribute` (NOT `transformation` — that field commonly
+        # holds documentation prose) looks like English prose, emit NULL
+        # with the prose preserved as a SQL comment.  This stops the
+        # broken-projection leak into the SELECT and signals operator
+        # review.  Narrow scope reduces false positives where the
+        # source_attribute is a bare column but transformation is a doc
+        # block.
+        if _looks_like_drd_prose(_src_attr_raw):
+            _preview = _src_attr_raw
+            # Strip newlines + truncate so the comment stays on one line.
+            _preview_one_line = re.sub(r"\s+", " ", _preview).strip()
+            if len(_preview_one_line) > 200:
+                _preview_one_line = _preview_one_line[:200] + "..."
+            # Escape any */ that would close our /* */ comment prematurely.
+            _preview_safe = _preview_one_line.replace("*/", "*\\/")
+            expr = f"NULL /* DRD_PROSE_TODO: {_preview_safe} */"
+            select_lines.append(f"    {expr} AS {col_name}")
+            continue
+
         expr = row.get("drd_expression") or "NULL"
         # Defensive: even if analysis_rows is stale or was produced before the
         # align fix, reconcile bare ALIAS.COL against DRD source_attribute.

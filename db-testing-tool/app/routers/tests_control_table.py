@@ -1353,6 +1353,10 @@ class GenerateAttributeTestsRequest(BaseModel):
     # Optional CT infrastructure scripts — prepended as the first two tests in the suite
     create_table_sql: Optional[str] = None   # CREATE TABLE (control table DDL)
     insert_sql: Optional[str] = None         # INSERT INTO control table SELECT FROM source
+    # Phase 7.19.5: pre-built test defs from analyze step (build_control_table_test_defs).
+    # When provided, these are persisted as-is instead of regenerating with the
+    # `attribute_test_generator_service` (which produced bloated JOIN queries).
+    prebuilt_tests: Optional[List[dict]] = None
 
 
 @_ct_router.post("/control-table/generate-attribute-tests")
@@ -1417,17 +1421,34 @@ async def generate_attribute_test_suite(body: GenerateAttributeTestsRequest, db:
         })
 
     # ── Step 2: Generate per-attribute tests ────────────────────────────
-    tests = generate_attribute_tests(
-        analysis_rows=body.analysis_rows,
-        target_schema=body.target_schema,
-        target_table=body.target_table,
-        generated_sql=body.generated_sql,
-        source_datasource_id=body.source_datasource_id,
-        target_datasource_id=body.target_datasource_id,
-        pbi_id=body.pbi_id,
-        suite_prefix=body.suite_prefix,
-        grain_columns=body.grain_columns,
-    )
+    # Phase 7.19.5 (operator B2): prefer pre-built tests from analyze step
+    # over re-generating from analysis_rows.  The analyze response's
+    # `tests` field (build_control_table_test_defs) produces compact
+    # "TARGET T JOIN CONTROL CTL ON <PK> WHERE NVL(T.col)<>NVL(CTL.col)"
+    # form -- exactly what the UI preview shows.  The legacy fallback
+    # `generate_attribute_tests` glued the WHOLE 50+ JOIN block into
+    # every test's source_query and ended up with broken SQL.
+    if body.prebuilt_tests:
+        # Filter out the DDL/INSERT helper defs since those land via the
+        # explicit `create_table_sql` + `insert_sql` paths below (steps 3/4).
+        # build_control_table_test_defs prefixes them with "Setup:" -- skip
+        # via `is_active=False` flag which marks them as infrastructure.
+        tests = [
+            t for t in body.prebuilt_tests
+            if t.get("is_active", True) is not False
+        ]
+    else:
+        tests = generate_attribute_tests(
+            analysis_rows=body.analysis_rows,
+            target_schema=body.target_schema,
+            target_table=body.target_table,
+            generated_sql=body.generated_sql,
+            source_datasource_id=body.source_datasource_id,
+            target_datasource_id=body.target_datasource_id,
+            pbi_id=body.pbi_id,
+            suite_prefix=body.suite_prefix,
+            grain_columns=body.grain_columns,
+        )
 
     if not tests and not body.create_table_sql and not body.insert_sql:
         raise HTTPException(422, "No attribute tests could be generated from the provided rows")

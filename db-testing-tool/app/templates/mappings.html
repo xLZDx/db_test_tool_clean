@@ -7362,6 +7362,16 @@ async function generatePerAttributeTestSuite(prefix) {
     const tgtDsId = parseInt((document.getElementById('ct-target-ds') || {}).value || '0');
     const pbiId = (document.getElementById('drd-tfs-item-id') || {}).value || '';
 
+    // Phase 7.19.5 fix (operator B2): the analyze step already builds the
+    // CORRECT test defs in `_ctState.analysis.tests` (via
+    // build_control_table_test_defs).  Those use the compact
+    // "TARGET T JOIN CONTROL CTL ON <PK> WHERE NVL(T.col) <> NVL(CTL.col)"
+    // form -- exactly what the UI preview shows.  Pass them through so
+    // the backend persists them as-is instead of regenerating with the
+    // bloated `attribute_test_generator_service.generate_attribute_tests`
+    // (which glued the WHOLE 50+ JOIN block into every test's source_query).
+    const prebuiltTests = (_ctState && _ctState.analysis && _ctState.analysis.tests) || [];
+
     try {
         const res = await api('POST', '/api/tests/control-table/generate-attribute-tests', {
             analysis_rows: rows,
@@ -7375,6 +7385,7 @@ async function generatePerAttributeTestSuite(prefix) {
             pbi_id: pbiId ? `PBI${pbiId}` : '',
             suite_prefix: prefix,
             folder_name: `${prefix}_TEST`,
+            prebuilt_tests: prebuiltTests,
         });
         if (statusEl) statusEl.textContent = `✓ Created ${res.count} tests in folder "${res.folder_name}" (ID ${res.folder_id})`;
         showToast(`Generated ${res.count} per-attribute tests → ${res.folder_name}`, 'success');
