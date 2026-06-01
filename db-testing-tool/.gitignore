@@ -18,3 +18,12 @@ data/MISMATCH_TABLE_*Copy*.csv
 data/api_runs/
 .tmp_pytest/
 *.pyc
+
+# Phase 7.18 (operator 2026-06-01): KB files excluded from git temporarily.
+# Large (22-111 MB) generated artefacts that bloat the repo and are
+# regenerated on demand via `python scripts/regen_pdm_from_freepdb1.py`
+# or the GUI Schema Browser -> Generate PDM flow.
+data/local_kb/schema_kb_ds_*.json
+data/local_kb/schema_kb_ds_*.md
+data/local_kb/hint_index_ds_*.json
+data/local_kb/operation_history.jsonl
