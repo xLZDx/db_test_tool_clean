@@ -7328,9 +7328,36 @@ async function generatePerAttributeTestSuite(prefix) {
         return;
     }
 
-    const targetSchema = (document.getElementById('ct-target-schema') || {}).value || '';
-    const targetTable = (document.getElementById('ct-target-table') || {}).value || '';
+    // Phase 7.19.3 fix (operator 2026-06-01):
+    // (B5) HTML inputs are `ct-target` (single SCHEMA.TABLE combined) and
+    //      `ct-source-table` (same).  Previous JS read non-existent
+    //      `ct-target-schema` + `ct-target-table` IDs -> empty strings ->
+    //      target SQL became `SELECT COUNT(*) FROM . WHERE col IS NOT NULL`.
+    //      Now: read combined input, split on the FIRST dot.
+    // (B4) Previous JS sent only `analysis_rows + generated_sql`.  DDL +
+    //      INSERT helpers were not passed -> backend conditionally
+    //      created them only when present -> only 369 attribute tests
+    //      ended up in the folder (operator expected DDL + INSERT too).
+    //      Now: pass `create_table_sql` (from ct-ddl-sql textarea) and
+    //      `insert_sql` (from ct-insert-sql textarea) so the backend
+    //      prepends both helpers.
+    const splitFq = (combined) => {
+        const s = (combined || '').trim();
+        if (!s) return ['', ''];
+        const i = s.indexOf('.');
+        return i < 0 ? ['', s] : [s.slice(0, i), s.slice(i + 1)];
+    };
+    const [targetSchema, targetTable] = splitFq(
+        (document.getElementById('ct-target') || {}).value || ''
+    );
+    const [_srcSchemaUnused, _srcTableUnused] = splitFq(
+        (document.getElementById('ct-source-table') || {}).value || ''
+    );
     const generatedSql = (_ctState && _ctState.analysis && _ctState.analysis.generated_insert_sql) || '';
+    const ddlSqlEl = document.getElementById('ct-ddl-sql');
+    const insertSqlEl = document.getElementById('ct-insert-sql');
+    const createTableSql = (ddlSqlEl && ddlSqlEl.value) || '';
+    const insertSql = (insertSqlEl && insertSqlEl.value) || generatedSql || '';
     const srcDsId = parseInt((document.getElementById('ct-source-ds') || {}).value || '0');
     const tgtDsId = parseInt((document.getElementById('ct-target-ds') || {}).value || '0');
     const pbiId = (document.getElementById('drd-tfs-item-id') || {}).value || '';
@@ -7339,6 +7366,8 @@ async function generatePerAttributeTestSuite(prefix) {
         const res = await api('POST', '/api/tests/control-table/generate-attribute-tests', {
             analysis_rows: rows,
             generated_sql: generatedSql,
+            create_table_sql: createTableSql,
+            insert_sql: insertSql,
             target_schema: targetSchema,
             target_table: targetTable,
             source_datasource_id: srcDsId,
