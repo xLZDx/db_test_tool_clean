@@ -7305,8 +7305,15 @@ async function generatePerAttributeTestSuite(prefix) {
     const statusEl = document.getElementById('ct-gen-suite-status');
     if (statusEl) statusEl.textContent = `Generating ${prefix} suite...`;
 
-    // Gather analysis rows from current CT state
-    const rows = window._ctAnalysisRows || [];
+    // Gather analysis rows from current CT state.
+    // Phase 7.19 fix (operator 2026-06-01): previous code read
+    // `window._ctAnalysisRows` and `window._ctGeneratedSql`, but those
+    // globals are NEVER SET anywhere in the codebase -- the real state
+    // lives in `_ctState.analysis.analysis_rows` (populated at line ~6914
+    // after analyzeControlTable returns) and `.generated_insert_sql`.
+    // Variable-name mismatch made the "No analysis rows available" toast
+    // fire every time even after a successful analysis run.
+    const rows = (_ctState && _ctState.analysis && _ctState.analysis.analysis_rows) || [];
     if (!rows.length) {
         showToast('No analysis rows available. Run CT analysis first.', 'error');
         if (statusEl) statusEl.textContent = '';
@@ -7315,7 +7322,7 @@ async function generatePerAttributeTestSuite(prefix) {
 
     const targetSchema = (document.getElementById('ct-target-schema') || {}).value || '';
     const targetTable = (document.getElementById('ct-target-table') || {}).value || '';
-    const generatedSql = window._ctGeneratedSql || '';
+    const generatedSql = (_ctState && _ctState.analysis && _ctState.analysis.generated_insert_sql) || '';
     const srcDsId = parseInt((document.getElementById('ct-source-ds') || {}).value || '0');
     const tgtDsId = parseInt((document.getElementById('ct-target-ds') || {}).value || '0');
     const pbiId = (document.getElementById('drd-tfs-item-id') || {}).value || '';
