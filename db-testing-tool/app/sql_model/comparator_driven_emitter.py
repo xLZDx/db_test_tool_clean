@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.sql_model.types import ComparisonVerdict, ODIModel
-from app.sql_model.comparator import ComparisonResult
+from app.sql_model.comparator import ComparisonResult, _columns_equivalent_via_confirmed_pair
 
 
 _log = logging.getLogger(__name__)
@@ -618,7 +618,20 @@ def emit_insert_comparator_driven(
             ))
             continue
 
-        proj_expr = f"{alias}.{_quote_if_reserved(drd_attr)}"
+        # Phase 7.19.15 (2026-06-02): emit the PHYSICAL column name, not the
+        # DRD logical name, when the two are an operator-confirmed pair
+        # (e.g. DRD wrote YIELD_TO_WORST_CD but the physical column is
+        # YTW_CD).  The confirmed pair resolved the COMPARISON to MATCHED,
+        # but emitting the DRD logical name produced ORA-00904 at runtime
+        # (no such column).  res.odi_col is the comparator-verified physical
+        # name; use it when it differs from drd_attr and forms a confirmed
+        # pair.  Generic -- pairs live in comparator_config.json, not code.
+        _emit_attr = drd_attr
+        _odi_col = (res.odi_col or "").strip() if res else ""
+        if _odi_col and _odi_col.upper() != drd_attr.upper() \
+                and _columns_equivalent_via_confirmed_pair(drd_attr, _odi_col):
+            _emit_attr = _odi_col
+        proj_expr = f"{alias}.{_quote_if_reserved(_emit_attr)}"
 
         # Verdict annotation (ODI verifies DRD; ODI is NEVER the source).
         if verdict == ComparisonVerdict.MATCHED.value:
