@@ -911,6 +911,11 @@ def build_control_insert_sql(
             "src_key": _src_key,
             "has_source_ref": _has_source_ref,
             "score": _score,
+            # Phase 7.19.10 (2026-06-02): carry the DRD row's authoritative
+            # source_schema so the resolver can correct a lookup_join whose
+            # schema prefix came from prose and disagrees with the
+            # structured source_schema column.
+            "source_schema": (row.get("source_schema") or "").strip().upper(),
         })
 
     # Collapse competing duplicates by lookup table + source key quality.
@@ -953,10 +958,51 @@ def build_control_insert_sql(
         # skip JOIN emission and force dependent expressions to NULL marker later.
         _lk_schema, _lk_name = split_fq_table(_lk_fq)
         if source_schema_index is not None and not find_table(source_schema_index, _lk_schema, _lk_name):
-            if old_alias:
-                pdm_missing_old_aliases.add(old_alias.upper())
-            pdm_missing_lookup_bases.add(_lk_bare.upper())
-            continue
+            # Phase 7.19.10 (2026-06-02): the lookup_join's schema prefix is
+            # sometimes WRONG -- it was parsed from the DRD transformation
+            # prose, which can name a different schema than the structured,
+            # authoritative source_schema column.  Real case (operator
+            # 2026-06-02): prose said CCAL_REPL_OWNER.IMPCT_ACTION_LKU but
+            # the table actually lives in REFERENCE_REPL_OWNER (confirmed
+            # present in the PDM + the live FREEPDB1 DB).  Before declaring
+            # PDM_MISS, retry resolution using (a) the row's authoritative
+            # source_schema, then (b) a bare table-name search.  If either
+            # resolves, rewrite the JOIN's schema prefix so the emitted SQL
+            # references the correct schema.  Only a genuinely-absent table
+            # falls through to PDM_MISS.
+            _authoritative_schema = (cand.get("source_schema") or "").strip().upper()
+            _corrected = None
+            if _authoritative_schema and _authoritative_schema != _lk_schema and \
+                    find_table(source_schema_index, _authoritative_schema, _lk_name):
+                _corrected = _authoritative_schema
+            else:
+                _bare_hit = find_table(source_schema_index, "", _lk_name)
+                if _bare_hit and (_bare_hit.get("schema") or "").strip():
+                    _corrected = _bare_hit["schema"].strip().upper()
+            if _corrected and _corrected != _lk_schema:
+                # Rewrite SCHEMA.TABLE in the join SQL + cached fq.
+                _old_prefix = f"{_lk_schema}.{_lk_name}" if _lk_schema else _lk_name
+                lookup_join = re.sub(
+                    rf'\b{re.escape(_lk_schema)}\.{re.escape(_lk_name)}\b' if _lk_schema
+                    else rf'\b{re.escape(_lk_name)}\b',
+                    f'{_corrected}.{_lk_name}',
+                    lookup_join,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                _lk_schema = _corrected
+                _lk_fq = f"{_corrected}.{_lk_name}"
+                logger.info(
+                    "build_control_insert_sql: corrected lookup schema for "
+                    "%s -> %s.%s (lookup_join prose schema disagreed with "
+                    "authoritative source_schema/PDM)",
+                    _old_prefix, _corrected, _lk_name,
+                )
+            elif _corrected is None:
+                if old_alias:
+                    pdm_missing_old_aliases.add(old_alias.upper())
+                pdm_missing_lookup_bases.add(_lk_bare.upper())
+                continue
 
         join_sql_renamed = replace_join_alias(lookup_join, old_alias, new_alias) if old_alias else lookup_join
         # Normalize S. references in JOIN ON clause to use source ref name
