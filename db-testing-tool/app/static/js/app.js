@@ -325,7 +325,10 @@ const API = {
         return api('DELETE', `/api/tests/control-table/file-state?${params.toString()}`);
     },
     saveControlTableInsertState: (payload) => api('POST', '/api/tests/control-table/save-insert-state', payload || {}),
-    saveControlTableSuite: (suiteName, tests) => api('POST', '/api/tests/control-table/save-suite', {
+    // Phase 7.19.8 (2026-06-02): backend route is /control-table/suite
+    // (no -save prefix). Pre-fix URL /control-table/save-suite returned
+    // 404 -> "Save failed: 404" the operator reported on 2026-06-01.
+    saveControlTableSuite: (suiteName, tests) => api('POST', '/api/tests/control-table/suite', {
         suite_name: suiteName,
         tests,
     }),

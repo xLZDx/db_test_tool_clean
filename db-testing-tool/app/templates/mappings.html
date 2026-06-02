@@ -7389,6 +7389,13 @@ async function generatePerAttributeTestSuite(prefix) {
         });
         if (statusEl) statusEl.textContent = `✓ Created ${res.count} tests in folder "${res.folder_name}" (ID ${res.folder_id})`;
         showToast(`Generated ${res.count} per-attribute tests → ${res.folder_name}`, 'success');
+        // Phase 7.19.8 (2026-06-02): tests-tbody grid lives on the same
+        // Test Management page that hosts this modal. Without an explicit
+        // refresh the operator must F5 to see the newly-persisted suite.
+        // Fire-and-forget; loadTestsUnified is on the parent page scope.
+        if (typeof loadTestsUnified === 'function') {
+            loadTestsUnified();
+        }
     } catch (e) {
         showToast(`Failed to generate ${prefix} suite: ${e.message}`, 'error');
         if (statusEl) statusEl.textContent = 'Error: ' + e.message;

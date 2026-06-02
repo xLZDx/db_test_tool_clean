@@ -1223,6 +1223,26 @@ def build_control_insert_sql(
         # Defensive: even if analysis_rows is stale or was produced before the
         # align fix, reconcile bare ALIAS.COL against DRD source_attribute.
         expr = align_expr_with_source_attr(expr, (row.get("source_attribute") or "").strip().upper())
+
+        # Phase 7.19.8 (2026-06-02): when drd_expression is a bare
+        # ``<alias>.<col>`` form where <col> matches source_attribute,
+        # ALSO force the alias to match the row's own source_table
+        # bare-name.  Generic; no hardcoded table names.  Triggering
+        # case: baseline test-SQL extractor builds ``TXN.PD_CMPOS_DSC``
+        # when the row's authoritative source_table is APA -> Oracle
+        # ORA-00904 because PD_CMPOS_DSC is not a TXN column.  Skip the
+        # remap when the column is also a legitimate column on the
+        # alias's bound table (defence against multi-source overrides);
+        # the source-attribute set check below provides that.
+        _src_table_bare_align = (row.get("source_table") or "").strip().split("\n")[0].split(",")[0].strip().upper().split(".")[-1]
+        _src_attr_u_align = (row.get("source_attribute") or "").strip().upper()
+        if _src_table_bare_align and _src_attr_u_align and _RE_BARE_IDENT.match(_src_attr_u_align):
+            _m_align = _RE_BARE_ALIAS_COL.match(expr)
+            if _m_align:
+                _cur_alias = _m_align.group(1).upper()
+                _cur_col = _m_align.group(2).upper()
+                if _cur_col == _src_attr_u_align and _cur_alias != _src_table_bare_align and _cur_alias != "S":
+                    expr = f"{_src_table_bare_align}.{_cur_col}"
         lookup_join = sanitize_lookup_join_sql((row.get("lookup_join") or "").strip())
         if lookup_join and lookup_join in join_alias_map:
             old_alias, new_alias = join_alias_map[lookup_join]
