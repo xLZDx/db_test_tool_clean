@@ -903,6 +903,7 @@
         <div class="modal-header">
             <h2>Control Table Tests Generator</h2>
             <div class="ct-modal-header-actions">
+                <button class="btn btn-outline btn-sm" id="ct-refresh-btn" onclick="refreshControlTableGenerator()" title="Clear DRD, results and comparison -- start a fresh generation">Refresh</button>
                 <button class="btn btn-outline btn-sm" id="ct-fullscreen-btn" onclick="toggleControlTableFullscreen()">Full Screen</button>
                 <button class="modal-close" onclick="closeControlTableModal()">&times;</button>
             </div>
@@ -5455,8 +5456,19 @@ function toggleControlTableFullscreen() {
 }
 
 function closeControlTableModal() {
-    resetControlTableModalState();
+    // Phase 7.19.9 (2026-06-02, operator): closing the generator must NOT
+    // wipe results.  The operator closes the modal to glance at the test
+    // grid / dashboard, then reopens expecting the generated INSERT +
+    // comparison to still be there.  State is reset only on (a) selecting
+    // a NEW DRD file [onCtDrdFileChanged] or (b) the explicit Refresh
+    // button [refreshControlTableGenerator].
     closeModal('modal-control-table');
+}
+
+function refreshControlTableGenerator() {
+    // Explicit operator-driven clean slate (header Refresh button).
+    resetControlTableModalState();
+    showToast('Control-table generator reset', 'info');
 }
 
 function copyCtOutput(elemId) {
@@ -5721,12 +5733,43 @@ function _renderControlTableFieldSelection(preview) {
     `).join('');
 }
 
+function _resetControlTableResultsOnly() {
+    // Phase 7.19.9 (2026-06-02): clear prior generation results WITHOUT
+    // touching the DRD file input, datasource selects, or target/source
+    // table fields.  Called when a NEW DRD is selected so stale results
+    // from a previous DRD don't linger, while preserving the operator's
+    // current file + DS context.
+    _ctState.analysis = null;
+    _ctState.preview = null;
+    _ctState.manualOverrides = { drd: {}, generated: {} };
+    _ctState.compareChoices = {};
+    _ctState.mainJoinsOriginal = '';
+    const ctOutput = document.getElementById('ct-output');
+    if (ctOutput) ctOutput.style.display = 'none';
+    ['ct-ddl-sql', 'ct-insert-sql', 'ct-manual-sql', 'ct-main-joins'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const compareResults = document.getElementById('ct-compare-results');
+    if (compareResults) compareResults.innerHTML = '';
+    const compareSummary = document.getElementById('ct-compare-summary');
+    if (compareSummary) compareSummary.textContent = '';
+    const checkOut = document.getElementById('ct-sql-check-result');
+    if (checkOut) checkOut.innerHTML = '';
+    const genSuiteStatus = document.getElementById('ct-gen-suite-status');
+    if (genSuiteStatus) genSuiteStatus.textContent = '';
+}
+
 async function onCtDrdFileChanged() {
     const file = document.getElementById('ct-drd-file').files?.[0];
     const sheetRow = document.getElementById('ct-sheet-row');
     const sheetSelect = document.getElementById('ct-sheet-name');
     const sheetMeta = document.getElementById('ct-sheet-meta');
     if (!file) { sheetRow.style.display = 'none'; return; }
+    // Phase 7.19.9 (2026-06-02, operator): re-adding a DRD clears prior
+    // results so the operator never sees stale generated SQL from the
+    // previous DRD. File + DS + target context are preserved.
+    _resetControlTableResultsOnly();
     // Operator-locked (2026-05-29 Phase 7.4 Issue 6): stash the file in
     // _ctState immediately on selection so subsequent
     // generateControlTableTests calls work even when the file input has

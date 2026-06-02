@@ -2966,8 +2966,13 @@ def derive_lookup_from_transformation(
     return join_sql, f"{_lk_bare}.{val_col}"
 
 
-def _build_table_index(datasource_id: int) -> Dict[Tuple[str, str], Dict[str, Any]]:
-    payload = load_schema_kb_payload(datasource_id)
+def _index_from_kb_payload(payload: Dict[str, Any]) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """Build a {(schema, table): {columns}} index from a KB payload.
+
+    Uses setdefault so EARLIER sources win on duplicate (schema, table).
+    When the caller merges multiple datasources' KBs, the merge order
+    (lower ds id first via sorted filename glob) decides precedence.
+    """
     index: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for source in payload.get("sources", []):
         pdm = (source or {}).get("pdm", {})
@@ -2984,11 +2989,29 @@ def _build_table_index(datasource_id: int) -> Dict[Tuple[str, str], Dict[str, An
                     for c in table.get("columns", []) or []
                     if (c.get("name") or "").strip()
                 }
-                index[(schema_name, table_name)] = {
+                index.setdefault((schema_name, table_name), {
                     "schema": schema_name,
                     "table": table_name,
                     "columns": col_map,
-                }
+                })
+    return index
+
+
+def _build_table_index(datasource_id: int) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    index = _index_from_kb_payload(load_schema_kb_payload(datasource_id))
+
+    # Phase 7.19.9 (2026-06-02): KB fallback for datasources that have no
+    # generated schema_kb_ds_<id>.json yet.  Without this, the source
+    # schema index is EMPTY and the emitter marks every lookup table as
+    # PDM_MISS, producing an all-NULL INSERT.  Operator-reported
+    # regression 2026-06-02 after ds_2 (FREEPDB1_LOCAL) was registered
+    # for the DPY-6005 DNS fix: ds_2 had no KB JSON (only a .md), so the
+    # CT generator produced 264 PDM_MISS / 304 NULL projections vs ds_1's
+    # 1 PDM_MISS / 36 mismatches.  Mirrors load_target_table_definition's
+    # multi-KB lookup order.  Only empty-KB datasources pay the merge
+    # cost; KB-backed datasources (e.g. ds_1 with 5447 tables) skip it.
+    if not index:
+        index = _index_from_kb_payload(load_schema_kb_payload(None))
     return index
 
 
