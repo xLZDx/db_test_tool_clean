@@ -1893,7 +1893,12 @@ def compare_insert_variants(
         _man_present = bool(manual_expr)
         _all_missing = not (_drd_present or _gen_present or _man_present)
         _all_identical = (drd_expr == generated_expr == manual_expr) if _drd_present else False
-        _real_difference = not (_all_missing or _all_identical) and status != "match_all"
+        # Phase 7.19.14: drd_prose_uncomparable is NOT a red difference -- the
+        # generated SQL is correct; the DRD baseline is just unparseable prose.
+        _real_difference = (
+            not (_all_missing or _all_identical)
+            and status not in ("match_all", "drd_prose_uncomparable")
+        )
         
         rows.append(
             {
@@ -1914,6 +1919,27 @@ def compare_insert_variants(
     return {"rows": rows, "mismatch_count": mismatch_count, "total_rows": len(rows)}
 
 
+_MODULE_PROSE_KEYWORDS = (
+    "IF THERE IS", "WHEN THERE IS A RECORD", "THEN SET", "SHOULD BE",
+    "NOTE:", "REFER TO", "AUDIT COLUMN", ". DEFAULT ",
+)
+
+
+def _looks_like_drd_prose(text: str) -> bool:
+    """Module-level prose detector (mirror of the nested one in
+    build_control_insert_sql) so compare_column_status can use it.
+    A value is prose when it is multi-line OR carries an imperative
+    English authoring marker -- never a single short SQL token."""
+    if not text:
+        return False
+    t = str(text).upper()
+    if "AUDIT COLUMN" in t or ". DEFAULT " in t:
+        return True
+    if "\n" not in text and len(text) < 80:
+        return False
+    return any(kw in t for kw in _MODULE_PROSE_KEYWORDS)
+
+
 def compare_column_status(
     drd_expr: str,
     generated_expr: str,
@@ -1932,6 +1958,17 @@ def compare_column_status(
         return "generated_missing"
     if manual_supplied and not manual_expr:
         return "manual_missing"
+
+    # Phase 7.19.14 (2026-06-02): the DRD baseline is sometimes unparseable
+    # English PROSE (e.g. TRD_CNCLD_F: a multi-line "IF THERE IS A RECORD ..."
+    # description) while the GENERATED side is correct SQL (a real CASE WHEN
+    # EXISTS(...)).  normalize_sql_expr can never equate prose with SQL, so it
+    # was reported as a red generated_mismatch even though the generated SQL is
+    # right.  Classify it as its own non-red status so it is excluded from the
+    # mismatch count (the generated SQL is the source of truth here).
+    if generated_expr and drd_expr and _looks_like_drd_prose(drd_expr) \
+            and not _looks_like_drd_prose(generated_expr):
+        return "drd_prose_uncomparable"
 
     manual_only = (compare_mode or "").strip().lower() in {"generated_manual", "manual_generated"}
     if manual_only:
@@ -2696,6 +2733,13 @@ def strip_sql_qualifiers(text: str) -> str:
         if updated == out:
             break
         out = updated
+    # Phase 7.19.14 (2026-06-02): also collapse ALIAS.<numeric-literal>.
+    # A column name can never be a bare number, so a numeric leaf after a
+    # dot is always a mis-qualified literal (DRD baseline "TXN.123456" vs
+    # generated "123456").  The alpha-anchored pattern above never matched
+    # it, so SESS_NO (DRD=TXN.123456, gen=123456) showed a FALSE
+    # generated_mismatch.  Real columns (TXN.SESS_NO) are untouched.
+    out = re.sub(r"\b[A-Z_][A-Z0-9_\$#]*\.(-?\d+(?:\.\d+)?)\b", r"\1", out)
     return out
 
 
