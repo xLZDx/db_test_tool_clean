@@ -2041,6 +2041,99 @@ def align_expression_with_sql_aliases(expr: str, table_alias_map: Dict[str, str]
     return text
 
 
+def _iter_select_from_clauses(sql_text: str) -> List[Dict[str, Any]]:
+    """Find SELECT...FROM clause spans, paren-depth aware.
+
+    Phase 7.19.11 (2026-06-02).  A FROM closes a SELECT only when it is
+    encountered at the SAME parenthesis depth the SELECT opened at.  This
+    is critical for the control-table INSERT, whose SELECT column list
+    contains nested ``CASE WHEN EXISTS (SELECT 1 FROM <lkup> WHERE ...)``
+    subqueries.  The old ``\\bSELECT\\b(.*?)\\bFROM\\b`` non-greedy regex
+    stopped at the FIRST FROM -- i.e. the one INSIDE the first EXISTS
+    subquery -- truncating the main column list (operator-reported
+    2026-06-02: 369 columns but only 224 extracted -> 145 false
+    GENERATED_MISSING).  Quotes, line comments and block comments are
+    skipped so a FROM / paren inside a string or comment never miscounts.
+    """
+    text = sql_text or ""
+    n = len(text)
+    i = 0
+    depth = 0
+    in_s = in_d = in_line = in_block = False
+    pending: List[Tuple[int, int]] = []   # (clause_start_index, depth_at_SELECT)
+    results: List[Dict[str, Any]] = []
+    _word_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    while i < n:
+        ch = text[i]
+        nx = text[i + 1] if i + 1 < n else ""
+        if in_line:
+            if ch == "\n":
+                in_line = False
+            i += 1
+            continue
+        if in_block:
+            if ch == "*" and nx == "/":
+                in_block = False
+                i += 2
+                continue
+            i += 1
+            continue
+        if in_s:
+            if ch == "'":
+                in_s = False
+            i += 1
+            continue
+        if in_d:
+            if ch == '"':
+                in_d = False
+            i += 1
+            continue
+        if ch == "-" and nx == "-":
+            in_line = True
+            i += 2
+            continue
+        if ch == "/" and nx == "*":
+            in_block = True
+            i += 2
+            continue
+        if ch == "'":
+            in_s = True
+            i += 1
+            continue
+        if ch == '"':
+            in_d = True
+            i += 1
+            continue
+        if ch == "(":
+            depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if ch.isalpha() or ch == "_":
+            m = _word_re.match(text, i)
+            wu = m.group(0).upper()
+            if wu == "SELECT":
+                pending.append((m.end(), depth))
+            elif wu == "FROM" and pending:
+                for k in range(len(pending) - 1, -1, -1):
+                    cstart, cdepth = pending[k]
+                    if cdepth == depth:
+                        results.append({
+                            "select_start": cstart,
+                            "select_end": m.start(),
+                            "clause": text[cstart:m.start()],
+                        })
+                        del pending[k]
+                        break
+            i = m.end()
+            continue
+        i += 1
+    return results
+
+
 def extract_sql_expression_map(
     sql_text: str,
     include_meta: bool = False,
@@ -2051,8 +2144,8 @@ def extract_sql_expression_map(
 
     insert_columns = parse_insert_target_columns(sql_text)
     candidates = []
-    for match in re.finditer(r"\bSELECT\b(?P<select>.*?)\bFROM\b", sql_text, flags=re.IGNORECASE | re.DOTALL):
-        clause = match.group("select")
+    for _clause_span in _iter_select_from_clauses(sql_text):
+        clause = _clause_span["clause"]
         parts = split_sql_columns(clause)
         alias_map = {}
         alias_index = {}
@@ -2076,8 +2169,8 @@ def extract_sql_expression_map(
             alias_count = len(alias_map)
         candidates.append(
             {
-                "select_start": match.start("select"),
-                "select_end": match.end("select"),
+                "select_start": _clause_span["select_start"],
+                "select_end": _clause_span["select_end"],
                 "parts": parts,
                 "map": alias_map,
                 "alias_index": alias_index,
