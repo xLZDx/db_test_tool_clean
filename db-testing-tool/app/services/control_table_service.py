@@ -520,6 +520,20 @@ def build_analysis_rows(
         row = row_by_target.get(col_name, {})
         baseline = baseline_by_target.get(col_name, {})
         source_attr = (row.get("source_attribute") or "").strip().upper()
+        # Phase 7.19.13 (2026-06-02): DRD source_attribute cells sometimes
+        # contain a newline where two spreadsheet rows/cells got merged
+        # (e.g. "STM_BASE_CCY_AMT\nOTHR_FEE").  A column name can never
+        # contain a newline, so when the value is a bare column followed by
+        # a newline, keep only the first physical line -- otherwise the raw
+        # newline leaks into the emitted SELECT and breaks the SQL
+        # (ORA-00923).  Multi-line PROSE transformations are unaffected --
+        # this only trims source_attribute, and only when line 1 is itself
+        # a clean identifier.  Latent bug surfaced by the 7.19.9 KB fallback
+        # (the owning alias used to be PDM_MISS -> NULL, hiding the leak).
+        if "\n" in source_attr:
+            _first_line = source_attr.split("\n", 1)[0].strip()
+            if re.match(r"^[A-Z_][A-Z0-9_\$#]*$", _first_line):
+                source_attr = _first_line
         expr_info = extract_expr_from_test_sql(
             sql=baseline.get("source_query") or "",
             target_schema=target_schema,
@@ -579,6 +593,20 @@ def build_analysis_rows(
                 etl_block_ref = refs[0]
                 body = resolve_block_body(search_text, etl_block_index)
                 etl_block_body = body or ""
+
+        # Phase 7.19.12 (2026-06-02): repair garbage drd_expression baseline
+        # derived from prose ('ED'/'EC'/wrong-column) when the structured
+        # source_attribute is a real column present in the source PDM.  Keeps
+        # the comparison baseline honest so correct generated expressions do
+        # not show as false GENERATED_MISMATCH.
+        _src_tbl_bare_drd = (row.get("source_table") or "").strip().split("\n")[0].split(",")[0].strip().upper().split(".")[-1]
+        _sa_in_pdm = False
+        if source_schema_index is not None and source_attr and re.match(r"^[A-Z_][A-Z0-9_]*$", source_attr):
+            _tbl_def = find_table(source_schema_index, (row.get("source_schema") or "").strip(), _src_tbl_bare_drd)
+            _sa_in_pdm = bool(_tbl_def and source_attr in _tbl_def.get("columns", {}))
+        drd_expr = reconcile_drd_expr_with_source_attr(
+            drd_expr, _src_tbl_bare_drd, source_attr, source_attr_in_pdm=_sa_in_pdm,
+        )
 
         analysis.append(
             {
@@ -652,6 +680,164 @@ def align_expr_with_source_attr(expr: str, source_attr: str) -> str:
     if col == src:
         return expr  # already aligned
     return f"{alias}.{src}"
+
+
+def reconcile_drd_expr_with_source_attr(
+    drd_expr: str,
+    source_table_bare: str,
+    source_attr: str,
+    *,
+    source_attr_in_pdm: bool,
+) -> str:
+    """Phase 7.19.12 (2026-06-02): repair a garbage drd_expression baseline.
+
+    The DRD parser sometimes derives drd_expression from PROSE
+    transformations and yields fragments -- ``'ED'`` from "PopulatED",
+    ``'EC'`` from "APASEC" -- or a stale default that names the WRONG
+    column (e.g. ``CL_VAL.CL_VAL_NM`` for a column whose source_attribute
+    is ``SALE_CHRG_RATE``).  These poison the comparison baseline: the
+    generated expression is correct (it uses source_attribute) but the
+    drd_expression it is compared against is junk, so every such column
+    shows a false GENERATED_MISMATCH.
+
+    When the structured ``source_attribute`` is a real column (present in
+    the source table's PDM) but the derived ``drd_expr`` is a bare literal
+    OR a simple qualified reference to a DIFFERENT column, rebuild the
+    baseline as ``<source_table>.<source_attribute>`` so the comparison
+    reflects the DRD's STRUCTURED intent.  Genuine complex expressions
+    (CASE / NVL / DECODE / COALESCE / SUBSTR / TO_CHAR / arithmetic /
+    concatenation / sub-selects) are left untouched -- only obvious
+    misparses are corrected.  Generic: no hardcoded table/column names.
+    """
+    sa = (source_attr or "").strip().upper()
+    if not sa or not re.match(r"^[A-Z_][A-Z0-9_]*$", sa):
+        return drd_expr
+    if not source_attr_in_pdm:
+        return drd_expr  # cannot trust source_attribute -> leave baseline as-is
+    expr = (drd_expr or "").strip()
+    rebuilt = f"{source_table_bare}.{sa}" if source_table_bare else sa
+    if not expr:
+        return rebuilt
+    upper = expr.upper()
+    # Leave genuine complex/derived expressions alone.
+    if re.search(
+        r"\b(CASE|SELECT|NVL|DECODE|COALESCE|SUBSTR|TO_CHAR|TO_DATE|TO_NUMBER|CAST|TRIM|ROUND)\b"
+        r"|\|\||\(",
+        upper,
+    ):
+        return drd_expr
+    is_literal = bool(re.match(r"^'[^']*'$", expr) or re.match(r"^-?\d+(\.\d+)?$", expr))
+    m = re.match(r"^(?:[A-Z_][A-Z0-9_\$#]*\.)?([A-Z_][A-Z0-9_\$#]*)$", upper)
+    col_part = m.group(1) if m else None
+    if is_literal or (col_part is not None and col_part != sa):
+        return rebuilt
+    return drd_expr
+
+
+def extract_embedded_join_chain(
+    transformation: str,
+    *,
+    main_alias: str,
+    drd_source_table: str,
+    source_attr: str,
+    uniq_prefix: str,
+) -> Optional[Tuple[List[str], str]]:
+    """Phase 7.19.13 (2026-06-02): parse an explicit multi-hop join chain
+    embedded as literal SQL in a DRD transformation cell.
+
+    Many DRD columns carry the real join logic as embedded SQL, e.g.::
+
+        ccal_repl_owner.txn t
+        join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+        left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id ...
+        left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id
+
+    The single-join heuristic mangles these (wrong alias / wrong ON), so
+    the emitter NULLs the column.  This parser instead emits the WHOLE
+    chain verbatim with collision-proof aliases (``<uniq_prefix>_<n>``),
+    rebases the base-table alias (``t``) to the INSERT's main source
+    alias, and returns the projection ``<final_alias>.<source_attr>``.
+
+    Returns (join_sql_lines, final_alias, signature) or None when:
+      * no embedded base+JOIN block is present, or
+      * the DRD source_table is not one of the joined tables (cannot map
+        the target column to a hop -> safer to leave NULL).
+    The signature is alias-independent so the caller can DEDUP identical
+    chains shared by many columns (emit the join block once).
+
+    Aliases are capped at 30 chars (Oracle identifier limit).  Generic:
+    no hardcoded schema/table names.
+    """
+    text = transformation or ""
+    if not re.search(r"\bjoin\b", text, flags=re.IGNORECASE):
+        return None
+
+    # Repair the "net_new _ast_cgy" split-identifier artifact first.
+    text = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\s+(_[A-Za-z_][A-Za-z0-9_]*)\b", r"\1\2", text)
+
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    base_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_$#]*)\s+([A-Za-z_][A-Za-z0-9_]*)$")
+    join_re = re.compile(
+        r"^(left\s+|right\s+|inner\s+|full\s+)?(?:outer\s+)?join\s+"
+        r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_$#]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s+on\s+(.+)$",
+        flags=re.IGNORECASE,
+    )
+
+    base_alias = None
+    hops: List[Dict[str, str]] = []   # {schema, table, alias, on}
+    for ln in lines:
+        bm = base_re.match(ln)
+        if bm and base_alias is None and not re.match(r"^(left|right|inner|full|join)\b", ln, flags=re.IGNORECASE):
+            base_alias = bm.group(3)
+            continue
+        jm = join_re.match(ln)
+        if jm:
+            hops.append({
+                "schema": jm.group(2).upper(),
+                "table": jm.group(3).upper(),
+                "alias": jm.group(4),
+                "on": jm.group(5).strip().rstrip(";"),
+            })
+    if base_alias is None or not hops:
+        return None
+
+    # Map each embedded alias -> unique collision-proof alias.
+    sa = (source_attr or "").strip().upper()
+    src_tbl = (drd_source_table or "").strip().upper().split(".")[-1]
+    alias_map = {base_alias.upper(): main_alias.upper()}
+    for idx, hop in enumerate(hops, 1):
+        new_alias = f"{uniq_prefix}_{idx}"
+        if len(new_alias) > 30:
+            new_alias = new_alias[:30]
+        alias_map[hop["alias"].upper()] = new_alias
+
+    def _rebase(expr: str) -> str:
+        out = expr
+        for old, new in alias_map.items():
+            out = re.sub(rf"(?<![A-Za-z0-9_.]){re.escape(old)}\.", f"{new}.", out, flags=re.IGNORECASE)
+        return out
+
+    final_alias = None
+    join_lines: List[str] = []
+    sig_parts: List[str] = []
+    for idx, hop in enumerate(hops, 1):
+        new_alias = alias_map[hop["alias"].upper()]
+        on_clause = _rebase(hop["on"])
+        join_lines.append(
+            f"LEFT JOIN {hop['schema']}.{hop['table']} {new_alias} ON {on_clause}"
+        )
+        # Signature is alias-independent (uses the ORIGINAL embedded aliases)
+        # so two columns sharing the SAME chain produce the SAME signature
+        # and the caller can emit the join block ONCE (dedup) -- emitting it
+        # per-column produced 100+ redundant joins and an unrunnable plan.
+        sig_parts.append(f"{hop['schema']}.{hop['table']}|{hop['on'].upper().strip()}")
+        if hop["table"] == src_tbl:
+            final_alias = new_alias
+
+    if final_alias is None or not sa:
+        return None
+    signature = " || ".join(sig_parts) + f" >>> {src_tbl}"
+    return join_lines, final_alias, signature
 
 
 def fallback_drd_expression(row: Dict[str, Any], source_attr: str) -> str:
@@ -840,6 +1026,8 @@ def build_control_insert_sql(
     lk_table_alias_counts: Dict[str, int] = {}  # Track per-table numbering
     pdm_missing_old_aliases: set = set()
     pdm_missing_lookup_bases: set = set()
+    _ejc_counter = 0  # Phase 7.19.13 embedded-join-chain unique alias counter
+    _ejc_chain_cache: Dict[str, str] = {}  # chain signature -> final alias (dedup shared chains)
 
     # Collect unique raw joins with row context first, then collapse low-quality duplicates.
     raw_join_seen: set[str] = set()
@@ -1382,14 +1570,98 @@ def build_control_insert_sql(
                 else:
                     expr = "NULL"
 
+        # Phase 7.19.13 (2026-06-02): multi-hop embedded-SQL-join fallback.
+        # When the heuristic resolved the column to NULL but the DRD
+        # transformation carries an explicit multi-hop join chain as
+        # literal SQL (TXN -> APA -> TXN_AVY_CL -> AVY_CL etc.), emit the
+        # whole chain verbatim with collision-proof aliases and project
+        # <final_alias>.<source_attribute>.  ONLY fires on would-be-NULL
+        # columns, so it cannot regress columns the normal path resolves.
+        # Gated on: chain parses + final table is the DRD source_table +
+        # source_attribute is a real column on that table in the PDM.
+        if normalize_sql_expr(expr) == "NULL":
+            _row_sa = (row.get("source_attribute") or "").strip().upper()
+            _row_stbl = (row.get("source_table") or "").strip().upper().split("\n")[0].split(",")[0].strip().split(".")[-1]
+            if _row_sa and re.match(r"^[A-Z_][A-Z0-9_]*$", _row_sa) and source_schema_index is not None:
+                _final_tbl_def = find_table(source_schema_index, (row.get("source_schema") or "").strip(), _row_stbl)
+                if _final_tbl_def and _row_sa in _final_tbl_def.get("columns", {}):
+                    _chain = extract_embedded_join_chain(
+                        row.get("transformation") or "",
+                        main_alias=_src_ref_name,
+                        drd_source_table=_row_stbl,
+                        source_attr=_row_sa,
+                        uniq_prefix=f"EJC{_ejc_counter}",
+                    )
+                    if _chain:
+                        _chain_joins, _chain_final_alias, _chain_sig = _chain
+                        # Dedup: emit each unique chain's joins ONCE; columns
+                        # sharing the chain reuse the cached final alias.  This
+                        # turns 100+ redundant joins (per-column emission, which
+                        # produced an unrunnable plan) into one block per chain.
+                        _cached_alias = _ejc_chain_cache.get(_chain_sig)
+                        if _cached_alias is not None:
+                            expr = f"{_cached_alias}.{_row_sa}"
+                        else:
+                            joins.extend(_chain_joins)
+                            _ejc_chain_cache[_chain_sig] = _chain_final_alias
+                            expr = f"{_chain_final_alias}.{_row_sa}"
+                            _ejc_counter += 1
+
         if not col.get("nullable", True):
             _is_pk = col_name in pk_cols or bool(col.get("is_pk"))
             fallback_expr = fallback_non_nullable_expression(col_name, (col.get("data_type") or "").strip().upper(), is_pk=_is_pk)
             # Keep mapped expressions intact; only fill when expression truly resolves to NULL.
             if normalize_sql_expr(expr) == "NULL":
                 expr = fallback_expr
+        # Phase 7.19.13 (2026-06-02): guard against a stray newline leaking
+        # into a single-token projection (corrupted DRD cell) without
+        # touching multi-line CASE / EXISTS expressions -- a blanket
+        # whitespace-collapse is UNSAFE because an expression may contain a
+        # ``--`` line comment whose closing ``)`` would be swallowed.  Only
+        # collapse when the expression has NO line/block comment AND no
+        # CASE/SELECT keyword (i.e. it is a simple ref/literal that should
+        # never span lines).
+        if ("\n" in expr or "\t" in expr) and "--" not in expr and "/*" not in expr \
+                and not re.search(r"\b(CASE|SELECT)\b", expr, flags=re.IGNORECASE):
+            expr = re.sub(r"\s+", " ", expr).strip()
         select_lines.append(f"    {expr} AS {col_name}")
 
+    # Phase 7.19.13 (2026-06-02): final safety net -- neutralize any JOIN
+    # whose ON references an undefined alias OR a non-existent column so
+    # the INSERT always compiles AND executes.
+    _main_a2t: Dict[str, Tuple[str, str]] = {}
+    _main_src_fq = (analysis_rows[0].get("source_table") if analysis_rows else "") or ""
+    # Best-effort: map the main source alias to the primary source table.
+    for _r in analysis_rows:
+        _st = (_r.get("source_table") or "").strip().upper().split("\n")[0].split(",")[0].strip()
+        _ss = (_r.get("source_schema") or "").strip().upper()
+        if _st and not _is_lookup_table_name(_st):
+            _bare = _st.split(".")[-1]
+            _main_a2t[_src_ref_name.upper()] = (_ss, _bare)
+            if _src_table_name and _src_table_name.upper() != _src_ref_name.upper():
+                _main_a2t[_src_table_name.upper()] = (_ss, _bare)
+            break
+    joins, _dropped_aliases = _neutralize_joins_with_undefined_aliases(
+        joins, {_src_ref_name, _src_table_name},
+        source_schema_index=source_schema_index, alias_table_map=_main_a2t,
+    )
+    # Rewrite SELECT projections that referenced a DROPPED join's alias to
+    # NULL (those joins were degenerate dead-NULL self-refs; dropping them
+    # cuts the join count so Oracle can optimise the INSERT).  Equivalent
+    # result -- a LEFT JOIN on ON 1=0 already yielded NULL for these.
+    if _dropped_aliases:
+        _drop_ref = re.compile(
+            r"(?<![A-Z0-9_$#.])(" + "|".join(re.escape(a) for a in _dropped_aliases) + r")\.",
+            re.IGNORECASE,
+        )
+        _rewritten: List[str] = []
+        for _line in select_lines:
+            _mm = re.match(r"^(\s*)(.*)\s+AS\s+([A-Z_][A-Z0-9_$#]*)\s*$", _line, flags=re.IGNORECASE | re.DOTALL)
+            if _mm and _drop_ref.search(_mm.group(2)):
+                _rewritten.append(f"{_mm.group(1)}NULL AS {_mm.group(3)}")
+            else:
+                _rewritten.append(_line)
+        select_lines = _rewritten
     join_sql = "\n" + "\n".join(joins) if joins else ""
     sql_text = (
         f"TRUNCATE TABLE {control_schema}.{target_table};\n"
@@ -1485,31 +1757,43 @@ def build_control_table_test_defs(
 
 
 def parse_grain_columns(main_grain: str) -> List[str]:
+    """Parse a grain/join-key spec into column names.
+
+    Phase 7.19.13 (2026-06-02): REJECT prose.  DRD "Grain" cells are
+    frequently free text like "Refer to [ETL Notes] tab" -- the old
+    regex grabbed the trailing word ("TAB") and emitted an invalid
+    ``ON T.TAB = CTL.TAB`` join (ORA-00904).  Now a token contributes a
+    column ONLY when it is a clean SQL identifier (optionally
+    alias-qualified) or an equality of two such identifiers.  Any token
+    containing spaces, brackets, or other prose punctuation is ignored,
+    so a prose grain yields [] and the caller falls back to the PDM
+    primary key.
+    """
     if not main_grain:
         return []
-    cols = []
-    seen = set()
+    cols: List[str] = []
+    seen: set = set()
+    _ident = re.compile(r"^(?:[A-Z_][A-Z0-9_$#]*\.)?([A-Z_][A-Z0-9_$#]*)$", re.IGNORECASE)
+
+    def _add(side: str) -> None:
+        m = _ident.match((side or "").strip())
+        if not m:
+            return
+        col = m.group(1).upper()
+        if col not in seen:
+            cols.append(col)
+            seen.add(col)
+
     for token in re.split(r"\bAND\b|,|\n|;", main_grain, flags=re.IGNORECASE):
         token = (token or "").strip()
         if not token:
             continue
         if "=" in token:
-            left = token.split("=", 1)[0].strip()
-            right = token.split("=", 1)[1].strip()
-            for side in (left, right):
-                match = re.search(r"([A-Z0-9_]+)$", side.upper())
-                if match:
-                    col = match.group(1)
-                    if col not in seen:
-                        cols.append(col)
-                        seen.add(col)
-            continue
-        match = re.search(r"([A-Z0-9_]+)$", token.upper())
-        if match:
-            col = match.group(1)
-            if col not in seen:
-                cols.append(col)
-                seen.add(col)
+            left, right = token.split("=", 1)
+            _add(left)
+            _add(right)
+        else:
+            _add(token)   # bare identifier only -- prose tokens are rejected
     return cols
 
 
@@ -2455,6 +2739,91 @@ def replace_join_alias(sql: str, old_alias: str, new_alias: str) -> str:
     return replace_alias_token(out, old_alias, new_alias)
 
 
+def _neutralize_joins_with_undefined_aliases(
+    joins: List[str],
+    main_aliases: set,
+    *,
+    source_schema_index: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
+    alias_table_map: Optional[Dict[str, Tuple[str, str]]] = None,
+) -> Tuple[List[str], set]:
+    """Phase 7.19.13 (2026-06-02): final safety net for emitted JOINs.
+
+    The lookup-join derivation occasionally produces an ON clause that
+    references either (a) an UNDEFINED alias -- the lookup table's BARE
+    name instead of its renamed alias (e.g. ``ACATS_BROKER_2.BROKER_ID =
+    ACATS_BROKER.BROKER_ID_TYPE``) -- or (b) a column that does NOT EXIST
+    on an otherwise-valid alias's table (e.g. ``= TXN.BROKER_ID`` where
+    BROKER_ID is not a column of TXN).  Both reach Oracle as
+    ORA-00904/00936.  The self-join detector misses them and the
+    SELECT-side check does not inspect JOIN bodies.  Latent until the
+    7.19.9 KB fallback started resolving these tables.
+
+    This pass neutralizes any such JOIN's ON to ``1 = 0`` -- a valid LEFT
+    JOIN that yields NULLs for the dependent columns -- so the INSERT
+    always compiles AND executes; unresolvable columns are honestly NULL
+    instead of breaking the whole statement.  Column existence is checked
+    against the PDM (source_schema_index) only when the alias->table
+    mapping is known; unknown aliases/tables are left to the
+    undefined-alias check.  Generic; no hardcoded names.
+    """
+    if not joins:
+        return joins
+    defined = {a.upper() for a in main_aliases if a}
+    _alias_re = re.compile(r"\bJOIN\s+([A-Z0-9_$#.\"]+)\s+([A-Z_][A-Z0-9_$#]*)\s+ON\b", re.IGNORECASE)
+    # alias -> (schema, table) for column validation
+    a2t: Dict[str, Tuple[str, str]] = dict(alias_table_map or {})
+    for j in joins:
+        mm = _alias_re.search(j)
+        if mm:
+            alias = mm.group(2).upper()
+            defined.add(alias)
+            fq = mm.group(1).replace('"', '').upper()
+            if "." in fq:
+                sch, tbl = fq.split(".", 1)
+                a2t.setdefault(alias, (sch, tbl))
+    _SAFE_QUALS = {"SYSDATE", "SYSTIMESTAMP", "DUAL", "NVL", "TO_CHAR", "TO_DATE",
+                   "DECODE", "CASE", "TRIM", "SUBSTR", "COALESCE", "ROUND"}
+    _ref_re = re.compile(r"(?<![A-Z0-9_$#.])([A-Z_][A-Z0-9_$#]*)\.([A-Z_][A-Z0-9_$#]*)", re.IGNORECASE)
+
+    def _col_on_table(alias: str, col: str) -> Optional[bool]:
+        """True/False if known; None if alias->table or PDM unknown."""
+        if source_schema_index is None or alias not in a2t:
+            return None
+        sch, tbl = a2t[alias]
+        entry = find_table(source_schema_index, sch, tbl) or find_table(source_schema_index, "", tbl)
+        if not entry:
+            return None
+        return col in entry.get("columns", {})
+
+    # Neutralize (ON 1=0) any join whose ON references an UNDEFINED ALIAS
+    # only.  Column-existence validation was tried and REVERTED: the PDM
+    # column lists are not always complete, so checking columns produced
+    # FALSE positives that dropped valid lookup joins and corrupted the
+    # comparison (335 match -> 131).  Undefined-alias detection is safe
+    # (an alias is either in the FROM/JOIN set or it is not).  Keeping the
+    # join with ON 1=0 (rather than dropping it) preserves the alias for
+    # the SELECT projection, which then resolves to NULL via the LEFT JOIN.
+    out: List[str] = []
+    for j in joins:
+        m = re.match(r"(.*?\bON\b\s*)(.*)$", j, flags=re.IGNORECASE | re.DOTALL)
+        if not m:
+            out.append(j)
+            continue
+        head, on_body = m.group(1), m.group(2)
+        undef: set = set()
+        for x in _ref_re.finditer(on_body):
+            alias = x.group(1).upper()
+            if alias in _SAFE_QUALS:
+                continue
+            if alias not in defined:
+                undef.add(alias)
+        if undef:
+            out.append(head + f"1 = 0 /* neutralized: undefined alias(es) {','.join(sorted(undef))} */")
+        else:
+            out.append(j)
+    return out, set()
+
+
 def sanitize_lookup_join_sql(join_sql: str) -> str:
     """Strip DRD prose contamination from a lookup_join body before it is
     spliced into the INSERT...SELECT FROM clause.
@@ -2515,6 +2884,39 @@ def sanitize_lookup_join_sql(join_sql: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+
+    # Phase 7.19.13 (2026-06-02): repair newline-split column references.
+    # DRD source cells sometimes wrap a column onto two physical lines
+    # (e.g. "ORIG_SRC_STM_AR_ID\nAC_NUM"), which the lookup_join derivation
+    # splices verbatim into an ON value -> NVL(TO_CHAR(TXN.ORIG_SRC_STM_AR_ID
+    # \nAC_NUM)) -> ORA-00907 missing right parenthesis.  When a newline
+    # directly separates two identifier tokens AND the second token is NOT
+    # a SQL keyword (so it is not a legitimate "...\nAND" continuation),
+    # drop the newline + the stray continuation token, keeping line 1 --
+    # mirrors the SELECT-side source_attribute trim.
+    _ON_KEYWORDS = {
+        "AND", "OR", "ON", "JOIN", "LEFT", "RIGHT", "INNER", "FULL", "OUTER",
+        "WHERE", "WHEN", "THEN", "ELSE", "END", "CASE", "IN", "IS", "NOT",
+        "NULL", "NVL", "TO_CHAR", "DECODE", "EXISTS", "SELECT", "FROM",
+    }
+    def _fix_split_ident(mm: re.Match) -> str:
+        first = mm.group(1).upper()
+        second = mm.group(2).upper()
+        # Only collapse when NEITHER token is a SQL keyword -- that is the
+        # corrupted two-line column-cell pattern (e.g. ORIG_SRC_STM_AR_ID
+        # \nAC_NUM).  "AND\nTXN" (keyword-first) and "TD\nAND" (keyword-
+        # second) are legitimate ON-clause line breaks and must be kept.
+        if first in _ON_KEYWORDS or second in _ON_KEYWORDS:
+            return mm.group(0)
+        return mm.group(1)      # corrupted split cell -- keep line 1 only
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(
+            r"\b([A-Z_][A-Z0-9_]*)\n\s*([A-Z_][A-Z0-9_]*)\b",
+            _fix_split_ident,
+            text,
+        )
 
     # Phase 7.19.6 (2026-06-02): drop any stray semicolons inside
     # the JOIN body. SQL statement terminators belong only at the
