@@ -21,6 +21,7 @@ from app.services.drd_import_service import (
     _extract_lookup_spec,
     _is_lookup_table_name,
     _resolve_column_name,
+    extract_drd_metadata,
     generate_drd_tests,
     parse_drd_file,
     validate_column_mappings_with_kb,
@@ -128,6 +129,50 @@ _SQL_IDENTIFIER_ALLOWLIST = {
 }
 
 
+def _resolve_physical_target(
+    datasource_id: int,
+    target_schema: str,
+    target_table: str,
+    file_bytes: bytes,
+    filename: str,
+    sheet_name: Optional[str],
+) -> Tuple[str, str]:
+    """Resolve the PHYSICAL (schema, table) for the control-table flow.
+
+    A DRD's "Table Name (From DA Team)" row may carry BOTH a logical/DA-team
+    name and the physical table name side by side (e.g.
+    ``cls_tax_lots_fact_rjt | CLS_TAX_LOTS_NON_BKR_FACT``).  The typed /
+    auto-filled target is often the logical name, which is absent from the PDM.
+    Try the typed name first; on PDM-miss, fall back to the DRD's other
+    table-name candidate(s) and use the first that resolves in the PDM.
+    Order-independent (physical may be the 1st or 2nd cell).  Returns the typed
+    values unchanged when nothing resolves, so the normal PDM-miss 422 fires.
+    """
+    candidates: List[Tuple[str, str]] = [(target_schema, target_table)]
+    try:
+        meta = extract_drd_metadata(file_bytes, filename, sheet_name)
+        for c in (meta.get("table_name_candidates") or []):
+            cv = str(c).strip()
+            if not cv:
+                continue
+            if "." in cv:
+                csch, ctbl = cv.split(".", 1)
+            else:
+                csch, ctbl = target_schema, cv
+            pair = (csch.strip(), ctbl.strip())
+            if pair[1] and pair not in candidates:
+                candidates.append(pair)
+    except Exception:
+        pass
+    for csch, ctbl in candidates:
+        try:
+            load_target_table_definition(datasource_id, csch, ctbl)
+            return csch, ctbl
+        except ValueError:
+            continue
+    return target_schema, target_table
+
+
 def analyze_control_table(
     *,
     file_bytes: bytes,
@@ -143,6 +188,15 @@ def analyze_control_table(
     sheet_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     selected = selected_fields or list(DEFAULT_DRD_FIELDS)
+    # Resolve the PHYSICAL target name first.  A DRD may declare a logical/
+    # DA-team name AND the physical table name side by side ("Table Name (From
+    # DA Team)" row); the typed/auto-filled target is often the logical name,
+    # which is absent from the PDM.  Map to the candidate that resolves in the
+    # PDM so the whole flow (DDL/INSERT/tests) names the real table.
+    target_schema, target_table = _resolve_physical_target(
+        target_datasource_id, target_schema, target_table,
+        file_bytes, filename, sheet_name,
+    )
     parse_result = parse_drd_file(
         file_bytes=file_bytes,
         filename=filename,

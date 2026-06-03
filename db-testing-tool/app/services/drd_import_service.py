@@ -1217,6 +1217,22 @@ def extract_drd_metadata(file_bytes: bytes, filename: str, sheet_name: Optional[
         for pattern, key in _meta_keys.items():
             if pattern in label and value:
                 meta[key] = value
+                if key == "table_name":
+                    # A "Table Name (From DA Team)" row may carry BOTH the
+                    # logical/DA-team name and the physical table name in
+                    # adjacent cells (e.g. "cls_tax_lots_fact_rjt |
+                    # CLS_TAX_LOTS_NON_BKR_FACT").  Capture every cell that
+                    # looks like a table identifier as a resolution candidate
+                    # so the control-table flow can fall back to the physical
+                    # name when the logical one is absent from the PDM.
+                    cands: List[str] = []
+                    for cell in row[1:]:
+                        cv = str(cell or "").strip()
+                        if cv and re.match(r"^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)?$", cv) \
+                                and cv.upper() not in {x.upper() for x in cands}:
+                            cands.append(cv)
+                    if len(cands) > 1:
+                        meta["table_name_candidates"] = cands
                 break
     return meta
 
