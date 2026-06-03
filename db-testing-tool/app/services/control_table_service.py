@@ -1454,6 +1454,23 @@ def build_control_insert_sql(
             continue
 
         expr = row.get("drd_expression") or "NULL"
+        # PDM_MISS guard (operator 2026-06-03): if the DRD expression is a bare
+        # <lookup_alias>.<col> whose lookup table is PDM-missing (its JOIN was
+        # dropped above), the lookup value cannot be produced.  Emit the
+        # reviewable PDM_MISS NULL marker NOW -- BEFORE align_expr/Phase-7.19.8
+        # rewrite the alias to the source table and silently substitute the
+        # join-key column (operator rule: leave <100%-certain cases reviewable).
+        _pm_alias_m = _RE_BARE_ALIAS_COL.match(expr.strip())
+        if _pm_alias_m:
+            _pm_alias = _pm_alias_m.group(1).upper()
+            if (_pm_alias in pdm_missing_old_aliases
+                    or re.sub(r"_\d+$", "", _pm_alias) in pdm_missing_lookup_bases):
+                expr = (
+                    f"NULL /* PDM_MISS: cannot resolve alias(es) {_pm_alias} for "
+                    f"{col_name} -- add to PDM or correct DRD source_table */"
+                )
+                select_lines.append(f"    {expr} AS {col_name}")
+                continue
         # Defensive: even if analysis_rows is stale or was produced before the
         # align fix, reconcile bare ALIAS.COL against DRD source_attribute.
         expr = align_expr_with_source_attr(expr, (row.get("source_attribute") or "").strip().upper())
@@ -2767,7 +2784,7 @@ def _neutralize_joins_with_undefined_aliases(
     undefined-alias check.  Generic; no hardcoded names.
     """
     if not joins:
-        return joins
+        return joins, set()  # contract is Tuple[List[str], set]; caller unpacks 2 values
     defined = {a.upper() for a in main_aliases if a}
     _alias_re = re.compile(r"\bJOIN\s+([A-Z0-9_$#.\"]+)\s+([A-Z_][A-Z0-9_$#]*)\s+ON\b", re.IGNORECASE)
     # alias -> (schema, table) for column validation

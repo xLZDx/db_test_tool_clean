@@ -445,3 +445,14 @@ def test_build_control_insert_sql_pdm_missing_join_becomes_null_marker():
     # alias + remediation hint so the operator can spot-fix the source.
     assert "NULL /* PDM_MISS:" in sql and "AS COL_A" in sql
     assert "add to PDM or correct DRD source_table" in sql
+
+
+def test_neutralize_joins_empty_returns_two_tuple_contract():
+    """Regression (2026-06-03): the empty-joins early-return must honor the
+    Tuple[List[str], set] contract so the caller's `joins, dropped = ...` unpack
+    does not raise ValueError: not enough values to unpack."""
+    from app.services.control_table_service import _neutralize_joins_with_undefined_aliases
+    result = _neutralize_joins_with_undefined_aliases([], {"TXN"})
+    assert isinstance(result, tuple) and len(result) == 2, result
+    joins, dropped = result  # must not raise
+    assert joins == [] and dropped == set()
