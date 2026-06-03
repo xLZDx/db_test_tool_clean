@@ -136,6 +136,29 @@ def test_open_disjoint_case_tables_is_mismatch():
     assert r["verdict"] == "REAL_MISMATCH", (r.get("explanation"), r["verdict"])
 
 
+def test_close_disjoint_case_tables_is_mismatch_on_staging_path():
+    """CLOSE WASH_SALE_TP (staging/Simple-Insert path): DRD CASE vs ODI CASE
+    read different source tables -> REAL_MISMATCH (operator 2026-06-03: rules
+    differ -> mismatch).  Was UNRESOLVABLE before the staging-path rule."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    r = rows["WASH_SALE_TP"]
+    assert r["verdict"] == "REAL_MISMATCH", (r.get("explanation"), r["verdict"])
+
+
+def test_grid_shows_full_rules_no_truncation():
+    """Operator 2026-06-03: the comparison grid must show the FULL normalized
+    DRD rule + FULL ODI rule -- never the old 45-char `.slice(0,45)+'…'` ODI
+    truncation or the 130-char explanation slice; rule cells must wrap."""
+    html = (_ROOT / "app" / "templates" / "mappings.html").read_text(encoding="utf-8")
+    assert "odi_expr_sql.slice(0,45)" not in html, "ODI source is still truncated to 45 chars"
+    assert "(r.explanation || '').slice(0,130)" not in html, "explanation still truncated"
+    # full normalized rules are sourced from drd_logic / odi_logic
+    assert "_normRule(r.drd_logic)" in html
+    assert "_normRule(r.odi_logic)" in html
+    # rule cells wrap (pre-wrap) instead of nowrap so the full CASE is readable
+    assert "white-space:pre-wrap;word-break:break-word" in html
+
+
 def test_close_both_null_is_matched_not_unresolvable():
     """DRD says NULL and ODI projects NULL -> they AGREE -> MATCHED."""
     rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)

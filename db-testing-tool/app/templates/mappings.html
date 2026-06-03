@@ -8010,11 +8010,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const vc  = _VC[r.verdict] || { color:'#999', bg:'transparent', label:r.verdict };
             const ann = _odiAnnotations[r.target_col];
             const canFix = r.verdict === 'REAL_MISMATCH' || r.verdict === 'UNRESOLVABLE' || r.verdict === 'SOURCE_MISSING';
-            const drdSrc = [r.drd_table, r.drd_attr].filter(Boolean).join('.') || '—';
-            let odiSrc = '—';
-            if (r.odi_table && r.odi_col) odiSrc = r.odi_table + '.' + r.odi_col;
-            else if (r.odi_col)           odiSrc = r.odi_col;
-            else if (r.odi_expr_sql)      odiSrc = r.odi_expr_sql.length > 45 ? r.odi_expr_sql.slice(0,45) + '…' : r.odi_expr_sql;
+            // Full normalized rules -- operator 2026-06-03: always show the
+            // complete DRD rule AND the complete ODI rule, never truncate.
+            const _normRule = s => (s == null ? '' : String(s).replace(/\s+/g, ' ').trim());
+            const drdSrc = _normRule(r.drd_logic) || [r.drd_table, r.drd_attr].filter(Boolean).join('.') || '—';
+            let odiSrc = _normRule(r.odi_logic) || _normRule(r.odi_expr_sql);
+            if (!odiSrc) {
+                if (r.odi_table && r.odi_col) odiSrc = r.odi_table + '.' + r.odi_col;
+                else if (r.odi_col)           odiSrc = r.odi_col;
+                else odiSrc = '—';
+            }
 
             const aliasNote = r.alias_evidence ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${escapeHtml(r.alias_evidence)}</div>` : '';
             const annNote   = ann ? `<div style="font-size:10px;color:var(--warning);margin-top:2px">&#128203; ${escapeHtml(ann.note || ann.attr || '')}</div>` : '';
@@ -8027,14 +8032,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const reasonJ = escapeHtml(JSON.stringify(r.unresolved_reason || ''));
 
             return `<tr style="border-bottom:1px solid var(--border);background:${vc.bg};${rowBorder}">
-                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap;font-weight:500">${escapeHtml(r.target_col)}</td>
-                <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:var(--text-muted);white-space:nowrap">${escapeHtml(drdSrc)}</td>
-                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap">${escapeHtml(odiSrc)}${aliasNote}</td>
-                <td style="padding:7px 6px;text-align:center;font-size:11px;color:var(--text-muted)">S${r.odi_step || 0}</td>
-                <td style="padding:7px 10px;white-space:nowrap">
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap;font-weight:500;vertical-align:top">${escapeHtml(r.target_col)}</td>
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:var(--text-muted);white-space:pre-wrap;word-break:break-word;max-width:420px;vertical-align:top">${escapeHtml(drdSrc)}</td>
+                <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-word;max-width:420px;vertical-align:top">${escapeHtml(odiSrc)}${aliasNote}</td>
+                <td style="padding:7px 6px;text-align:center;font-size:11px;color:var(--text-muted);vertical-align:top">S${r.odi_step || 0}</td>
+                <td style="padding:7px 10px;white-space:nowrap;vertical-align:top">
                     <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:${vc.color};border:1px solid ${vc.color}">${vc.label}</span>
                 </td>
-                <td style="padding:7px 10px;font-size:11px;color:var(--text-muted);max-width:280px">${escapeHtml((r.explanation || '').slice(0,130))}${annNote}</td>
+                <td style="padding:7px 10px;font-size:11px;color:var(--text-muted);max-width:420px;white-space:pre-wrap;word-break:break-word;vertical-align:top">${escapeHtml(r.explanation || '')}${annNote}</td>
                 <td style="padding:7px 4px;text-align:center">
                     ${canFix ? `<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:10px;${fixStyle}" onclick="odiOpenFix(${colJ},${tableJ},${attrJ},${reasonJ})">${ann ? '&#9998;' : 'Fix'}</button>` : ''}
                 </td>

@@ -1854,6 +1854,32 @@ def compare_drd_odi(
                 odi_logic=_odi_logic_raw,
             )
 
+    # Phase 3a (staging path): both DRD and ODI derive via CASE but read
+    # DISJOINT source tables -> the derivations cannot be equivalent ->
+    # REAL_MISMATCH (operator 2026-06-03: WASH_SALE_TP -- "если рулы не
+    # совпадают то должен быть мисмач").  Mirrors the text-search-path rule.
+    if "CASE" in _odi_logic_raw.upper() and "CASE" in (_drd_logic_raw or "").upper():
+        _odi_tbls = {a.upper() for a, _ in _extract_column_refs(_odi_logic_raw)}
+        _drd_tbls = {a.upper() for a, _ in _extract_column_refs(_drd_logic_raw or "")}
+        if _odi_tbls and _drd_tbls and _odi_tbls.isdisjoint(_drd_tbls):
+            return ComparisonResult(
+                verdict=ComparisonVerdict.REAL_MISMATCH,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="", odi_table="", odi_col="",
+                odi_expr_sql=src.expr_sql or _odi_logic_raw,
+                odi_step=step_id,
+                explanation=(
+                    "TRANSFORMATION_DRIFT: DRD and ODI both derive via CASE but read "
+                    f"different source tables (DRD: {sorted(_drd_tbls)}; ODI: {sorted(_odi_tbls)})"
+                ),
+                mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+                drd_logic=_drd_logic_raw,
+                odi_logic=_odi_logic_raw,
+            )
+
     # If the resolved trace landed on a staging table, follow the chain via
     # text search until we reach a real source.  This handles the case where
     # ODI's MERGE block sources from STEP5_STG_RT which is itself a pointer
