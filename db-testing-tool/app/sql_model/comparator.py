@@ -288,6 +288,23 @@ def _extract_drd_constant(text: str) -> Optional[str]:
     return None
 
 
+# ── Phase 3a: ODI audit / runtime column expressions ──────────────────────────
+# Columns ODI fills with engine-runtime values (create/update timestamps, the
+# ODI session id, the session user).  When the DRD maps such a target column
+# from ITSELF (identity), ODI populating it with a runtime value IS the correct
+# audit-column behaviour -> MATCHED.  Generic -- the patterns are ODI/Oracle
+# runtime tokens, no business names.
+_AUDIT_RUNTIME_RE = re.compile(
+    r"\b(SYSDATE|SYSTIMESTAMP|CURRENT_TIMESTAMP|CURRENT_DATE|SESS_NAME"
+    r"|SESSION_USER|SYSTEM_USER|USER)\b|#GLOBAL|GV_ODI",
+    re.IGNORECASE,
+)
+
+
+def _is_audit_runtime_expr(expr: str) -> bool:
+    return bool(_AUDIT_RUNTIME_RE.search(expr or ""))
+
+
 # Role-prefix equivalences.  Loaded from `data/comparator_config.json` so
 # the comparator stays generic -- no project-specific prefixes hardcoded
 # in code.  Operator-locked rule (2026-05-29 Phase 7.1).  An entry is a
@@ -1494,6 +1511,60 @@ def compare_drd_odi(
                     drd_logic=_drd_logic_raw,
                     odi_logic=ts_expr,
                 )
+            # Phase 3a (text-search path): PDM alias-drift -- ODI projects
+            # <table>.<col> using the PDM-canonical column while the DRD names a
+            # non-canonical alias of the SAME table (e.g. CL_VAL_CODE vs CL_VAL_CD)
+            # -> MATCHED.  (operator 2026-06-03)
+            _ts_m = re.match(r"^\s*([A-Za-z][\w$#]*)\.([A-Za-z][\w$#]*)\s*$", ts_expr)
+            if _ts_m is not None and kb is not None and drd.source_attr:
+                _ts_tbl = _ts_m.group(1).upper()
+                _ts_col = _ts_m.group(2).upper()
+                for _sch in (drd.source_schema or "", "CCAL_REPL_OWNER"):
+                    try:
+                        _ref = TableRef(schema=_sch, table=_ts_tbl)
+                        if kb.column_exists(_ref, _ts_col) and not kb.column_exists(_ref, drd.source_attr):
+                            return ComparisonResult(
+                                verdict=ComparisonVerdict.MATCHED,
+                                target_col=col,
+                                drd_schema=drd.source_schema,
+                                drd_table=drd.source_table,
+                                drd_attr=drd.source_attr,
+                                odi_schema="", odi_table=_ts_tbl, odi_col=_ts_col,
+                                odi_expr_sql=ts_expr, odi_step=ts_step_id,
+                                explanation=(
+                                    f"MATCHED (alias drift, PDM-confirmed): ODI={_ts_tbl}.{_ts_col} "
+                                    f"is the PDM-canonical column; DRD names {drd.source_attr} "
+                                    "(non-canonical) for the same table"
+                                ),
+                                mismatch_kind=MismatchKind.NONE,
+                                drd_logic=_drd_logic_raw, odi_logic=ts_expr,
+                            )
+                    except Exception as exc:
+                        logger.warning("text-search PDM alias check failed for %s: %s", col, exc)
+
+            # Phase 3a (text-search path): both DRD and ODI derive via CASE but
+            # read DISJOINT source tables -> the derivations cannot be equivalent
+            # -> REAL_MISMATCH.  (operator 2026-06-03: WASH_SALE_TP)
+            if "CASE" in ts_expr_upper and "CASE" in (_drd_logic_raw or "").upper():
+                _odi_tbls = {a.upper() for a, _ in _extract_column_refs(ts_expr)}
+                _drd_tbls = {a.upper() for a, _ in _extract_column_refs(_drd_logic_raw or "")}
+                if _odi_tbls and _drd_tbls and _odi_tbls.isdisjoint(_drd_tbls):
+                    return ComparisonResult(
+                        verdict=ComparisonVerdict.REAL_MISMATCH,
+                        target_col=col,
+                        drd_schema=drd.source_schema,
+                        drd_table=drd.source_table,
+                        drd_attr=drd.source_attr,
+                        odi_schema="", odi_table="", odi_col="",
+                        odi_expr_sql=ts_expr, odi_step=ts_step_id,
+                        explanation=(
+                            "TRANSFORMATION_DRIFT: DRD and ODI both derive via CASE but read "
+                            f"different source tables (DRD: {sorted(_drd_tbls)}; ODI: {sorted(_odi_tbls)})"
+                        ),
+                        mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+                        drd_logic=_drd_logic_raw, odi_logic=ts_expr,
+                    )
+
             # ODI projection found via text but no drift signal yet -> defer
             # to UNRESOLVABLE; surface both sides so operator sees the gap.
             return ComparisonResult(
@@ -1640,6 +1711,32 @@ def compare_drd_odi(
     # Normalize redundant CASE wrappers so the structural compare sees the
     # real underlying column ref.
     _odi_logic_raw = _normalize_case_when_redundant(_odi_logic_raw)
+
+    # ── Phase 3a: ODI audit / runtime column.  When ODI fills the column with
+    #    an engine-runtime value (SYSDATE / SYSTIMESTAMP / #GLOBAL session id /
+    #    session user) AND the DRD maps the target column from ITSELF (identity),
+    #    that IS the correct audit-column behaviour -> MATCHED.  (operator
+    #    2026-06-03: these CRT_/LAST_UDT_/SESN_ columns should not be UNRESOLVABLE.)
+    if _is_audit_runtime_expr(_odi_logic_raw) and norm(drd.source_attr) == norm(col):
+        return ComparisonResult(
+            verdict=ComparisonVerdict.MATCHED,
+            target_col=col,
+            drd_schema=drd.source_schema,
+            drd_table=drd.source_table,
+            drd_attr=drd.source_attr,
+            odi_schema="",
+            odi_table="",
+            odi_col="",
+            odi_expr_sql=src.expr_sql or _odi_logic_raw,
+            odi_step=step_id,
+            explanation=(
+                "MATCHED: audit/runtime column -- ODI populates it with an engine "
+                f"runtime value ({_odi_logic_raw.strip()[:40]}); DRD maps it from itself"
+            ),
+            mismatch_kind=MismatchKind.NONE,
+            drd_logic=_drd_logic_raw,
+            odi_logic=_odi_logic_raw,
+        )
 
     # ── Both-NULL agreement: DRD rule is NULL AND ODI projects NULL -> they
     #    AGREE -> MATCHED (not UNRESOLVABLE).  The DRD declares NULL either via
@@ -2215,12 +2312,18 @@ def compare_drd_odi(
                 odi_in_pdm = kb.column_exists(src_ref, odi_col)
                 drd_in_pdm = kb.column_exists(src_ref, drd_attr_up)
                 if odi_in_pdm and not drd_in_pdm:
-                    verdict = ComparisonVerdict.ALIAS_DRIFT_ONLY
+                    # PDM confirms ODI uses the canonical column for the SAME
+                    # physical table; the DRD merely named it non-canonically.
+                    # ODI therefore CONFORMS -> MATCHED (operator 2026-06-03:
+                    # "все Alias Drift должны мачиться").  The alias detail is
+                    # preserved in the explanation for the audit trail.
+                    verdict = ComparisonVerdict.MATCHED
+                    mismatch_kind = MismatchKind.NONE
                     pdm_col_name_miss = odi_col
                     explanation = (
-                        f"ALIAS_DRIFT_ONLY (PDM): ODI={odi_table}.{odi_col} is in PDM; "
-                        f"DRD={drd.source_table}.{drd.source_attr} is not — "
-                        f"DRD uses non-canonical name (PDM authoritative: {odi_col})"
+                        f"MATCHED (alias drift, PDM-confirmed): ODI={odi_table}.{odi_col} "
+                        f"is the PDM-canonical column; DRD={drd.source_table}.{drd.source_attr} "
+                        f"is a non-canonical name for the same column"
                     )
             except Exception as exc:
                 logger.warning("KB column lookup failed for %s.%s: %s", odi_table, odi_col, exc)

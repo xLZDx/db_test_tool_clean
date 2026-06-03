@@ -91,12 +91,49 @@ def _compare(xml_path: Path, drd_path: Path):
     return {r["target_col"]: r for r in v9.comparison_rows}, v9
 
 
-def test_close_drd_typo_column_is_alias_drift_via_pdm():
-    """ACG_TP_NM: DRD typo AC_TP_DSC vs ODI correct ACG_TP_DSC -> ALIAS_DRIFT_ONLY."""
+def test_close_pdm_alias_drift_is_matched():
+    """ACG_TP_NM: DRD non-canonical AC_TP_DSC vs ODI PDM-canonical ACG_TP_DSC.
+    PDM confirms ODI is the canonical column for the SAME table -> MATCHED
+    (operator 2026-06-03: "все Alias Drift должны мачиться"); the alias detail
+    is preserved in the explanation."""
     rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
     r = rows.get("ACG_TP_NM")
     assert r is not None
-    assert r["verdict"] == "ALIAS_DRIFT_ONLY", f"got {r['verdict']}: {r.get('explanation')}"
+    assert r["verdict"] == "MATCHED", f"got {r['verdict']}: {r.get('explanation')}"
+    assert "alias drift" in (r.get("explanation") or "").lower()
+
+
+def test_close_all_pdm_alias_rows_matched():
+    """All 4 PDM-confirmed alias-drift rows fold to MATCHED (Alias Drift tile = 0)."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    for col in ("ACG_TP_NM", "TAX_LOT_EXT_REFR_KEY_QTRNY",
+                "TAX_LOT_EXT_REFR_KEY_SCDY", "TAX_LOT_EXT_REFR_KEY_TRTY"):
+        assert rows[col]["verdict"] == "MATCHED", (col, rows[col]["verdict"])
+
+
+def test_close_audit_runtime_columns_matched():
+    """Audit/runtime columns (DRD maps from itself; ODI fills with SYSDATE /
+    SYSTIMESTAMP / #GLOBAL session / session user) -> MATCHED."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    for col in ("SESN_NUM", "CRT_DTM", "CRT_USR_NM", "LAST_UDT_DTM", "LAST_UDT_USR_NM"):
+        assert rows[col]["verdict"] == "MATCHED", (col, rows[col].get("odi_logic"), rows[col]["verdict"])
+
+
+def test_open_pdm_alias_on_merge_path_matched():
+    """OPEN SRC_RCRD_TP_CD: DRD CL_VAL_CD vs ODI CL_VAL_CODE (PDM-canonical) on
+    the MERGE text-search path -> MATCHED (alias drift, PDM-confirmed)."""
+    rows, _ = _compare(_OPEN_XML, _OPEN_DRD)
+    r = rows["SRC_RCRD_TP_CD"]
+    assert "CL_VAL.CL_VAL_CODE" in (r.get("odi_logic") or "")
+    assert r["verdict"] == "MATCHED", (r.get("explanation"), r["verdict"])
+
+
+def test_open_disjoint_case_tables_is_mismatch():
+    """OPEN WASH_SALE_TP: DRD CASE reads TAX_LOT_OPN_MSTR, ODI CASE reads
+    OPN_TAX_LOTS_NONBKR_TGT (disjoint source tables) -> REAL_MISMATCH."""
+    rows, _ = _compare(_OPEN_XML, _OPEN_DRD)
+    r = rows["WASH_SALE_TP"]
+    assert r["verdict"] == "REAL_MISMATCH", (r.get("explanation"), r["verdict"])
 
 
 def test_close_both_null_is_matched_not_unresolvable():
@@ -278,13 +315,13 @@ def test_close_lookup_rule_stays_unresolvable_for_db_review():
         assert rows[col]["verdict"] == "UNRESOLVABLE", (col, rows[col]["verdict"])
 
 
-def test_close_audit_and_typod_rules_stay_unresolvable():
-    """Category D (audit: SYSDATE / #GLOBAL session) + a typo'd rule
-    ('popualte as 6') are NOT 100%-certain -> left UNRESOLVABLE for operator
-    review (operator rule: leave <100%-certain cases reviewable, do not auto-fix)."""
+def test_close_typod_rule_stays_unresolvable():
+    """A typo'd DRD rule ('popualte as - 6' for SRC_STM_ID) is NOT 100%-parseable
+    -> left UNRESOLVABLE for operator review (operator rule: leave <100%-certain
+    cases reviewable, do not auto-fix).  (The audit columns SESN_NUM/CRT_DTM that
+    used to be here are now MATCHED via the audit/runtime recognizer.)"""
     rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
-    for col in ("SRC_STM_ID", "SESN_NUM", "CRT_DTM"):
-        assert rows[col]["verdict"] == "UNRESOLVABLE", (col, rows[col]["verdict"])
+    assert rows["SRC_STM_ID"]["verdict"] == "UNRESOLVABLE", rows["SRC_STM_ID"]["verdict"]
 
 
 def test_extract_drd_constant_unit():
