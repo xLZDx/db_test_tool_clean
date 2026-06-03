@@ -244,6 +244,50 @@ def _extract_column_refs(expr: str) -> List[Tuple[str, str]]:
     return out
 
 
+# ── Phase 3a: DRD-stated CONSTANT extraction (no DB needed) ────────────────────
+# Recognise "populate as 6", "use value- Closed", "default X", "set to X",
+# "hardcode X", "constant X".  Deliberately EXCLUDES lookup phrasings ("use
+# <col> as N and get code/name", "look up ...") which need DB verification
+# (Category B) and must stay UNRESOLVABLE for operator review.
+_DRD_VAL = r"('[^']*'|\"[^\"]*\"|-?\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9_]*)"
+_DRD_CONST_RES = [
+    re.compile(r"\bpopulate\s+(?:as|with)\s*[-:]?\s*" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\buse\s+value\s*[-:]?\s*" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\bdefault(?:s)?\s+(?:to\s+|value\s+)?" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\bhard\s*-?cod\w*\s+(?:as\s+|to\s+)?" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\bset\s+to\s+" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\bconstant\s+" + _DRD_VAL, re.IGNORECASE),
+    re.compile(r"\balways\s+" + _DRD_VAL, re.IGNORECASE),
+]
+_DRD_LOOKUP_MARKERS = ("get code", "get name", "and get", "look up", "lookup")
+
+
+def _normalize_literal(s: str) -> str:
+    """Normalise an ODI literal / DRD constant for equality: strip surrounding
+    quotes + whitespace, upper-case.  ``'6'``->``6``, ``'Closed'``->``CLOSED``,
+    ``Closed``->``CLOSED``."""
+    t = (s or "").strip()
+    if len(t) >= 2 and t[0] in "'\"" and t[-1] == t[0]:
+        t = t[1:-1]
+    return t.strip().upper()
+
+
+def _extract_drd_constant(text: str) -> Optional[str]:
+    """Return the normalised constant a DRD rule mandates ("populate as 6" ->
+    ``6``), or None when the rule is not a plain constant (a lookup that needs
+    DB verification).  Lookup phrasings are excluded so Category B stays
+    UNRESOLVABLE.  Generic -- no table / column / business names."""
+    if not text:
+        return None
+    if any(m in text.lower() for m in _DRD_LOOKUP_MARKERS):
+        return None
+    for rx in _DRD_CONST_RES:
+        m = rx.search(text)
+        if m:
+            return _normalize_literal(m.group(1))
+    return None
+
+
 # Role-prefix equivalences.  Loaded from `data/comparator_config.json` so
 # the comparator stays generic -- no project-specific prefixes hardcoded
 # in code.  Operator-locked rule (2026-05-29 Phase 7.1).  An entry is a
@@ -1228,7 +1272,11 @@ def compare_drd_odi(
                 _drd_src_u = (drd.source_attr or "").strip().upper()
                 _drd_logic_u = (_drd_logic_raw or "").strip().upper()
                 _drd_is_null = (
-                    _drd_src_u in ("", "NULL") and _drd_logic_u in ("", "NULL")
+                    (_drd_src_u in ("", "NULL") and _drd_logic_u in ("", "NULL"))
+                    # Phase 3a: a null-mandate rule ("Always NULL" / "populate as
+                    # NULL") also means DRD intends NULL -> agrees with ODI.
+                    or _extract_drd_constant(drd.transformation or "") == "NULL"
+                    or _extract_drd_constant(_drd_logic_raw or "") == "NULL"
                 )
                 if _drd_is_null:
                     return ComparisonResult(
@@ -1601,10 +1649,19 @@ def compare_drd_odi(
     if _odi_is_null:
         _drd_src_txt = (drd.source_attr or "").strip().upper()
         _drd_logic_txt = (_drd_logic_raw or "").strip().upper()
+        # DRD mandates NULL either explicitly (source/logic == NULL) OR via a
+        # null-constant rule in the transformation text ("Always NULL",
+        # "populate as NULL", "use value NULL").  In all those cases ODI's NULL
+        # AGREES with the DRD -> MATCHED, not a mismatch.
+        _drd_mandates_null = (
+            _extract_drd_constant(drd.transformation or "") == "NULL"
+            or _extract_drd_constant(_drd_logic_raw or "") == "NULL"
+        )
         _drd_says_null = (
-            _drd_src_txt in ("", "NULL")
-            and _drd_logic_txt in ("", "NULL")
-            and ("NULL" in (_drd_src_txt, _drd_logic_txt))
+            (_drd_src_txt in ("", "NULL")
+             and _drd_logic_txt in ("", "NULL")
+             and ("NULL" in (_drd_src_txt, _drd_logic_txt)))
+            or _drd_mandates_null
         )
         if _drd_says_null:
             return ComparisonResult(
@@ -1619,6 +1676,83 @@ def compare_drd_odi(
                 odi_expr_sql=src.expr_sql or "NULL",
                 odi_step=step_id,
                 explanation="MATCHED: DRD rule is NULL and ODI projects NULL (both agree)",
+                drd_logic=_drd_logic_raw,
+                odi_logic=_odi_logic_raw,
+            )
+        # Phase 3a (consistency with the text-search path): ODI hard-codes NULL
+        # but the DRD names a real source column / derivation -> ODI does NOT
+        # implement the DRD rule -> REAL_MISMATCH (was UNRESOLVABLE on this
+        # staging-step path).  100%-certain, so auto-resolve. (operator 2026-06-03)
+        if _drd_src_txt and _drd_src_txt != "NULL":
+            return ComparisonResult(
+                verdict=ComparisonVerdict.REAL_MISMATCH,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table="",
+                odi_col="",
+                odi_expr_sql="NULL",
+                odi_step=step_id,
+                explanation=(
+                    "TRANSFORMATION_DRIFT: DRD requires a value "
+                    f"({drd.source_attr or drd.transformation or 'rule'}) "
+                    "but ODI projects NULL"
+                ),
+                mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+                drd_logic=_drd_logic_raw,
+                odi_logic="NULL",
+            )
+
+    # Phase 3a: ODI projects a LITERAL constant AND the DRD rule mandates a
+    # plain constant ("populate as 6", "use value- Closed").  Compare the two
+    # literals directly -- no DB needed, 100%-certain.  Lookup rules ("use X as
+    # N and get code/name") return None here and fall through to UNRESOLVABLE
+    # (Category B, needs DB).  (operator 2026-06-03)
+    if src.provenance == Provenance.LITERAL:
+        _drd_const = (
+            _extract_drd_constant(drd.transformation or "")
+            or _extract_drd_constant(_drd_logic_raw or "")
+        )
+        if _drd_const is not None:
+            _odi_const = _normalize_literal(_odi_logic_raw)
+            if _odi_const == _drd_const:
+                return ComparisonResult(
+                    verdict=ComparisonVerdict.MATCHED,
+                    target_col=col,
+                    drd_schema=drd.source_schema,
+                    drd_table=drd.source_table,
+                    drd_attr=drd.source_attr,
+                    odi_schema="",
+                    odi_table="",
+                    odi_col="",
+                    odi_expr_sql=src.expr_sql,
+                    odi_step=step_id,
+                    explanation=(
+                        f"MATCHED: ODI literal {_odi_logic_raw.strip()} == "
+                        f"DRD constant rule ({_drd_const})"
+                    ),
+                    mismatch_kind=MismatchKind.NONE,
+                    drd_logic=_drd_logic_raw,
+                    odi_logic=_odi_logic_raw,
+                )
+            return ComparisonResult(
+                verdict=ComparisonVerdict.REAL_MISMATCH,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table="",
+                odi_col="",
+                odi_expr_sql=src.expr_sql,
+                odi_step=step_id,
+                explanation=(
+                    f"TRANSFORMATION_DRIFT: DRD mandates constant {_drd_const} "
+                    f"but ODI projects {_odi_logic_raw.strip()}"
+                ),
+                mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
                 drd_logic=_drd_logic_raw,
                 odi_logic=_odi_logic_raw,
             )

@@ -21,9 +21,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 _CLOSE_XML = _ROOT / "data" / "taxlot" / "SCEN_SSDS_CLOSED_TAXLOT_NONBKR_RJTRUST_FACT_Version_001.xml"
 _CLOSE_DRD = _ROOT / "data" / "taxlot" / "DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx"
 _OPEN_XML = _ROOT / "data" / "taxlot" / "SCEN_SSDS_OPEN_TAXLOT_NONBKR_RJTRUST_FACT_Version_001.xml"
-_OPEN_DRD = _ROOT / "data" / "taxlot" / "DRD_Open_Tax_Lots_non_bkr_Fact (1).xlsx"
-_OPEN_CSV = _ROOT / "data" / "taxlot" / "Open_lot.csv"   # operator's exact 2026-06-03 file
+_OPEN_DRD = _ROOT / "data" / "taxlot" / "DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx"
 _AVY_XML = _ROOT / "1_SCEN_LH_AVY_PKG_LOAD_AVY_FACT_SIDE_V1_RT_ST_Version_001.xml"
+# NOTE (operator 2026-06-03): use ONLY the DRD .xlsx -- the Open_lot/closed-lot
+# CSV/xlsx mapping extracts were intentionally deleted ("используй только ДРД").
 
 _missing = [p.name for p in (_CLOSE_XML, _CLOSE_DRD, _OPEN_XML) if not p.exists()]
 pytestmark = pytest.mark.skipif(
@@ -211,68 +212,27 @@ def test_merge_inner_projection_extractor_no_keyword_leak_and_whole_case():
     assert mp.get("COL_D") == "LK1.LK_NM", mp.get("COL_D")
 
 
-def _compare_open_csv():
-    from app.services.v9_pipeline import generate_v9
-    v9 = generate_v9(
-        drd_bytes=_OPEN_CSV.read_bytes(),
-        drd_filename=_OPEN_CSV.name,
-        odi_xml_bytes=_OPEN_XML.read_bytes(),
-        target_schema="",
-        target_table="",
-    )
-    return {r["target_col"]: r for r in v9.comparison_rows}, v9
+# ── OPEN (DRD .xlsx) parser/structural -- DRD-independent (ODI binding) ───────
 
-
-@pytest.mark.skipif(not _OPEN_CSV.exists(), reason="Open_lot.csv fixture missing")
-def test_open_csv_src_stm_cd_shows_real_binding_not_select_keyword():
-    """SRC_STM_CD ODI logic must be the real inner binding, never the leaked
-    `select` keyword the operator saw on 2026-06-03."""
-    rows, _ = _compare_open_csv()
+def test_open_drd_src_stm_cd_shows_real_binding_not_select_keyword():
+    """SRC_STM_CD ODI logic = the real inner binding, never the leaked `select`."""
+    rows, _ = _compare(_OPEN_XML, _OPEN_DRD)
     r = rows["SRC_STM_CD"]
     assert (r.get("odi_logic") or "").strip().upper() != "SELECT", r.get("odi_logic")
     assert "SRC_STM_DIM.SRC_STM_CD" in (r.get("odi_logic") or "")
 
 
-@pytest.mark.skipif(not _OPEN_CSV.exists(), reason="Open_lot.csv fixture missing")
-def test_open_csv_wash_sale_tp_captures_whole_case_not_end():
+def test_open_drd_wash_sale_tp_captures_whole_case_not_end():
     """WASH_SALE_TP ODI logic must be the whole CASE, never the bare tail `END`."""
-    rows, _ = _compare_open_csv()
+    rows, _ = _compare(_OPEN_XML, _OPEN_DRD)
     odi = (rows["WASH_SALE_TP"].get("odi_logic") or "").strip().upper()
     assert odi != "END", odi
     assert "CASE" in odi
 
 
-@pytest.mark.skipif(not _OPEN_CSV.exists(), reason="Open_lot.csv fixture missing")
-def test_open_csv_odi_null_vs_drd_rule_is_mismatch_not_unresolvable():
-    """ODI hardcodes NULL while DRD names a real source column -> REAL_MISMATCH
-    (operator: these showed UNRESOLVABLE 'staging chain could not be traced')."""
-    rows, _ = _compare_open_csv()
-    for col in ("TXN_TP_CD", "ORIG_EV_TP", "ORIG_TXN_TP_CD"):
-        r = rows[col]
-        assert (r.get("odi_logic") or "").strip().upper() == "NULL", (col, r.get("odi_logic"))
-        assert r["verdict"] == "REAL_MISMATCH", (
-            f"{col}: ODI NULL vs DRD {r.get('drd_attr')!r} must be REAL_MISMATCH, "
-            f"got {r['verdict']}"
-        )
-
-
-@pytest.mark.skipif(not _OPEN_CSV.exists(), reason="Open_lot.csv fixture missing")
-def test_open_csv_both_null_is_matched():
-    """ODI literal NULL AND DRD NULL -> MATCHED (both agree), not UNRESOLVABLE."""
-    rows, _ = _compare_open_csv()
-    for col in ("LOSS_NOT_ALWD_F", "PREM_AMT"):
-        r = rows[col]
-        assert r["verdict"] == "MATCHED", (
-            f"{col}: DRD={r.get('drd_logic')!r} ODI={r.get('odi_logic')!r} "
-            f"both NULL must be MATCHED, got {r['verdict']}"
-        )
-
-
-@pytest.mark.skipif(not _OPEN_CSV.exists(), reason="Open_lot.csv fixture missing")
-def test_open_csv_no_row_resolves_to_a_bare_sql_keyword():
-    """Generic guard: no ODI logic may be a bare SQL keyword (`select`/`end`/
-    `from`/`where`) -- those are extraction artifacts, never a real projection."""
-    rows, _ = _compare_open_csv()
+def test_open_drd_no_row_resolves_to_a_bare_sql_keyword():
+    """Generic guard: no ODI logic may be a bare SQL keyword (extraction artifact)."""
+    rows, _ = _compare(_OPEN_XML, _OPEN_DRD)
     bad = {"SELECT", "END", "FROM", "WHERE", "USING", "MERGE"}
     offenders = {
         c: r.get("odi_logic")
@@ -280,6 +240,63 @@ def test_open_csv_no_row_resolves_to_a_bare_sql_keyword():
         if (r.get("odi_logic") or "").strip().upper() in bad
     }
     assert not offenders, f"ODI logic resolved to bare SQL keywords: {offenders}"
+
+
+# ── Phase 3a verdicts -- the CLOSE DRD .xlsx carries the rich transformation
+#    rules ("populate as", "Use value-", "Always NULL", lookups, audit). ───────
+
+def test_close_constant_rule_matches_odi_literal():
+    """3a-A: DRD 'Use value- Closed' + ODI literal 'Closed' -> MATCHED (no DB)."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    r = rows["POS_CLS_TP"]
+    assert r["verdict"] == "MATCHED", (r.get("drd_logic"), r.get("odi_logic"), r["verdict"])
+
+
+def test_close_always_null_rule_matches_odi_null():
+    """3a: DRD 'Always NULL' + ODI literal NULL -> MATCHED (both intend null)."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    for col in ("OPN_TXN_EV_TP", "ORIG_EV_TP", "ORIG_TXN_TP_CD"):
+        r = rows[col]
+        assert (r.get("odi_logic") or "").strip().upper() == "NULL", (col, r.get("odi_logic"))
+        assert r["verdict"] == "MATCHED", (col, r.get("drd_logic"), r["verdict"])
+
+
+def test_close_odi_null_vs_real_derivation_is_mismatch():
+    """3a-C: ODI hardcodes NULL but DRD names a real derivation (no null-mandate)
+    -> REAL_MISMATCH (was UNRESOLVABLE on the staging-step path)."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    r = rows["LOSS_NOT_ALWD_F"]
+    assert (r.get("odi_logic") or "").strip().upper() == "NULL"
+    assert r["verdict"] == "REAL_MISMATCH", (r.get("drd_logic"), r["verdict"])
+
+
+def test_close_lookup_rule_stays_unresolvable_for_db_review():
+    """3a Category B: a fixed-key lookup ('use SRC_STM_ID as 6 and get code/name')
+    needs DB verification -> stays UNRESOLVABLE, NOT auto-matched."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    for col in ("SRC_STM_CD", "SRC_STM_NM"):
+        assert rows[col]["verdict"] == "UNRESOLVABLE", (col, rows[col]["verdict"])
+
+
+def test_close_audit_and_typod_rules_stay_unresolvable():
+    """Category D (audit: SYSDATE / #GLOBAL session) + a typo'd rule
+    ('popualte as 6') are NOT 100%-certain -> left UNRESOLVABLE for operator
+    review (operator rule: leave <100%-certain cases reviewable, do not auto-fix)."""
+    rows, _ = _compare(_CLOSE_XML, _CLOSE_DRD)
+    for col in ("SRC_STM_ID", "SESN_NUM", "CRT_DTM"):
+        assert rows[col]["verdict"] == "UNRESOLVABLE", (col, rows[col]["verdict"])
+
+
+def test_extract_drd_constant_unit():
+    """3a constant extractor: plain constants parse; lookups return None (Category B)."""
+    from app.sql_model.comparator import _extract_drd_constant
+    assert _extract_drd_constant("populate as 6") == "6"
+    assert _extract_drd_constant("Use value- Closed") == "CLOSED"
+    assert _extract_drd_constant("Always NULL") == "NULL"
+    assert _extract_drd_constant("default 'X'") == "X"
+    assert _extract_drd_constant("Use SRC_STM_ID as 6 and get code") is None
+    assert _extract_drd_constant("look up CL_VAL.CL_VAL_NM") is None
+    assert _extract_drd_constant("SBC_WASH_SALE_AMT") is None
 
 
 # ── Gate 2 (2026-06-03): faithful INSERT emit for MERGE + Simple-Insert ───────
