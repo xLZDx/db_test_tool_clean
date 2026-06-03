@@ -701,12 +701,18 @@ async def preview_control_table_drd(
 
 @_ct_router.post("/control-table/empty")
 async def build_empty_control_table(body: ControlTableEmptyRequest):
-    target_definition = await asyncio.to_thread(
-        load_target_table_definition,
-        body.target_datasource_id,
-        body.target_schema,
-        body.target_table,
-    )
+    try:
+        target_definition = await asyncio.to_thread(
+            load_target_table_definition,
+            body.target_datasource_id,
+            body.target_schema,
+            body.target_table,
+        )
+    except ValueError as exc:
+        # PDM-miss / unresolved target: surface the full remediation message as
+        # a readable 422 (mirrors /control-table/analyze) instead of an opaque
+        # 500 "Internal Server Error" toast.  (operator 2026-06-03 e2e finding)
+        raise HTTPException(status_code=422, detail=str(exc))
     return {
         "target_definition": target_definition,
         "create_table_sql": build_control_table_ddl(body.control_schema.upper(), body.target_table, target_definition),
