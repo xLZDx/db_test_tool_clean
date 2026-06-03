@@ -1421,6 +1421,53 @@ def build_control_insert_sql(
             return val.upper()
         return val
 
+    # DRD constant-rule honoring (operator 2026-06-04): the INSERT-build path
+    # must honor the same constant rules the ODI<->DRD comparison does -- a row
+    # whose `transformation` says "Always NULL" / "populate as 6" / "Use value-
+    # Closed" must emit that resolved constant (matching ODI), NOT the raw
+    # drd_expression lookup the generator otherwise builds.  Lookup phrasings
+    # ("... and get code/name", "look up") are excluded (they need a real join).
+    _CONST_VAL = r"('[^']*'|-?\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9_]*)"
+    _CONST_RULE_RES = [
+        re.compile(
+            r"\b(?:populate\s+(?:as|with)|use\s+value|set\s+to|constant"
+            r"|hard\s*-?cod\w*\s+(?:as\s+|to\s+)?)\s*[-:]?\s*" + _CONST_VAL,
+            re.IGNORECASE,
+        ),
+        re.compile(r"\balways\s+(NULL|'[^']*'|-?\d+(?:\.\d+)?)", re.IGNORECASE),
+    ]
+    _CONST_RULE_SKIP = ("get code", "get name", "and get", "look up", "lookup")
+    _CONST_KW_STOP = {
+        "JOIN", "FROM", "SELECT", "WHERE", "AND", "OR", "ON", "USE", "AS",
+        "TABLE", "LOOKUP", "THE", "VALUE", "COLUMN", "FIELD",
+    }
+
+    def _emittable_constant(val: str) -> Optional[str]:
+        v = (val or "").strip()
+        if not v:
+            return None
+        if v.upper() in {"NULL", "SYSDATE", "SYSTIMESTAMP", "USER",
+                         "CURRENT_DATE", "CURRENT_TIMESTAMP"}:
+            return v.upper()
+        if re.match(r"^-?\d+(?:\.\d+)?$", v):
+            return v
+        if len(v) >= 2 and v[0] in "'\"" and v[-1] == v[0]:
+            return "'" + v[1:-1].replace("'", "''") + "'"
+        if v.upper() in _CONST_KW_STOP:
+            return None
+        return "'" + v.replace("'", "''") + "'"
+
+    def _extract_constant_rule_expr(text: str) -> Optional[str]:
+        if not text:
+            return None
+        if any(m in text.lower() for m in _CONST_RULE_SKIP):
+            return None
+        for rx in _CONST_RULE_RES:
+            m = rx.search(text)
+            if m:
+                return _emittable_constant(m.group(1))
+        return None
+
     select_lines = []
     insert_cols = []
     for col in target_definition.get("columns", []) or []:
@@ -1485,6 +1532,17 @@ def build_control_insert_sql(
         )
         if _default_expr is not None:
             select_lines.append(f"    {_default_expr} AS {col_name}")
+            continue
+
+        # Honor DRD constant rules ("Always NULL", "populate as 6", "Use value-
+        # Closed") so the control-table INSERT emits the resolved constant the
+        # ODI<->DRD comparison agrees on, instead of a raw lookup expression.
+        _const_rule_expr = (
+            _extract_constant_rule_expr(_trans_raw)
+            or _extract_constant_rule_expr(_src_attr_raw)
+        )
+        if _const_rule_expr is not None:
+            select_lines.append(f"    {_const_rule_expr} AS {col_name}")
             continue
 
         # Phase 7.19.4 prose-leak fallback (no EXISTS pattern matched):
