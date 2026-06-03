@@ -91,6 +91,169 @@ def _indent(text: str, spaces: int = 2) -> str:
     return "\n".join(pad + line if line.strip() else line for line in text.splitlines())
 
 
+def _emit_header(
+    model: ODIModel, ikm: str, n_cols: int, u_count: int,
+    caveats: list[str] | None = None,
+) -> str:
+    status = "PARTIAL -- see unresolved list" if u_count else "OK"
+    lines = [
+        f"-- Generated Oracle INSERT for {model.target.fq}",
+        "-- Source: ODI XML semantic parser (db-testing-tool v2)",
+        f"-- IKM style: {ikm}",
+        f"-- Final columns: {n_cols}",
+        f"-- Unresolved expressions: {u_count}",
+        f"-- Status: {status}",
+    ]
+    for c in (caveats or []):
+        lines.append(f"-- CAVEAT: {c}")
+    return "\n".join(lines) + "\n"
+
+
+def _emit_simple_insert(
+    model: ODIModel, *, strict: bool, add_header_comment: bool
+) -> EmitResult:
+    """Faithful INSERT for a Simple-Insert IKM (single promoted step, no MERGE).
+
+    The step's own SQL already IS ``INSERT INTO <target> (cols) SELECT <exprs>
+    FROM <joins>`` -- reproduce it directly (no pointless CTE wrapper, no
+    hard-coded ``SSDS_AVY_FACT_STEP*`` staging name).
+
+    PRECONDITION (holds for the parser today, odi_parser.py ~604-607): the INSERT
+    column list (``final_insert_columns``) and the step SELECT body come from the
+    SAME promoted INSERT statement, so they are positionally aligned.  We assert
+    the arity (col-count == mapping-count) defensively and warn on any drift so a
+    future caller that diverges the two sources cannot silently misalign columns.
+    """
+    step = model.staging_steps[0]
+    unresolved_report: list[dict] = []
+    warnings: list[str] = []
+    for cm in step.column_mappings:
+        if isinstance(cm.source, UnresolvedExpr):
+            if strict:
+                raise EmitError(
+                    f"{cm.target_col}: {cm.source.reason} -- {cm.source.detail}"
+                )
+            unresolved_report.append({
+                "step": step.step_id, "target_col": cm.target_col,
+                "reason": cm.source.reason, "detail": cm.source.detail,
+                "original_expr": cm.source.original_expr,
+            })
+
+    cols = model.final_insert_columns or [cm.target_col for cm in step.column_mappings]
+    if not cols:
+        raise EmitError("Simple-Insert has no target columns -- cannot emit INSERT")
+    # Defensive arity guard against positional misalignment (see PRECONDITION).
+    n_map = len(step.column_mappings)
+    if n_map and len(cols) != n_map:
+        warnings.append(
+            f"ARITY: INSERT column list ({len(cols)}) != step SELECT expressions "
+            f"({n_map}) -- positional alignment NOT guaranteed; verify before running"
+        )
+    select_body = _select_body_from_step_sql(step.select_sql)
+    if not select_body:
+        raise EmitError("Simple-Insert step has no SELECT body -- cannot emit INSERT")
+
+    col_list = ",\n  ".join(cols)
+    insert_block = (
+        f"INSERT INTO {model.target.fq}\n"
+        f"(\n  {col_list}\n)\n"
+        f"{select_body};"
+    )
+    header = _emit_header(
+        model, "Simple-Insert (faithful)", len(cols), len(unresolved_report), warnings
+    ) if add_header_comment else ""
+    full_sql = f"{header}\n{insert_block}" if header else insert_block
+    return EmitResult(sql=full_sql, unresolved=unresolved_report, warnings=warnings)
+
+
+def _emit_from_merge(
+    model: ODIModel, *, strict: bool, add_header_comment: bool
+) -> EmitResult:
+    """Faithful INSERT for a MERGE-only IKM (0 staging steps).
+
+    The MERGE ``using ( select <pass-through> from ( select <real bindings>
+    from <joins> ) )`` carries the full per-column projection.  Take the USING
+    inner-SELECT as the INSERT body:
+        ``INSERT INTO <target> (insert_cols) SELECT <inner expr per col> FROM <inner joins>``.
+    Generic -- column order = the MERGE's WHEN NOT MATCHED INSERT column list.
+    """
+    # Helpers live in comparator (verified); lazy import avoids a load cycle.
+    from app.sql_model.comparator import (
+        _merge_inner_projection_map,
+        _merge_inner_from_clause,
+    )
+    fs = model.final_select_sql or ""
+    proj = _merge_inner_projection_map(fs)
+    from_clause = _merge_inner_from_clause(fs)
+    cols = model.final_insert_columns
+    if not cols or not from_clause:
+        raise EmitError(
+            "MERGE USING inner-SELECT could not be parsed -- cannot emit INSERT"
+        )
+    if not proj:
+        raise EmitError(
+            "MERGE USING inner-SELECT parsed but found zero column bindings "
+            "-- cannot emit INSERT"
+        )
+
+    unresolved_report: list[dict] = []
+    warnings: list[str] = []
+    nulled: list[str] = []
+    select_items: list[str] = []
+    for col in cols:
+        expr = proj.get(col.upper())
+        if not expr:
+            if strict:
+                raise EmitError(
+                    f"{col}: column in MERGE INSERT list but not in USING projection"
+                )
+            unresolved_report.append({
+                "target_col": col, "reason": "NOT_IN_USING_PROJECTION",
+                "detail": "column absent from MERGE inner-SELECT", "original_expr": "",
+            })
+            nulled.append(col)
+            select_items.append(f"NULL /* {col}: not in USING projection */")
+        else:
+            select_items.append(f"{expr}  /* {col} */")
+
+    if nulled:
+        warnings.append(
+            "NULL-SUBSTITUTED columns absent from the USING projection: "
+            + ", ".join(nulled)
+        )
+
+    # Operator-locked caveat: an INSERT built from the USING source SELECT
+    # reproduces ALL source rows.  A MERGE with a WHEN MATCHED branch UPDATEs
+    # matched rows and only INSERTs the unmatched ones -- so this faithful
+    # column-mapping INSERT is NOT row-equivalent to the MERGE.  Surface it
+    # loudly so the later data-validation step (control table vs target) does
+    # not treat it as an insert-only replay.
+    caveats: list[str] = []
+    if "WHEN MATCHED" in fs.upper():
+        caveats.append(
+            "Source is a MERGE (WHEN MATCHED UPDATE + WHEN NOT MATCHED INSERT). "
+            "This INSERT reproduces the full USING source (ALL rows); the MERGE "
+            "only INSERTs unmatched rows. Add a NOT EXISTS/MINUS filter for "
+            "insert-only semantics before using this for data validation."
+        )
+        warnings.append(caveats[-1])
+
+    col_list = ",\n  ".join(cols)
+    sel_list = ",\n  ".join(select_items)
+    insert_block = (
+        f"INSERT INTO {model.target.fq}\n"
+        f"(\n  {col_list}\n)\n"
+        f"SELECT\n  {sel_list}\n"
+        f"{from_clause};"
+    )
+    header = _emit_header(
+        model, "MERGE (faithful column-mapping, from USING)",
+        len(cols), len(unresolved_report), caveats,
+    ) if add_header_comment else ""
+    full_sql = f"{header}\n{insert_block}" if header else insert_block
+    return EmitResult(sql=full_sql, unresolved=unresolved_report, warnings=warnings)
+
+
 def emit_insert(
     model: ODIModel,
     *,
@@ -98,6 +261,11 @@ def emit_insert(
     add_header_comment: bool = True,
 ) -> EmitResult:
     """Emit an Oracle INSERT SQL from the ODIModel.
+
+    Three IKM shapes are supported:
+      * AVY multi-step (>=1 staging step + final MERGE) -> WITH-CTE per step.
+      * Simple-Insert  (1 step, no MERGE)               -> faithful single INSERT.
+      * MERGE-only     (0 steps, MERGE USING)           -> faithful INSERT from USING.
 
     Args:
         model:               The fully-parsed ODIModel.
@@ -108,13 +276,27 @@ def emit_insert(
     Returns:
         EmitResult with .sql, .unresolved list, .warnings list.
     """
+    # MERGE-only IKM: no staging steps, but the USING clause carries the mapping.
+    # Match a real MERGE `USING (` clause (word-boundary), not any stray "USING"
+    # token (hint / column name / comment) that could misroute the dispatch.
     if not model.staging_steps:
-        raise EmitError("ODIModel has no staging steps — cannot emit INSERT")
+        if re.search(r"\bUSING\s*\(", model.final_select_sql or "", re.IGNORECASE):
+            return _emit_from_merge(
+                model, strict=strict, add_header_comment=add_header_comment
+            )
+        raise EmitError("ODIModel has no staging steps -- cannot emit INSERT")
+
+    # Simple-Insert IKM: one promoted step, no MERGE integration block.  Emit
+    # the original INSERT...SELECT directly (no CTE wrap, no AVY staging name).
+    if len(model.staging_steps) == 1 and not (model.final_select_sql or "").strip():
+        return _emit_simple_insert(
+            model, strict=strict, add_header_comment=add_header_comment
+        )
 
     unresolved_report: list[dict] = []
     warnings: list[str] = []
 
-    # ── Validate: check for UnresolvedExpr in all steps ────────────────────
+    # -- Validate: check for UnresolvedExpr in all steps --------------------
     for step in model.staging_steps:
         for cm in step.column_mappings:
             if isinstance(cm.source, UnresolvedExpr):
@@ -129,33 +311,33 @@ def emit_insert(
                 if strict:
                     raise EmitError(
                         f"STEP{step.step_id}.{cm.target_col}: "
-                        f"{cm.source.reason} — {cm.source.detail}"
+                        f"{cm.source.reason} -- {cm.source.detail}"
                     )
                 unresolved_report.append(entry)
 
-    # ── Build CTEs (one per staging step) ──────────────────────────────────
+    # -- Build CTEs (one per staging step) ----------------------------------
     cte_parts: list[str] = []
     for step in model.staging_steps:
         select_body = _select_body_from_step_sql(step.select_sql)
         if not select_body:
-            warnings.append(f"STEP{step.step_id}: empty SELECT body — using placeholder")
+            warnings.append(f"STEP{step.step_id}: empty SELECT body -- using placeholder")
             select_body = "SELECT NULL FROM DUAL"
         cte_parts.append(f"{step.name} AS (\n{_indent(select_body, 2)}\n)")
 
     with_clause = "WITH " + ",\n".join(cte_parts)
 
-    # ── Build INSERT column list ────────────────────────────────────────────
+    # -- Build INSERT column list --------------------------------------------
     final_cols = model.final_insert_columns
     if not final_cols:
         # Fall back to the last step's target columns
         last_step = model.staging_steps[-1]
         final_cols = [cm.target_col for cm in last_step.column_mappings]
-        warnings.append("No MERGE INSERT columns found — using last step column list")
+        warnings.append("No MERGE INSERT columns found -- using last step column list")
 
     col_list = ",\n  ".join(final_cols)
     last_step_name = model.staging_steps[-1].name
 
-    # ── Build SELECT list for the final INSERT ──────────────────────────────
+    # -- Build SELECT list for the final INSERT ------------------------------
     # Select every final column by name from the last staging CTE.
     # Columns in the last step that are unresolved get NULL substitution
     # (if strict=False) or were already blocked above.
@@ -166,7 +348,7 @@ def emit_insert(
     for col in final_cols:
         cm = last_step_col_map.get(col)
         if cm is None:
-            # Column not in last step — may come from an earlier step via pass-through
+            # Column not in last step -- may come from an earlier step via pass-through
             select_items.append(col)
         elif isinstance(cm.source, UnresolvedExpr):
             select_items.append(f"NULL /* {cm.source.reason}: {col} */")
@@ -175,11 +357,11 @@ def emit_insert(
 
     sel_list = ",\n  ".join(select_items)
 
-    # ── Compose final SQL ───────────────────────────────────────────────────
+    # -- Compose final SQL ---------------------------------------------------
     header = ""
     if add_header_comment:
         u_count = len(unresolved_report)
-        status = "PARTIAL — see unresolved list" if u_count else "OK"
+        status = "PARTIAL -- see unresolved list" if u_count else "OK"
         header = (
             f"-- Generated Oracle INSERT for {model.target.fq}\n"
             f"-- Source: ODI XML semantic parser (db-testing-tool v2)\n"

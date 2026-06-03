@@ -806,8 +806,8 @@ async def _read_upload_checked_odi(file: UploadFile, max_bytes: int = _MAX_UPLOA
 @router.post("/scenario/parse")
 async def parse_odi_scenario(
     xml_file: UploadFile = File(...),
-    target_schema: str = Query(default="IKOROSTELEV"),
-    target_table: str = Query(default="AVY_FACT_SIDE"),
+    target_schema: str = Query(default=""),
+    target_table: str = Query(default=""),
     strict: bool = Query(default=False),
 ):
     """Parse an ODI XML scenario export and emit the correct Oracle INSERT SQL.
@@ -890,8 +890,8 @@ async def parse_odi_scenario(
 async def compare_odi_vs_drd(
     xml_file: UploadFile = File(...),
     drd_file: UploadFile = File(None),
-    target_schema: str = Query(default="IKOROSTELEV"),
-    target_table: str = Query(default="AVY_FACT_SIDE"),
+    target_schema: str = Query(default=""),
+    target_table: str = Query(default=""),
     target_table_drd: str = Query(default=""),
     strict_emit: bool = Query(default=False),
 ):
@@ -909,7 +909,7 @@ async def compare_odi_vs_drd(
     No Oracle DB connection is made. Everything is offline.
     """
     from app.sql_model.odi_parser import OdiXmlParser
-    from app.sql_model.sql_emitter import EmitError, emit_insert
+    from app.sql_model.sql_emitter import EmitError, EmitResult, emit_insert
     from app.sql_model.comparator import compare_drd_rows_to_model, comparison_summary
 
     xml_bytes = await _read_upload_checked_odi(xml_file)
@@ -925,7 +925,19 @@ async def compare_odi_vs_drd(
     try:
         emit_result = emit_insert(model, strict=strict_emit, add_header_comment=True)
     except EmitError as exc:
-        raise HTTPException(422, f"SQL emit error: {exc}") from exc
+        # MERGE-only / no-staging-step models (e.g. taxlot Incremental-Update-
+        # Merge IKMs) cannot produce a faithful-ODI INSERT here -- but the
+        # DRD<->ODI COMPARISON below is the panel's PRIMARY job and is still
+        # valid.  Degrade the secondary emit to a note instead of aborting the
+        # whole analysis (was: HTTP 422 that killed the comparison).
+        emit_result = EmitResult(
+            sql=(
+                f"-- ODI faithful INSERT not emitted: {exc}\n"
+                f"-- (MERGE-only / no-staging-step model -- the ODI<->DRD "
+                f"comparison is still valid and shown below.)"
+            ),
+            warnings=[f"emit skipped (non-fatal): {exc}"],
+        )
     except Exception as exc:
         raise HTTPException(500, f"Unexpected emit error: {exc}") from exc
 
@@ -986,6 +998,7 @@ async def compare_odi_vs_drd(
         odi_xml_bytes=xml_bytes,
         target_schema=target_schema,
         target_table=target_table,
+        kb=kb,
     )
     base_response["comparison"] = {
         "summary": v9.comparison_summary,
@@ -1014,8 +1027,8 @@ async def compare_odi_vs_drd(
 @router.post("/scenario/emit-sql")
 async def emit_sql_from_xml(
     xml_file: UploadFile = File(...),
-    target_schema: str = Query(default="IKOROSTELEV"),
-    target_table: str = Query(default="AVY_FACT_SIDE"),
+    target_schema: str = Query(default=""),
+    target_table: str = Query(default=""),
     strict: bool = Query(default=False),
 ):
     """Lightweight endpoint: parse ODI XML and return only the emitted SQL string.
@@ -1046,8 +1059,8 @@ async def emit_sql_from_xml(
 @router.post("/scenario/run-xe")
 async def run_xe_insert(
     xml_file: UploadFile = File(...),
-    target_schema: str = Query(default="IKOROSTELEV"),
-    target_table: str = Query(default="AVY_FACT_SIDE"),
+    target_schema: str = Query(default=""),
+    target_table: str = Query(default=""),
     strict: bool = Query(default=False),
     test_rows: int = Query(default=10, ge=1, le=100),
     scratch_schema: str = Query(default=""),

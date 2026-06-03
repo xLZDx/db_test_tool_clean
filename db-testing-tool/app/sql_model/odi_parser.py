@@ -43,8 +43,13 @@ from app.sql_model.types import (
 )
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-_DEFAULT_TARGET_SCHEMA = "IKOROSTELEV"
-_DEFAULT_TARGET_TABLE = "AVY_FACT_SIDE"
+# Phase 7.19.24 (2026-06-02): NO scenario-specific default target.  The target
+# is AUTO-DETECTED from the ODI scenario's integration INSERT/MERGE INTO clause
+# (was hardcoded to AVY_FACT_SIDE, so every other file emitted "INSERT INTO
+# IKOROSTELEV.AVY_FACT_SIDE").  An explicit caller target still wins; blank ->
+# auto-detect.  (Re-applied 2026-06-03 after it was lost in a git reset.)
+_DEFAULT_TARGET_SCHEMA = ""
+_DEFAULT_TARGET_TABLE = ""
 
 # ── Block classification patterns ─────────────────────────────────────────────
 _RE_STEP_NUM = re.compile(r"SSDS_AVY_FACT_STEP(\d)_STG", re.I)
@@ -53,22 +58,57 @@ _RE_MERGE_INTO = re.compile(r"\bMERGE\s+INTO\b", re.I)
 _RE_DECLARE_BEGIN = re.compile(r"^\s*(?:DECLARE|BEGIN)\b", re.I)
 _RE_INSERT_INTO = re.compile(r"\bINSERT\b[^;]{0,200}?\bINTO\b", re.I | re.DOTALL)
 
+# Extract the target schema.table from an integration block's INSERT/MERGE INTO
+# clause (e.g. "INSERT /*+ APPEND */ INTO TAXLOTS_OWNER.CLS_TAX_LOTS_NON_BKR_FACT
+# (...)" -> ("TAXLOTS_OWNER", "CLS_TAX_LOTS_NON_BKR_FACT")).  Tolerates the
+# optimizer hint before INTO.
+_RE_INTO_TARGET = re.compile(
+    r"\b(?:MERGE|INSERT)\b\s*(?:/\*.*?\*/)?\s*\bINTO\s+([A-Z][A-Z0-9_$#]*)(?:\.([A-Z][A-Z0-9_$#]*))?",
+    re.I | re.DOTALL,
+)
+
+
+def _extract_into_target(resolved_sql: str) -> tuple[str, str]:
+    """Return (schema, table) from the first INSERT/MERGE INTO of a resolved
+    integration block.  ('', '') if none.  Caller passes ONLY integration
+    blocks (MERGE / final INSERT) -- never utility/log blocks -- so this does
+    not pick up an SSDS_SESS_LOG-style logging insert."""
+    m = _RE_INTO_TARGET.search(resolved_sql or "")
+    if not m:
+        return ("", "")
+    g1, g2 = m.group(1), m.group(2)
+    if g2:
+        return (g1.upper(), g2.upper())
+    return ("", g1.upper())
+
 
 def _classify_block(raw: str) -> str:
-    """Return block classification string for routing."""
-    has_step = bool(_RE_STEP_NUM.search(raw))
+    """Return block classification string for routing (by CONTENT).
+
+    Phase 7.19.18 (2026-06-02): the classifier no longer requires the
+    AVY_FACT-specific ``SSDS_AVY_FACT_STEP<n>_STG`` naming.  MERGE-based
+    IKMs (e.g. "IKM Oracle Incremental Update Merge", used by the taxlot
+    scenarios) carry their full column mapping in the MERGE itself, with no
+    STEP_INSERT staging blocks.  Classifying on content -- MERGE INTO -> a
+    MERGE, CREATE TABLE -> STEP_DDL, INSERT INTO -> STEP_INSERT -- works for
+    ANY scenario, not just AVY_FACT.  AVY behaviour is preserved: a STEP_INSERT
+    block whose step number cannot be extracted is skipped in _build_model
+    (n is None), and STEP_DDL is a no-op there -- exactly as before when those
+    blocks fell through to UTILITY.
+    """
     has_create = bool(_RE_CREATE_TABLE.search(raw))
     has_merge = bool(_RE_MERGE_INTO.search(raw))
     has_insert = bool(_RE_INSERT_INTO.search(raw))
 
-    if has_step and has_create:
-        return "STEP_DDL"
-    if has_step and has_merge:
+    # MERGE first: a MERGE body legitimately contains INSERT (WHEN NOT
+    # MATCHED) and may mention CREATE inside its USING subquery; it must not
+    # be misrouted to STEP_INSERT/STEP_DDL.
+    if has_merge:
         return "MERGE"
-    if has_step and has_insert:
+    if has_create:
+        return "STEP_DDL"
+    if has_insert:
         return "STEP_INSERT"
-    if bool(_RE_DECLARE_BEGIN.match(raw)):
-        return "UTILITY"
     return "UTILITY"
 
 
@@ -226,16 +266,69 @@ _RE_TABLE_ALIAS = re.compile(
 )
 
 
+# ANSI JOIN keyword splitter ([LEFT|RIGHT|FULL] [OUTER] JOIN / INNER JOIN /
+# CROSS JOIN / JOIN).  Used so a FROM clause written in ANSI-join style (taxlot
+# Simple-Insert / Merge IKMs) yields one operand per table, not one giant blob.
+_RE_JOIN_SPLIT = re.compile(
+    r"\b(?:(?:LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?|INNER\s+|CROSS\s+)?JOIN\b", re.I
+)
+
+
 def _parse_from_clause(from_text: str) -> list[AliasBinding]:
-    """Parse a comma-joined FROM clause into AliasBinding objects."""
+    """Parse a FROM clause into AliasBinding objects.
+
+    Handles BOTH old-style comma joins AND ANSI ``[LEFT|RIGHT|FULL] [OUTER]
+    JOIN`` (possibly wrapped in grouping parens, with inline-subquery
+    operands -- the taxlot Simple-Insert / Merge IKMs).  Splits on depth-0
+    commas AND JOIN keywords; for each operand, drops the trailing
+    ``ON <predicate>`` and any wrapping grouping parens, then matches
+    ``schema.table alias``.  Inline-subquery operands ``(SELECT ...) alias``
+    do not match a simple table ref and are skipped (their columns remain
+    UNRESOLVABLE for operator review).  Generic -- no scenario-specific names.
+    """
     bindings: list[AliasBinding] = []
-    parts = _split_at_depth_zero(from_text, ",")
-    for part in parts:
+    seen: set = set()
+    # Split on depth-0 commas first, then on ANSI JOIN keywords.
+    raw_parts: list[str] = []
+    for comma_part in _split_at_depth_zero(from_text or "", ","):
+        raw_parts.extend(_RE_JOIN_SPLIT.split(comma_part))
+    for part in raw_parts:
         part = part.strip()
         if not part:
             continue
+        # Drop the ANSI "ON <predicate>" tail -- keep only the table reference.
+        m_on = re.search(r"\bON\b", part, re.I)
+        if m_on:
+            part = part[:m_on.start()].strip()
+        # Strip wrapping grouping parens, but a leading "(SELECT" marks an
+        # inline subquery (handled by the no-match skip below).
+        while part.startswith("(") and not re.match(r"\(\s*SELECT\b", part, re.I):
+            part = part[1:].strip()
+        part = part.rstrip(")").strip()
         m = _RE_TABLE_ALIAS.match(part)
         if not m:
+            # Inline-subquery operand: ``(SELECT ... FROM <schema.table> ...)
+            # <alias>``.  Register <alias> -> the single physical table named
+            # in the subquery's FROM, so its projected columns resolve (e.g.
+            # taxlot CL_VAL filtered slices ``(SELECT ... FROM CL_VAL CL_VAL1
+            # WHERE CL_SCM_ID=84) CL_VAL1_1`` -> CCAL_REPL_OWNER.CL_VAL).
+            # Fully determinate (the subquery FROM names exactly one table);
+            # no guessing.
+            sub = re.match(r"\(\s*SELECT\b(.*)\)\s*([A-Z][A-Z0-9_$#]*)\s*$",
+                           part, re.IGNORECASE | re.DOTALL)
+            if sub:
+                inner, outer_alias = sub.group(1), sub.group(2).upper()
+                mt = re.search(r"\bFROM\s+([A-Z][A-Z0-9_$#]*)\.([A-Z][A-Z0-9_$#]*)",
+                               inner, re.IGNORECASE)
+                if mt and outer_alias not in seen:
+                    try:
+                        bindings.append(AliasBinding(
+                            alias=outer_alias,
+                            ref=TableRef(schema=mt.group(1).upper(), table=mt.group(2).upper()),
+                        ))
+                        seen.add(outer_alias)
+                    except ValueError:
+                        pass
             continue
         g1, g2, g3 = m.group(1), m.group(2), m.group(3)
         if g2:
@@ -244,9 +337,12 @@ def _parse_from_clause(from_text: str) -> list[AliasBinding]:
         else:
             schema, table = "", g1.upper()
             alias = g3.upper() if g3 else table
+        if alias in seen:
+            continue
         try:
             ref = TableRef(schema=schema, table=table)
             bindings.append(AliasBinding(alias=alias, ref=ref))
+            seen.add(alias)
         except ValueError:
             pass
     return bindings
@@ -354,9 +450,13 @@ def _extract_merge_insert_columns(merge_sql: str) -> list[str]:
     upper = merge_sql.upper()
     nm_idx = upper.find("WHEN NOT MATCHED")
     if nm_idx < 0:
-        _logger.warning(
+        # Benign for MERGE-less integration blocks (Simple-Insert taxlot IKMs
+        # take final_insert_columns from the INSERT path, not this MERGE
+        # helper).  DEBUG, not WARNING, so it does not surface as a GUI
+        # "parse warning" on every taxlot analyze.
+        _logger.debug(
             "_extract_merge_insert_columns: 'WHEN NOT MATCHED' not found in MERGE SQL"
-            " -- falling back to block start; column list may be wrong"
+            " -- falling back to block start (benign for non-MERGE integration)"
         )
         nm_idx = 0
     ins_idx = upper.find("INSERT", nm_idx)
@@ -394,7 +494,10 @@ class OdiXmlParser:
         target_table: str = _DEFAULT_TARGET_TABLE,
         schema_map: Optional[dict[str, str]] = None,
     ) -> None:
-        self._target = TableRef(schema=target_schema, table=target_table)
+        # Stored as strings; the real TableRef is built in _build_model AFTER
+        # the integration target is auto-detected (blank here -> detect).
+        self._target_schema = (target_schema or "").strip().upper()
+        self._target_table = (target_table or "").strip().upper()
         self._schema_map: dict[str, str] = schema_map or {}
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -411,8 +514,16 @@ class OdiXmlParser:
     # ── Model building ────────────────────────────────────────────────────────
 
     def _build_model(self, raw_blocks: list[str]) -> ODIModel:
-        model = ODIModel(target=self._target)
+        # Placeholder target; resolved after the integration block is found.
+        model = ODIModel(target=TableRef(
+            self._target_schema or "ODI",
+            self._target_table or "_UNRESOLVED_TARGET_",
+        ))
         step_inserts: dict[int, str] = {}
+        unnumbered_insert: str = ""   # Phase 7.19.20: largest non-AVY INSERT (Simple-Insert IKM)
+        had_avy_step = False
+        det_schema = ""   # Phase 7.19.24: auto-detected target from integration block
+        det_table = ""
         notes: list[str] = []
 
         for idx, raw in enumerate(raw_blocks):
@@ -426,6 +537,7 @@ class OdiXmlParser:
             if cls == "STEP_INSERT":
                 n = _step_num(raw)
                 if n is not None:
+                    had_avy_step = True
                     # Operator-locked (2026-05-29): ODI emits MULTIPLE
                     # STEP_INSERT blocks per step number when the load
                     # has both a base-path and a richer-path variant.
@@ -446,9 +558,61 @@ class OdiXmlParser:
                             f"block_{idx:02d}: STEP{n}_INSERT skipped "
                             f"(len {len(resolved)} < kept {len(existing)})"
                         )
+                else:
+                    # Phase 7.19.20 (2026-06-02): a STEP_INSERT block with no
+                    # AVY step name belongs to a "Simple Insert" IKM (e.g. the
+                    # CLOSED taxlot scenario): a single INSERT INTO <target>
+                    # (cols) SELECT ... FROM <joined sources>.  ODI emits a
+                    # base + a smaller _RT restart variant; keep the LARGER --
+                    # it IS the integration mapping (promoted below).
+                    if len(resolved) > len(unnumbered_insert):
+                        unnumbered_insert = resolved
+                        notes.append(
+                            f"block_{idx:02d}: unnumbered STEP_INSERT kept "
+                            f"(len {len(resolved)}) -- Simple-Insert candidate"
+                        )
+                    else:
+                        notes.append(
+                            f"block_{idx:02d}: unnumbered STEP_INSERT skipped "
+                            f"(len {len(resolved)} <= kept {len(unnumbered_insert)})"
+                        )
             elif cls == "MERGE":
-                model.final_select_sql = resolved
-                model.final_insert_columns = _extract_merge_insert_columns(resolved)
+                # Phase 7.19.18: keep the LARGER MERGE block (mirrors the
+                # STEP_INSERT logic above).  ODI emits a base MERGE plus a
+                # smaller restart/_RT variant; the larger one carries the
+                # full WHEN MATCHED / WHEN NOT MATCHED column mapping.
+                if len(resolved) > len(model.final_select_sql or ""):
+                    model.final_select_sql = resolved
+                    model.final_insert_columns = _extract_merge_insert_columns(resolved)
+                    _ds, _dt = _extract_into_target(resolved)
+                    if _dt:
+                        det_schema, det_table = _ds, _dt
+                    notes.append(f"block_{idx:02d}: MERGE kept (len {len(resolved)})")
+                else:
+                    notes.append(
+                        f"block_{idx:02d}: MERGE skipped "
+                        f"(len {len(resolved)} <= kept {len(model.final_select_sql or '')})"
+                    )
+
+        # Phase 7.19.20 (2026-06-02): "Simple Insert" IKMs (e.g. the CLOSED
+        # taxlot scenario, IKM RJ Oracle Simple Insert) have NO MERGE and NO
+        # AVY-named staging steps -- just a single INSERT INTO <target>
+        # (cols) SELECT ... FROM <joined sources>.  That INSERT *is* the
+        # integration mapping.  Promote the largest unnumbered INSERT to a
+        # staging step so the derivation walker + comparator resolve columns
+        # from it, and take the target column order from its INSERT clause.
+        if unnumbered_insert and not had_avy_step and not model.final_select_sql:
+            step_inserts.setdefault(1, unnumbered_insert)
+            if not model.final_insert_columns:
+                model.final_insert_columns = _extract_insert_columns(unnumbered_insert)
+            if not det_table:
+                _ds, _dt = _extract_into_target(unnumbered_insert)
+                if _dt:
+                    det_schema, det_table = _ds, _dt
+            notes.append(
+                "Simple-Insert IKM: final INSERT used as the integration "
+                "mapping (no MERGE block in this scenario)"
+            )
 
         model.notes = notes
 
@@ -458,14 +622,31 @@ class OdiXmlParser:
             step = self._parse_step_insert(step_num, sql)
             model.staging_steps.append(step)
 
-        if not model.staging_steps:
+        # A model is valid with ANY integration mapping: AVY staging steps +
+        # a final MERGE; a MERGE-only IKM (7.19.18); or a Simple-Insert IKM
+        # whose single INSERT is itself the mapping (7.19.20).
+        if not model.staging_steps and not model.final_select_sql:
             raise ValueError(
-                "ERROR_NO_STEP_BLOCKS: no STEP_INSERT blocks found in ODI XML"
+                "ERROR_NO_MAPPING_BLOCKS: ODI XML has neither an INSERT/MERGE "
+                "integration mapping nor staging steps -- nothing to compare"
             )
-        if not model.final_select_sql:
+        # AVY-style multi-step loads MUST end in a MERGE; AVY steps with no
+        # MERGE is an incomplete scenario.  (Simple-Insert + MERGE-only paths
+        # legitimately have no MERGE / no AVY steps respectively.)
+        if had_avy_step and not model.final_select_sql:
             raise ValueError(
-                "ERROR_NO_MERGE_BLOCK: no MERGE block found in ODI XML"
+                "ERROR_NO_MERGE_BLOCK: AVY staging steps found but no MERGE "
+                "block to integrate them"
             )
+
+        # Phase 7.19.24: resolve the real target.  Caller's explicit value wins;
+        # otherwise use the auto-detected target from the integration block;
+        # otherwise keep the placeholder so nothing downstream crashes.
+        final_schema = self._target_schema or det_schema or model.target.schema
+        final_table = self._target_table or det_table or model.target.table
+        model.target = TableRef(schema=final_schema, table=final_table)
+        if det_table and not self._target_table:
+            notes.append(f"target auto-detected: {final_schema}.{final_table}")
 
         # Phase 1 (2026-05-29): enrich the model with per-column derivation
         # chains via sqlglot AST walk.  Idempotent + degrades to no-op when

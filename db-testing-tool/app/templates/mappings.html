@@ -7522,11 +7522,11 @@ document.addEventListener('DOMContentLoaded', function() {
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
             <div class="form-group" style="margin:0;flex:0 0 160px">
                 <label style="font-size:11px">Target Schema</label>
-                <input class="form-control" id="odi-target-schema" value="IKOROSTELEV">
+                <input class="form-control" id="odi-target-schema" value="" placeholder="auto-detect from ODI XML">
             </div>
             <div class="form-group" style="margin:0;flex:0 0 160px">
                 <label style="font-size:11px">Target Table</label>
-                <input class="form-control" id="odi-target-table" value="AVY_FACT_SIDE">
+                <input class="form-control" id="odi-target-table" value="" placeholder="auto-detect from ODI XML">
             </div>
             <div class="form-group" style="margin:0;flex:0 0 190px">
                 <label style="font-size:11px">Filter Verdict</label>
@@ -7751,12 +7751,38 @@ document.addEventListener('DOMContentLoaded', function() {
     let _odiSqlVisible = true;
     try { _odiAnnotations = JSON.parse(localStorage.getItem('odi_annotations') || '{}'); } catch(_) {}
 
+    // Reset the whole ODI panel when a new file is attached, so results from a
+    // previous scenario (counts, grid, emitted SQL, target, issues badge) never
+    // linger over a different file.  (operator 2026-06-03)
+    window._odiResetPanel = function() {
+        // Hide only the RESULT sub-sections -- NEVER the card container
+        // (odi-val-card) or its body, or the file inputs + Analyze button
+        // vanish with it.
+        ['odi-summary','odi-sql-section','odi-grid-section','odi-static-section',
+         'odi-multisheet-panel','odi-fix-panel','odi-xe-result'
+        ].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+        ['odi-target-schema','odi-target-table'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        const badge = document.getElementById('odi-status-badge'); if (badge) badge.textContent = '';
+        const tb = document.getElementById('odi-grid-tbody'); if (tb) tb.innerHTML = '';
+        const stb = document.getElementById('odi-static-tbody'); if (stb) stb.innerHTML = '';
+        const pre = document.getElementById('odi-sql-pre'); if (pre) pre.textContent = '';
+        _odiAnnotations = {};
+        try { localStorage.removeItem('odi_annotations'); } catch(_) {}
+    };
+    ['odi-xml-file','odi-drd-file'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', window._odiResetPanel);
+    });
+
     window.odiRunAnalysis = async function() {
         const xmlFile = document.getElementById('odi-xml-file').files[0];
         if (!xmlFile) { showToast('Please select an ODI XML file', 'warning'); return; }
         const drdFile = document.getElementById('odi-drd-file').files[0];
-        const schema  = document.getElementById('odi-target-schema').value.trim() || 'IKOROSTELEV';
-        const tbl     = document.getElementById('odi-target-table').value.trim()  || 'AVY_FACT_SIDE';
+        // Phase 7.19.24: blank -> backend auto-detects target from the ODI XML.
+        const schema  = document.getElementById('odi-target-schema').value.trim();
+        const tbl     = document.getElementById('odi-target-table').value.trim();
 
         document.getElementById('odi-loading').style.display = 'block';
         ['odi-summary','odi-sql-section','odi-grid-section','odi-fix-panel','odi-multisheet-panel'].forEach(id => {
@@ -8058,8 +8084,11 @@ document.addEventListener('DOMContentLoaded', function() {
     window.odiRunXe = async function() {
         const xmlFile = document.getElementById('odi-xml-file').files[0];
         if (!xmlFile) { showToast('Select an ODI XML file first', 'warning'); return; }
-        const schema = document.getElementById('odi-target-schema').value.trim() || 'IKOROSTELEV';
-        const tbl    = document.getElementById('odi-target-table').value.trim()  || 'AVY_FACT_SIDE';
+        // No AVY_FACT_SIDE fallback: blank -> backend auto-detects the target
+        // from the ODI XML (Phase 7.19.24).  A stale AVY default here forced
+        // every non-AVY scenario to compare against the wrong table.
+        const schema = document.getElementById('odi-target-schema').value.trim();
+        const tbl    = document.getElementById('odi-target-table').value.trim();
 
         const xeResult  = document.getElementById('odi-xe-result');
         const xeBadge   = document.getElementById('odi-xe-badge');

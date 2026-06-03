@@ -15,6 +15,7 @@ Design rule: no regex string-mangling on the result; comparison is structural.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from dataclasses import dataclass, field
@@ -399,6 +400,154 @@ def _staging_table_to_step_id(model: ODIModel, table_ref: str) -> Optional[int]:
     return None
 
 
+# ── MERGE inner-SELECT projection (depth-aware) ───────────────────────────────
+#
+# The line-bounded `_projection_tail_re` mis-extracts the MERGE USING select:
+#   (a) the FIRST bare pass-through column captures the leading `select` keyword
+#       (e.g. `select SRC_STM_CD,` -> expr "select"),
+#   (b) a multi-line `CASE ... END` projection captures only its tail line
+#       (e.g. `END WASH_SALE_TP,` -> expr "END").
+# Splitting the DEEPEST nested SELECT projection on top-level commas captures
+# each expression whole and never leaks a keyword.  Generic -- no table /
+# column / schema names; returns {} when the SQL is not a MERGE (no-op).
+
+def _balanced_paren_body(s: str, open_idx: int) -> tuple[str, int]:
+    """`s[open_idx]` must be '('.  Return (inner_text, index_after_close)."""
+    depth = 0
+    n = len(s)
+    i = open_idx
+    while i < n:
+        c = s[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return s[open_idx + 1:i], i + 1
+        i += 1
+    return s[open_idx + 1:], n  # unbalanced -> best effort
+
+
+def _split_top_level_commas(text: str) -> List[str]:
+    """Split on commas at paren-depth 0 (CASE / function / subquery commas stay
+    intact).  Generic."""
+    out: List[str] = []
+    buf: List[str] = []
+    depth = 0
+    for c in text:
+        if c == "(":
+            depth += 1
+            buf.append(c)
+        elif c == ")":
+            depth -= 1
+            buf.append(c)
+        elif c == "," and depth == 0:
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+    if buf:
+        out.append("".join(buf))
+    return out
+
+
+def _top_level_from_index(text: str) -> int:
+    """Index of the first depth-0 FROM keyword, or -1 (FROM inside parens skipped)."""
+    depth = 0
+    for m in re.finditer(r"\(|\)|\bfrom\b", text, re.IGNORECASE):
+        tok = m.group(0)
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            depth -= 1
+        elif depth == 0:
+            return m.start()
+    return -1
+
+
+def _merge_inner_select_text(final_select_sql: str) -> tuple[str, str]:
+    """Descend ONE level into the first FROM-subquery of an ODI MERGE USING
+    clause -- i.e. the ``using ( select <pass-through> from ( select <real
+    bindings> from <joins> ) )`` shape -- and return ``(projection_text,
+    from_text)``: the real per-column bindings and the joins they read from.
+    Returns ``("", "")`` when the SQL has no MERGE/USING.  Generic -- no table
+    / column / schema names.  (Not a recursive deepest-descent: it follows the
+    single nested FROM-subquery that the ODI MERGE shape uses.)"""
+    if not final_select_sql:
+        return "", ""
+    s = final_select_sql
+    ui = s.lower().find("using")
+    if ui < 0:
+        return "", ""
+    op = s.find("(", ui)
+    if op < 0:
+        return "", ""
+    using_body, _ = _balanced_paren_body(s, op)
+    # descend into the nested subquery after the USING select's FROM
+    proj_src = using_body
+    fi = _top_level_from_index(using_body)
+    if fi >= 0:
+        ip = using_body.find("(", fi)
+        if ip >= 0:
+            proj_src, _ = _balanced_paren_body(using_body, ip)
+    si = re.search(r"\bselect\b", proj_src, re.IGNORECASE)
+    if si is None:
+        return "", ""
+    proj_src = proj_src[si.end():]
+    ffi = _top_level_from_index(proj_src)
+    if ffi < 0:
+        return proj_src.strip(), ""
+    return proj_src[:ffi].strip(), proj_src[ffi:].strip()
+
+
+def _merge_inner_from_clause(final_select_sql: str) -> str:
+    """Return the inner-SELECT FROM clause (incl. the `FROM` keyword) of an ODI
+    MERGE USING clause, or ``""`` if not a MERGE.  Used by the faithful INSERT
+    emitter so a MERGE-only scenario reproduces its real joins."""
+    return _merge_inner_select_text(final_select_sql)[1]
+
+
+@functools.lru_cache(maxsize=16)
+def _merge_inner_projection_items(final_select_sql: str) -> tuple:
+    """Cached parse: return a hashable tuple of ``(ALIAS_UPPER, expr)`` pairs
+    from the ODI MERGE USING inner-SELECT projection.  ``lru_cache`` is
+    thread-safe (internal lock) so this is safe under FastAPI's threadpool;
+    keyed by the full SQL string so the result is always correct for its input."""
+    if not final_select_sql:
+        return ()
+    proj_text, _from_text = _merge_inner_select_text(final_select_sql)
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    if proj_text:
+        for item in _split_top_level_commas(proj_text):
+            it = item.strip()
+            if not it:
+                continue
+            mt = re.match(
+                r"^(.*?)(?:\s+(?:AS\s+)?)([A-Za-z][A-Za-z0-9_$#]*)\s*$",
+                it, re.IGNORECASE | re.DOTALL,
+            )
+            if mt is None:
+                continue
+            expr = mt.group(1).strip()
+            alias = mt.group(2).strip().upper()
+            if not expr or expr.upper() == alias or alias in seen:
+                continue
+            seen.add(alias)
+            out.append((alias, expr))
+    return tuple(out)
+
+
+def _merge_inner_projection_map(final_select_sql: str) -> dict:
+    """For an ODI MERGE ``using ( select <pass-through> from ( select <real
+    bindings> from <joins> ) ) ...`` return ``{ALIAS_UPPER: expr}`` from the
+    nested SELECT projection (one FROM-subquery down).  Captures multi-line
+    CASE expressions whole and never returns the leading SELECT keyword.
+    Returns ``{}`` when the SQL has no MERGE/USING.  Builds a fresh dict from
+    the lru-cached parse so callers may treat the result as their own."""
+    return dict(_merge_inner_projection_items(final_select_sql))
+
+
 def _text_search_one_step(step: StagingStep, col_name: str) -> Optional[str]:
     """Search ONLY this step's select_sql; return raw expr or None."""
     if not step or not step.select_sql or not col_name:
@@ -435,13 +584,20 @@ def _follow_staging_chain_text(
     # Initial expression: from the MERGE if any, else from the latest step
     fs = model.final_select_sql or ""
     if fs:
-        m = _projection_tail_re(col_name).search(fs)
-        if m is not None and m.group(1).strip().upper() != col_name.upper():
-            current_expr = m.group(1).strip()
+        # Prefer the depth-aware inner-projection map (captures multi-line CASE,
+        # never leaks the leading SELECT keyword) over the line-bounded regex.
+        _mexpr = _merge_inner_projection_map(fs).get(col_name.upper())
+        if _mexpr and _mexpr.strip().upper() != col_name.upper():
+            current_expr = _mexpr.strip()
             current_step_id = 0  # MERGE
         else:
-            current_expr = None
-            current_step_id = None
+            m = _projection_tail_re(col_name).search(fs)
+            if m is not None and m.group(1).strip().upper() != col_name.upper():
+                current_expr = m.group(1).strip()
+                current_step_id = 0  # MERGE
+            else:
+                current_expr = None
+                current_step_id = None
     else:
         current_expr = None
         current_step_id = None
@@ -521,6 +677,10 @@ def _text_search_step_for_column(
     # the TRANSFORMATION_DRIFT we want to surface.
     fs = model.final_select_sql or ""
     if fs:
+        # depth-aware inner-projection first (multi-line CASE, no keyword leak)
+        _mexpr = _merge_inner_projection_map(fs).get(col_name.upper())
+        if _mexpr and _mexpr.strip().upper() != col_name.upper():
+            return (0, _mexpr.strip())
         m = pat.search(fs)
         if m is not None:
             expr = m.group(1).strip()
@@ -1058,6 +1218,56 @@ def compare_drd_odi(
             ts_step_id, ts_expr = text_found
             ts_expr_upper = ts_expr.upper()
 
+            # ── Literal NULL projected by ODI (common in MERGE pass-throughs).
+            #    Classify against the DRD instead of falling through to the
+            #    generic "staging chain could not be traced" UNRESOLVABLE.
+            #    (operator 2026-06-03)  Both sides NULL -> they AGREE -> MATCHED;
+            #    DRD names a real source/derivation but ODI hardcodes NULL ->
+            #    REAL_MISMATCH (TRANSFORMATION_DRIFT).
+            if ts_expr.strip().upper() == "NULL":
+                _drd_src_u = (drd.source_attr or "").strip().upper()
+                _drd_logic_u = (_drd_logic_raw or "").strip().upper()
+                _drd_is_null = (
+                    _drd_src_u in ("", "NULL") and _drd_logic_u in ("", "NULL")
+                )
+                if _drd_is_null:
+                    return ComparisonResult(
+                        verdict=ComparisonVerdict.MATCHED,
+                        target_col=col,
+                        drd_schema=drd.source_schema,
+                        drd_table=drd.source_table,
+                        drd_attr=drd.source_attr,
+                        odi_schema="",
+                        odi_table="",
+                        odi_col="",
+                        odi_expr_sql="NULL",
+                        odi_step=ts_step_id,
+                        explanation="MATCHED: DRD rule is NULL and ODI projects NULL (both agree)",
+                        mismatch_kind=MismatchKind.NONE,
+                        drd_logic=_drd_logic_raw,
+                        odi_logic="NULL",
+                    )
+                return ComparisonResult(
+                    verdict=ComparisonVerdict.REAL_MISMATCH,
+                    target_col=col,
+                    drd_schema=drd.source_schema,
+                    drd_table=drd.source_table,
+                    drd_attr=drd.source_attr,
+                    odi_schema="",
+                    odi_table="",
+                    odi_col="",
+                    odi_expr_sql="NULL",
+                    odi_step=ts_step_id,
+                    explanation=(
+                        "TRANSFORMATION_DRIFT: DRD requires a value "
+                        f"({drd.source_attr or drd.transformation or 'rule'}) "
+                        "but ODI projects NULL"
+                    ),
+                    mismatch_kind=MismatchKind.TRANSFORMATION_DRIFT,
+                    drd_logic=_drd_logic_raw,
+                    odi_logic="NULL",
+                )
+
             # Shared rule engine: EXISTS-derived flag MATCH via MAX(CASE).
             _exists_spec_ts = extract_exists_derived_flag(drd.transformation)
             if _exists_spec_ts is not None:
@@ -1382,6 +1592,36 @@ def compare_drd_odi(
     # Normalize redundant CASE wrappers so the structural compare sees the
     # real underlying column ref.
     _odi_logic_raw = _normalize_case_when_redundant(_odi_logic_raw)
+
+    # ── Both-NULL agreement: DRD rule is NULL AND ODI projects NULL -> they
+    #    AGREE -> MATCHED (not UNRESOLVABLE).  The DRD declares NULL either via
+    #    an explicit "NULL" in the source_attr or in the transformation logic;
+    #    neither side names a real column.  (operator 2026-06-03) ─────────────
+    _odi_is_null = _odi_logic_raw.strip().upper() == "NULL"
+    if _odi_is_null:
+        _drd_src_txt = (drd.source_attr or "").strip().upper()
+        _drd_logic_txt = (_drd_logic_raw or "").strip().upper()
+        _drd_says_null = (
+            _drd_src_txt in ("", "NULL")
+            and _drd_logic_txt in ("", "NULL")
+            and ("NULL" in (_drd_src_txt, _drd_logic_txt))
+        )
+        if _drd_says_null:
+            return ComparisonResult(
+                verdict=ComparisonVerdict.MATCHED,
+                target_col=col,
+                drd_schema=drd.source_schema,
+                drd_table=drd.source_table,
+                drd_attr=drd.source_attr,
+                odi_schema="",
+                odi_table="",
+                odi_col="",
+                odi_expr_sql=src.expr_sql or "NULL",
+                odi_step=step_id,
+                explanation="MATCHED: DRD rule is NULL and ODI projects NULL (both agree)",
+                drd_logic=_drd_logic_raw,
+                odi_logic=_odi_logic_raw,
+            )
 
     # If the resolved trace landed on a staging table, follow the chain via
     # text search until we reach a real source.  This handles the case where

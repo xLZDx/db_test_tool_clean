@@ -58,8 +58,32 @@ def generate_v9(
     target_table: str,
     source_datasource_id: int = 3,
     target_datasource_id: int = 3,
+    kb=None,
 ) -> V9Result:
-    """End-to-end v9 generation.  Same inputs -> same SQL byte-for-byte."""
+    """End-to-end v9 generation.  Same inputs -> same SQL byte-for-byte.
+
+    ``kb`` (KBLookup | None): when provided, enables the comparator's PDM
+    arbitration -- e.g. a DRD-typo column name vs the ODI-correct name is
+    resolved to ALIAS_DRIFT_ONLY (PDM authoritative) instead of falling to
+    UNRESOLVABLE.  Operator rule: on any DRD<->ODI column disagreement,
+    always arbitrate against PDM and/or the live DB.
+    """
+    # Auto-load the schema KB when the caller did not supply one, so PDM
+    # arbitration works consistently across the GUI, CLI and tests (not only
+    # when the HTTP handler happens to pass kb).  Best-effort; degrades to
+    # no-PDM when the KB file is absent.
+    if kb is None:
+        try:
+            from pathlib import Path as _Path
+            from app.sql_model.static_validator import KBLookup as _KBLookup
+            # v9_pipeline.py lives in app/services/ -> parents[2] = project root
+            # (mirrors odi.py's _KB_PATH at app/routers/ -> parents[2]).
+            _kbp = _Path(__file__).resolve().parents[2] / "data" / "local_kb" / "schema_kb_ds_1.json"
+            if _kbp.exists():
+                kb = _KBLookup(_kbp)
+        except Exception:
+            kb = None
+
     # 1) Parse DRD xlsx (raw -> rows).  We parse TWICE so we can compute
     # the set of struck-through target columns (rows where Y/Z/AA have
     # strike-through font in Excel).  These are de-scoped by the DRD author
@@ -98,6 +122,12 @@ def generate_v9(
     # 2) Parse ODI XML
     from app.sql_model.odi_parser import OdiXmlParser
     model = OdiXmlParser(target_schema=target_schema, target_table=target_table).parse_bytes(odi_xml_bytes)
+    # Phase 7.19.24: when the caller did not specify a target, use the one the
+    # parser auto-detected from the ODI integration INSERT/MERGE INTO (no AVY
+    # hardcode).  All downstream uses (PDM lookup + both emitters) then target
+    # the real table instead of the AVY_FACT_SIDE default.
+    target_schema = (target_schema or "").strip() or model.target.schema
+    target_table = (target_table or "").strip() or model.target.table
 
     # 3) ETL Notes index + global haystack
     from app.sql_model.drd_multi_sheet import parse_all_sheets, SheetRole
@@ -167,7 +197,7 @@ def generate_v9(
         compare_drd_rows_to_model, comparison_summary, ComparisonResult,
     )
     from app.sql_model.types import ComparisonVerdict, MismatchKind
-    cmp_results = compare_drd_rows_to_model(aug, model)
+    cmp_results = compare_drd_rows_to_model(aug, model, kb=kb)
 
     # 6b) ODI_EXTRA detection (operator 2026-05-29 Phase 7.3):
     # Surface columns that ODI projects into the final INSERT but DRD
