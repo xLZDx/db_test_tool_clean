@@ -210,3 +210,41 @@ def test_open_multijoin_dim_projection_not_bare():
     sql = (res.get("generated_insert_sql") or "").upper()
     assert "SRC_STM_DIM.SRC_STM" not in sql, "bare SRC_STM_DIM projection leaked (undefined alias)"
     assert "ACG_TP_DIM.ACG_TP" not in sql, "bare ACG_TP_DIM projection leaked (undefined alias)"
+
+
+@pytest.mark.skipif(not _OPEN_DRD.exists(), reason="OPEN DRD fixture missing")
+def test_open_fx_placeholder_resolves_to_drd_currency_source():
+    """The DRD FX-conversion CASEs write a generic ``CCY_CODE`` placeholder.  It
+    must resolve to THIS DRD's currency-code source column -- CCY_CD's source
+    attribute, which is STM_BASE_ISO_CCY_CODE for OPEN -- the way ODI does, NOT a
+    hardcoded NML_ISO_CCY_CODE.  (operator 2026-06-05: OPEN deeper)"""
+    from app.services.control_table_service import analyze_control_table
+    try:
+        res = analyze_control_table(
+            file_bytes=_OPEN_DRD.read_bytes(), filename=_OPEN_DRD.name,
+            target_schema="TAXLOT_OWNER", target_table="OPN_TAX_LOTS_NON_BKR_FACT",
+            source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+        )
+    except Exception as exc:  # PDM (ds_2) not present in this env
+        pytest.skip(f"OPEN target not resolvable: {exc}")
+    flat = re.sub(r"\s+", "", (res.get("generated_insert_sql") or "").upper())
+    assert "STM_BASE_ISO_CCY_CODE='USD'" in flat, \
+        "FX CASE did not resolve CCY_CODE to the DRD currency source col"
+    assert "NML_ISO_CCY_CODE='USD'" not in flat, \
+        "FX CASE still uses the old hardcoded NML_ISO_CCY_CODE"
+
+
+@pytestmark_drd
+def test_close_fx_placeholder_still_resolves_to_its_currency_source():
+    """The generic CCY_CODE resolution must NOT regress CLOSE: CLOSE's CCY_CD
+    source attribute is NML_ISO_CCY_CODE, so CLOSE's FX CASEs must still use it
+    (removing the hardcode is behaviour-preserving for CLOSE)."""
+    from app.services.control_table_service import analyze_control_table
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(), filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+    )
+    flat = re.sub(r"\s+", "", (res.get("generated_insert_sql") or "").upper())
+    assert "NML_ISO_CCY_CODE='USD'" in flat, \
+        "CLOSE FX CASE lost its currency source col (regression)"

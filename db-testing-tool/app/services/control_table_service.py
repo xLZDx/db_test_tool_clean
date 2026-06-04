@@ -566,6 +566,17 @@ def build_analysis_rows(
         if target_col and target_col not in row_by_target:
             row_by_target[target_col] = row
 
+    # FX-conversion CASEs reference a generic ``CCY_CODE`` placeholder; resolve it
+    # once to this DRD's currency-code source column (the CCY_CD target's source
+    # attribute) so the normalizer can substitute it generically -- no hardcode.
+    _ccy_src_col = ""
+    for _tcol, _trow in row_by_target.items():
+        if _tcol == "CCY_CD" or _tcol.endswith("_CCY_CD"):
+            _ccy_src_col = (_trow.get("source_attribute") or "").strip().upper()
+            if "\n" in _ccy_src_col:
+                _ccy_src_col = _ccy_src_col.split("\n", 1)[0].strip()
+            break
+
     analysis = []
     for col in target_definition.get("columns", []) or []:
         col_name = (col.get("name") or "").strip().upper()
@@ -620,7 +631,7 @@ def build_analysis_rows(
             if derived_expr and (not expr_info.get("expression") or normalize_sql_expr(drd_expr) in _plain_ref_forms):
                 drd_expr = derived_expr
 
-        transformed_expr = derive_transformation_expression(row, source_attr)
+        transformed_expr = derive_transformation_expression(row, source_attr, ccy_source_col=_ccy_src_col)
         _plain_xform_set: set[str] = {"", normalize_sql_expr(f"S.{source_attr}")}
         if _src_table_for_check:
             _plain_xform_set.add(normalize_sql_expr(f"{_src_table_for_check}.{source_attr}"))
@@ -3438,7 +3449,7 @@ def infer_lookup_source_key_from_text(transformation: str, fallback: str = "") -
     return (fallback or "").strip().upper()
 
 
-def derive_transformation_expression(row: Dict[str, Any], source_attr: str) -> str:
+def derive_transformation_expression(row: Dict[str, Any], source_attr: str, ccy_source_col: str = "") -> str:
     transformation = (row.get("transformation") or "").strip()
     notes = (row.get("notes") or "").strip()
     source_table = (row.get("source_table") or "").strip()
@@ -3450,7 +3461,7 @@ def derive_transformation_expression(row: Dict[str, Any], source_attr: str) -> s
         if case_expr:
             seed_alias_match = re.search(r"^\s*([A-Z0-9_]+)\s*,", transformation, flags=re.IGNORECASE)
             seed_alias = (seed_alias_match.group(1) if seed_alias_match else "").upper()
-            case_expr = _normalize_case_expression_tokens(case_expr, source_attr=source_attr, seed_alias=seed_alias)
+            case_expr = _normalize_case_expression_tokens(case_expr, source_attr=source_attr, seed_alias=seed_alias, ccy_source_col=ccy_source_col)
             src_prefix = f"{source_table}." if source_table else ""
             normalized = normalize_source_expression_aliases(
                 re.sub(r"\b(?:SRC|SOURCE|S)\.", src_prefix, case_expr, flags=re.IGNORECASE),
@@ -3528,17 +3539,25 @@ def normalize_source_expression_aliases(expr: str, *, source_schema: str = "", s
     return text
 
 
-def _normalize_case_expression_tokens(case_expr: str, *, source_attr: str = "", seed_alias: str = "") -> str:
+def _normalize_case_expression_tokens(
+    case_expr: str, *, source_attr: str = "", seed_alias: str = "", ccy_source_col: str = "",
+) -> str:
     """Normalize raw CASE expressions extracted from DRD free-text."""
     text = (case_expr or "").strip()
     if not text:
         return text
 
-    # Common DRD shorthand/typos observed in tax-lot mappings.
+    # Common DRD shorthand/typos.
     replacements = {
         "SBC_SBC_EXG_RATE": "SBC_EXG_RATE",
-        "CCY_CODE": "NML_ISO_CCY_CODE",
     }
+    # FX-conversion CASEs write a generic ``CCY_CODE`` placeholder for the
+    # base-currency column.  Resolve it to THIS DRD's currency-code source
+    # column (the source_attribute of the CCY_CD target row) the way ODI does --
+    # CLOSE -> NML_ISO_CCY_CODE, OPEN -> STM_BASE_ISO_CCY_CODE.  Generic, no
+    # hardcoded column name.  (operator 2026-06-05: OPEN deeper)
+    if ccy_source_col:
+        replacements["CCY_CODE"] = ccy_source_col
     for old, new in replacements.items():
         text = re.sub(rf"\b{old}\b", new, text, flags=re.IGNORECASE)
 
