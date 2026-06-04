@@ -1462,6 +1462,12 @@ def build_control_insert_sql(
             return None
         if any(m in text.lower() for m in _CONST_RULE_SKIP):
             return None
+        # A conditional rule ("if X is 01 then set to Y else N", CASE/WHEN) is
+        # NOT a pure constant -- never collapse it to a single literal.  (operator
+        # 2026-06-04: ZERO_COST_BSS_F = "if ZERO_BSS_IND is 01 then set to Y else
+        # N" must NOT become 'Y'.)  Defer to the conditional/expression path.
+        if re.search(r"\b(IF|THEN|ELSE|WHEN|CASE|END)\b", text, re.IGNORECASE):
+            return None
         for rx in _CONST_RULE_RES:
             m = rx.search(text)
             if m:

@@ -64,3 +64,24 @@ def test_close_drd_recovers_cl_val_scheme_rules():
     # correctly-placed rule (C26) is untouched
     opn = (rows.get("OPN_TXN_EV_TP", {}).get("transformation") or "").upper()
     assert "ALWAYS NULL" in opn, opn
+
+
+@pytestmark_drd
+def test_conditional_rule_not_collapsed_to_constant():
+    """A conditional rule ("if ZERO_BSS_IND is 01 then set to Y else N") must NOT
+    be collapsed to the bare constant 'Y' by the constant-rule extractor -- that
+    drops the `else N` branch.  Regression for the 2026-06-04 over-fire."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(),
+        filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER",
+        target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2,
+        target_datasource_id=2,
+        control_schema="ikorostelev",
+    )
+    sql = (res.get("generated_insert_sql") or "").upper()
+    # the buggy collapse produced exactly "'Y' AS ZERO_COST_BSS_F"
+    assert "'Y' AS ZERO_COST_BSS_F" not in sql, "constant-rule wrongly collapsed a conditional to 'Y'"
