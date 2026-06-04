@@ -160,3 +160,29 @@ def test_bare_lookup_alias_rewritten_to_join_alias():
     # bare-alias projection must be gone; the renamed join alias is used instead
     assert "SRC_STM_DIM.SRC_STM" not in sql, "bare SRC_STM_DIM alias leaked (undefined at runtime)"
     assert "SRC_STM_DIM_1.SRC_STM" in sql, "expected the renamed join alias SRC_STM_DIM_1"
+
+
+@pytestmark_drd
+def test_dim_source_gets_natural_key_join():
+    """A row whose source is a dimension table with no explicit DRD join must get
+    a derived natural-key join like ODI's (ACG_TP_DIM.ACG_TP_CD =
+    source.ACG_TP_CODE), not collapse to NULL.  (operator 2026-06-04)."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(),
+        filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER",
+        target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2,
+        target_datasource_id=2,
+        control_schema="ikorostelev",
+    )
+    flat = re.sub(r"\s+", " ", (res.get("generated_insert_sql") or "").upper())
+    # the dim is joined on the natural key, exactly like ODI
+    assert "LEFT JOIN COMMON_OWNER.ACG_TP_DIM" in flat, "ACG_TP_DIM not joined"
+    assert "ACG_TP_CD = CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.ACG_TP_CODE" in flat, \
+        "expected natural-key join ACG_TP_DIM.ACG_TP_CD = source.ACG_TP_CODE"
+    # the dim projections resolve to the join alias, not NULL
+    assert "NULL AS ACG_TP_ID" not in flat and "NULL AS ACG_TP_NM" not in flat, "ACG dim projection collapsed to NULL"
+    assert "ACG_TP_DIM_1.ACG_TP_ID AS ACG_TP_ID" in flat, "ACG_TP_ID not projected from the join alias"

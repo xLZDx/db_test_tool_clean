@@ -1083,6 +1083,22 @@ def build_control_insert_sql(
     _ejc_counter = 0  # Phase 7.19.13 embedded-join-chain unique alias counter
     _ejc_chain_cache: Dict[str, str] = {}  # chain signature -> final alias (dedup shared chains)
 
+    # Auto-derive a dimension natural-key join when a row's source is a DIM table
+    # (distinct from the base source) but the DRD gave no explicit join.  ODI joins
+    # such dims on the natural key (e.g. ACG_TP_DIM.ACG_TP_CD = source.ACG_TP_CODE);
+    # without it the dim projection is an undefined alias -> NULL.  Generic, PDM-
+    # driven.  (operator 2026-06-04)
+    _base_sch_dim, _base_tbl_dim = (split_fq_table(_src_fq) if "." in _src_fq else ("", _src_table_name))
+    _base_entry_dim = find_table(source_schema_index, _base_sch_dim, _base_tbl_dim) if source_schema_index else None
+    _base_cols_dim = set((_base_entry_dim.get("columns") or {}).keys()) if _base_entry_dim else set()
+    if _base_cols_dim:
+        for _r in analysis_rows:
+            if (_r.get("lookup_join") or "").strip():
+                continue
+            _synth_join = _derive_dim_natural_key_join(_r, _src_ref_name, _base_cols_dim, source_schema_index)
+            if _synth_join:
+                _r["lookup_join"] = _synth_join
+
     # Collect unique raw joins with row context first, then collapse low-quality duplicates.
     raw_join_seen: set[str] = set()
     join_candidates: List[Dict[str, Any]] = []
@@ -3589,6 +3605,66 @@ def is_safe_transformation_expression(expr: str, source_attr: str) -> bool:
             continue  # table_name_N aliases
         return False
     return True
+
+
+def _derive_dim_natural_key_join(
+    row: Dict[str, Any],
+    base_ref_name: str,
+    base_cols: set,
+    source_schema_index: Optional[Dict[Tuple[str, str], Dict[str, Any]]],
+) -> str:
+    """When a row's source is a dimension table (distinct from the base source)
+    and the DRD declares no explicit join, derive the natural-key LEFT JOIN the
+    way ODI does: ``<dim>.<key_CD> = <base>.<key_CODE>`` (the ``_CD`` <-> ``_CODE``
+    business-key convention; an exact-name key match is also accepted).
+
+    Returns the LEFT JOIN SQL, or "" when no confident key pair exists.  Generic:
+    no hardcoded table or column names -- the pairing is derived purely from the
+    PDM column sets.  (operator 2026-06-04: "делай как в ODI - ACG_TP_DIM.ACG_TP_CD
+    = source.ACG_TP_CODE").
+    """
+    if not source_schema_index or not base_cols:
+        return ""
+    src_sch = (row.get("source_schema") or "").strip().upper()
+    src_tbl = (
+        (row.get("source_table") or "").strip().upper()
+        .split("\n")[0].split(",")[0].strip().split(".")[-1]
+    )
+    if not src_tbl or src_tbl == (base_ref_name or "").upper():
+        return ""
+    if not (_is_lookup_table_name(src_tbl) or src_tbl.endswith("_DIM")):
+        return ""
+    ent = find_table(source_schema_index, src_sch, src_tbl)
+    if not ent:
+        return ""
+    dim_cols = set((ent.get("columns") or {}).keys())
+    dim_sch = (ent.get("schema") or src_sch)
+    dim_tbl = (ent.get("table") or src_tbl)
+
+    pair = None
+    for dim_key in sorted(dim_cols):
+        if dim_key.endswith("_CD"):
+            cand = dim_key[:-3] + "_CODE"          # ACG_TP_CD -> ACG_TP_CODE
+            if cand in base_cols:
+                pair = (dim_key, cand)
+                break
+        if dim_key.endswith("_CODE"):
+            cand = dim_key[:-5] + "_CD"             # X_CODE -> X_CD
+            if cand in base_cols:
+                pair = (dim_key, cand)
+                break
+    if pair is None:  # exact-name key match (dim.X_CD = base.X_CD)
+        for dim_key in sorted(dim_cols):
+            if (dim_key.endswith("_CD") or dim_key.endswith("_CODE")) and dim_key in base_cols:
+                pair = (dim_key, dim_key)
+                break
+    if pair is None:
+        return ""
+    dim_key, base_key = pair
+    return (
+        f"LEFT JOIN {dim_sch}.{dim_tbl} {dim_tbl}\n"
+        f"ON {dim_tbl}.{dim_key} = {base_ref_name}.{base_key}"
+    )
 
 
 def derive_lookup_from_transformation(
