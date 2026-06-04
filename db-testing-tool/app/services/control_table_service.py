@@ -1491,6 +1491,27 @@ def build_control_insert_sql(
         if _tc and _sa and _tc != _sa and _tc not in _all_source_attrs:
             _tgt_src_remap[_tc] = _sa
 
+    # Set of all target column names (for the leading-placeholder detector below).
+    _target_cols_set = {
+        (c.get("name") or "").strip().upper()
+        for c in (target_definition.get("columns", []) or [])
+        if (c.get("name") or "").strip()
+    }
+
+    def _leading_placeholder(trans: str) -> str:
+        """A combined cost/factor rule often leads with a logical placeholder for
+        the row's base value: "ORIG_COST COST_AMT, case ... THEN ORIG_COST ...".
+        Return that placeholder (e.g. ORIG_COST / OPN_FCTR / FMV) when the rule
+        starts "<placeholder> <target_col>,"; it resolves to the row's own source
+        column.  (operator 2026-06-04)"""
+        m = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s+([A-Za-z][A-Za-z0-9_]*)\s*,", trans or "")
+        if not m:
+            return ""
+        ph, nxt = m.group(1).upper(), m.group(2).upper()
+        if nxt in _target_cols_set and ph not in _all_source_attrs and ph not in _target_cols_set:
+            return ph
+        return ""
+
     select_lines = []
     insert_cols = []
     for col in target_definition.get("columns", []) or []:
@@ -1643,6 +1664,13 @@ def build_control_insert_sql(
         _row_src_bare = (row.get("source_table") or "").strip().split("\n")[0].split(",")[0].strip().upper().split(".")[-1]
         _row_ref = _row_src_bare or _src_ref_name
         expr = re.sub(r'\bS\.([A-Z0-9_#\$]+)\b', f'{_row_ref}.\\1', expr, flags=re.IGNORECASE)
+
+        # Resolve a leading logical placeholder (ORIG_COST / OPN_FCTR / FMV) to
+        # the row's own source column, so the cost/factor CASE reads the real
+        # source value.  (operator 2026-06-04)
+        _ph = _leading_placeholder(_trans_raw)
+        if _ph and _src_attr_raw and _ph != _src_attr_raw.strip().upper():
+            expr = re.sub(r'\b' + re.escape(_ph) + r'\b', _src_attr_raw.strip(), expr, flags=re.IGNORECASE)
 
         # Resolve target-only column refs (e.g. EXG_RATE) to their source column
         # (SBC_EXG_RATE) inside the expression body, so CASE/arithmetic that the

@@ -109,3 +109,26 @@ def test_target_only_column_resolved_to_source_in_expr():
     assert "RJTRUST_TGT.EXG_RATE" not in sql, "target-only EXG_RATE leaked as a source column"
     # the real source column is used instead
     assert "SBC_EXG_RATE" in sql, "expected source column SBC_EXG_RATE in the FX-conversion CASEs"
+
+
+@pytestmark_drd
+def test_leading_placeholder_resolves_to_row_source():
+    """A cost/factor CASE that leads with a logical placeholder ("ORIG_COST
+    COST_AMT, case ... THEN ORIG_COST ...") must resolve ORIG_COST to the row's
+    own source column (COST_AMT -> NML_CCY_OPN_COST_AMT), not leave the
+    placeholder as a phantom source column.  (operator 2026-06-04)."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(),
+        filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER",
+        target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2,
+        target_datasource_id=2,
+        control_schema="ikorostelev",
+    )
+    sql = (res.get("generated_insert_sql") or "").upper()
+    # the placeholder token must be fully resolved away
+    assert "ORIG_COST" not in sql, "leading placeholder ORIG_COST leaked into the INSERT"
+    assert "NML_CCY_OPN_COST_AMT" in sql, "expected COST_AMT's real source column"
