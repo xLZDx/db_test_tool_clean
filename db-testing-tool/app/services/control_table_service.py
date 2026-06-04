@@ -1474,6 +1474,23 @@ def build_control_insert_sql(
                 return _emittable_constant(m.group(1))
         return None
 
+    # Target-only column remap (operator 2026-06-04): a transformation/CASE may
+    # reference a TARGET column name (e.g. EXG_RATE) that does NOT exist in the
+    # source -- its value comes from a differently-named SOURCE column
+    # (SBC_EXG_RATE).  Build {target_col -> source_attr} for target cols that are
+    # NOT themselves any row's source attribute, so expression bodies resolve the
+    # real source column instead of an invalid target-name reference.
+    _all_source_attrs = {
+        (r.get("source_attribute") or "").strip().upper()
+        for r in analysis_rows if (r.get("source_attribute") or "").strip()
+    }
+    _tgt_src_remap: Dict[str, str] = {}
+    for _r in analysis_rows:
+        _tc = (_r.get("column") or "").strip().upper()
+        _sa = (_r.get("source_attribute") or "").strip().upper()
+        if _tc and _sa and _tc != _sa and _tc not in _all_source_attrs:
+            _tgt_src_remap[_tc] = _sa
+
     select_lines = []
     insert_cols = []
     for col in target_definition.get("columns", []) or []:
@@ -1626,6 +1643,14 @@ def build_control_insert_sql(
         _row_src_bare = (row.get("source_table") or "").strip().split("\n")[0].split(",")[0].strip().upper().split(".")[-1]
         _row_ref = _row_src_bare or _src_ref_name
         expr = re.sub(r'\bS\.([A-Z0-9_#\$]+)\b', f'{_row_ref}.\\1', expr, flags=re.IGNORECASE)
+
+        # Resolve target-only column refs (e.g. EXG_RATE) to their source column
+        # (SBC_EXG_RATE) inside the expression body, so CASE/arithmetic that the
+        # DRD wrote with the target name reads the real source column.  Word-
+        # boundary replace is safe: \bEXG_RATE\b never matches inside SBC_EXG_RATE
+        # (the leading '_' is a word char).  (operator 2026-06-04)
+        for _tc_key, _sa_val in _tgt_src_remap.items():
+            expr = re.sub(r'\b' + re.escape(_tc_key) + r'\b', _sa_val, expr, flags=re.IGNORECASE)
 
         expr = sanitize_generated_expression(
             expr,

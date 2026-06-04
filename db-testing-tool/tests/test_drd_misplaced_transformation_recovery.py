@@ -85,3 +85,27 @@ def test_conditional_rule_not_collapsed_to_constant():
     sql = (res.get("generated_insert_sql") or "").upper()
     # the buggy collapse produced exactly "'Y' AS ZERO_COST_BSS_F"
     assert "'Y' AS ZERO_COST_BSS_F" not in sql, "constant-rule wrongly collapsed a conditional to 'Y'"
+
+
+@pytestmark_drd
+def test_target_only_column_resolved_to_source_in_expr():
+    """A CASE/arithmetic that the DRD wrote with a TARGET column name (EXG_RATE)
+    must read the SOURCE column (SBC_EXG_RATE) -- EXG_RATE does not exist in the
+    source table, so a source-qualified `...TGT.EXG_RATE` would be ORA-00904.
+    (operator 2026-06-04)."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(),
+        filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER",
+        target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2,
+        target_datasource_id=2,
+        control_schema="ikorostelev",
+    )
+    sql = (res.get("generated_insert_sql") or "").upper()
+    # no source-qualified reference to the target-only column EXG_RATE
+    assert "RJTRUST_TGT.EXG_RATE" not in sql, "target-only EXG_RATE leaked as a source column"
+    # the real source column is used instead
+    assert "SBC_EXG_RATE" in sql, "expected source column SBC_EXG_RATE in the FX-conversion CASEs"
