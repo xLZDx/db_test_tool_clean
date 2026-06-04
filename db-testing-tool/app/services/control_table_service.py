@@ -1526,6 +1526,25 @@ def build_control_insert_sql(
             return ph
         return ""
 
+    def _extract_if_then_else_case(trans: str, src_attr: str, src_ref: str) -> Optional[str]:
+        """A simple flag rule "if ZERO_BSS_IND is 01 then set to Y else N" becomes
+        CASE WHEN <src>.<src_attr> = '01' THEN 'Y' ELSE 'N' END, using the row's
+        real source column (the prose name may be abbreviated).  (operator
+        2026-06-04)"""
+        sa = (src_attr or "").strip()
+        if not sa:
+            return None
+        m = re.search(
+            r"\bif\b\s+[A-Za-z0-9_]+\s+(?:is|=|==)\s+'?([A-Za-z0-9_]+)'?\s+then\s+"
+            r"(?:set\s+to\s+)?'?([A-Za-z0-9_]+)'?\s+else\s+'?([A-Za-z0-9_]+)'?",
+            trans or "", re.IGNORECASE,
+        )
+        if not m:
+            return None
+        _val, _then, _else = m.group(1), m.group(2), m.group(3)
+        col = f"{src_ref}.{sa}" if src_ref else sa
+        return f"CASE WHEN {col} = '{_val}' THEN '{_then}' ELSE '{_else}' END"
+
     select_lines = []
     insert_cols = []
     for col in target_definition.get("columns", []) or []:
@@ -1601,6 +1620,12 @@ def build_control_insert_sql(
         )
         if _const_rule_expr is not None:
             select_lines.append(f"    {_const_rule_expr} AS {col_name}")
+            continue
+
+        # Simple flag conditional: "if <col> is 01 then set to Y else N" -> CASE.
+        _cond_case = _extract_if_then_else_case(_trans_raw, _src_attr_raw, _src_ref_name)
+        if _cond_case is not None:
+            select_lines.append(f"    {_cond_case} AS {col_name}")
             continue
 
         # Phase 7.19.4 prose-leak fallback (no EXISTS pattern matched):

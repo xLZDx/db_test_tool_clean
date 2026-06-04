@@ -10,6 +10,7 @@ the generated INSERT could never honor the scheme -- which made it look like the
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,10 @@ def test_conditional_rule_not_collapsed_to_constant():
     sql = (res.get("generated_insert_sql") or "").upper()
     # the buggy collapse produced exactly "'Y' AS ZERO_COST_BSS_F"
     assert "'Y' AS ZERO_COST_BSS_F" not in sql, "constant-rule wrongly collapsed a conditional to 'Y'"
+    # the conditional must now be emitted as a full CASE on the real source column
+    flat = re.sub(r"\s+", " ", sql)
+    assert "CASE WHEN" in flat and "ZERO_BSS_IND_F = '01' THEN 'Y' ELSE 'N'" in flat, \
+        "expected CASE WHEN ZERO_BSS_IND_F = '01' THEN 'Y' ELSE 'N' for ZERO_COST_BSS_F"
 
 
 @pytestmark_drd
