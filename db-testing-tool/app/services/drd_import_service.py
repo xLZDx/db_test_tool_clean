@@ -1321,6 +1321,28 @@ def _map_drd_headers(headers: List[str]) -> Dict[str, int]:
     return mapped
 
 
+_NULLABLE_FLAG_TOKENS = {
+    "", "Y", "N", "YES", "NO", "TRUE", "FALSE", "NULL", "NOT NULL",
+    "NULLABLE", "NOT NULLABLE", "0", "1", "NA", "N/A", "NONE",
+}
+
+
+def _is_misplaced_transformation_prose(text: str) -> bool:
+    """True when a "Nullable?" cell actually holds a transformation rule (prose),
+    not a Y/N nullable flag.
+
+    Some DRD authors type the lookup/transformation rule into the "Nullable?"
+    column (C25) instead of the "Transformation" column (C26) -- a recurring
+    authoring slip on lookup columns (e.g. the CL_VAL scheme rules in the CLOSE
+    taxlot DRD).  A real nullable flag is a short Y/N-style token; anything with
+    whitespace or lookup/scheme keywords is a misplaced rule.  (operator 2026-06-04)
+    """
+    t = (text or "").strip()
+    if not t or t.upper() in _NULLABLE_FLAG_TOKENS:
+        return False
+    return (" " in t) or bool(re.search(r"CL_VAL|CL_SCM_ID|LOOKUP|\bUNDER\b", t, re.IGNORECASE))
+
+
 def _extract_record(
     row: List[Any], mapped: Dict[str, int], selected_fields: List[str]
 ) -> Dict[str, Any]:
@@ -1341,6 +1363,19 @@ def _extract_record(
             record[field] = str(val).strip() if val is not None else None
         else:
             record[field] = None
+
+    # Recover a transformation rule misplaced in the "Nullable?" column: when the
+    # mapped Transformation cell is empty but the source_nullable cell holds prose
+    # (not a Y/N flag), fold it into transformation so the builder can honor the
+    # lookup.  Without this, DRD CL_VAL scheme rules ("... where CL_SCM_ID = 86 and
+    # pick CL_VAL_NM") are silently dropped.  (operator 2026-06-04)
+    if "transformation" in selected_fields and not (record.get("transformation") or "").strip():
+        nidx = mapped.get("source_nullable")
+        if nidx is not None and nidx < len(row):
+            nval = row[nidx]
+            ntext = str(nval).strip() if nval is not None else ""
+            if _is_misplaced_transformation_prose(ntext):
+                record["transformation"] = ntext
     return record
 
 
