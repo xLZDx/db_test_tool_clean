@@ -132,3 +132,26 @@ def test_leading_placeholder_resolves_to_row_source():
     # the placeholder token must be fully resolved away
     assert "ORIG_COST" not in sql, "leading placeholder ORIG_COST leaked into the INSERT"
     assert "NML_CCY_OPN_COST_AMT" in sql, "expected COST_AMT's real source column"
+
+
+@pytestmark_drd
+def test_bare_lookup_alias_rewritten_to_join_alias():
+    """A projection that references a single-joined lookup table by its BARE name
+    (SRC_STM_DIM.SRC_STM_CD) must be rewritten to the real join alias
+    (SRC_STM_DIM_1.SRC_STM_CD) -- otherwise it is an undefined alias at runtime.
+    (operator 2026-06-04)."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(),
+        filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER",
+        target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2,
+        target_datasource_id=2,
+        control_schema="ikorostelev",
+    )
+    sql = (res.get("generated_insert_sql") or "").upper()
+    # bare-alias projection must be gone; the renamed join alias is used instead
+    assert "SRC_STM_DIM.SRC_STM" not in sql, "bare SRC_STM_DIM alias leaked (undefined at runtime)"
+    assert "SRC_STM_DIM_1.SRC_STM" in sql, "expected the renamed join alias SRC_STM_DIM_1"

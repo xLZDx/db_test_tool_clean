@@ -1498,6 +1498,20 @@ def build_control_insert_sql(
         if (c.get("name") or "").strip()
     }
 
+    # Bare-lookup-name -> renamed join alias, ONLY for tables joined exactly once
+    # (e.g. SRC_STM_DIM -> SRC_STM_DIM_1).  A projection that still references the
+    # bare name must be rewritten to the real join alias, else it is an undefined
+    # alias at runtime (ORA-00904).  Multi-join tables (CL_VAL_1..4) are ambiguous
+    # and are handled per-row, so they are excluded here.  (operator 2026-06-04)
+    _lk_alias_by_bare: Dict[str, List[str]] = {}
+    for _na, _tfq in lk_table_map.items():
+        _bare_lk = _tfq.split(".")[-1].upper()
+        _lk_alias_by_bare.setdefault(_bare_lk, []).append(_na)
+    _bare_to_unique_lk_alias = {
+        _b: _al[0] for _b, _al in _lk_alias_by_bare.items()
+        if len(_al) == 1 and _b != _al[0].upper()
+    }
+
     def _leading_placeholder(trans: str) -> str:
         """A combined cost/factor rule often leads with a logical placeholder for
         the row's base value: "ORIG_COST COST_AMT, case ... THEN ORIG_COST ...".
@@ -1701,6 +1715,14 @@ def build_control_insert_sql(
                         return f"{_lk_alias}.{m.group(1)}"
                 return m.group(0)  # no match found – keep
             expr = re.sub(r'\b' + re.escape(_src_table_name) + r'\.([A-Z0-9_#\$]+)\b', _replace_src_dim_ref, expr, flags=re.IGNORECASE)
+
+        # Rewrite a projection referencing a lookup table by its BARE name to the
+        # single renamed join alias (SRC_STM_DIM.col -> SRC_STM_DIM_1.col).  The
+        # bare name is in all_valid_aliases but is NOT an alias in the FROM after
+        # the join was renumbered, so without this it reaches Oracle as an
+        # undefined alias.  (operator 2026-06-04)
+        for _bare_lk, _uniq_alias in _bare_to_unique_lk_alias.items():
+            expr = re.sub(r'\b' + re.escape(_bare_lk) + r'\.', _uniq_alias + '.', expr, flags=re.IGNORECASE)
 
         # Detect leftover undefined alias references after all rename attempts.
         _expr_for_check = expr
