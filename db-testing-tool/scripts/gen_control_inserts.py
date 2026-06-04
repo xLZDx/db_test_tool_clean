@@ -122,6 +122,33 @@ def _norm(expr: str) -> str:
     return re.sub(r"\b([A-Z0-9_]+)\.([A-Z0-9_#$]+)", repl, e)
 
 
+def _write_compare(tag: str, ttbl: str, cmp_rows: list) -> None:
+    """Write a per-column ODI-vs-control-INSERT comparison as .md + .csv twin."""
+    import csv as _csv
+    md = [
+        f"# {tag} -- control-table INSERT vs ODI ({ttbl})",
+        "",
+        f"Columns: {len(cmp_rows)} | "
+        f"MATCH {sum(1 for r in cmp_rows if r[3]=='MATCH')} / "
+        f"ALIAS_DRIFT {sum(1 for r in cmp_rows if r[3]=='ALIAS_DRIFT')} / "
+        f"REAL_DIFF {sum(1 for r in cmp_rows if r[3]=='REAL_DIFF')} / "
+        f"AUDIT {sum(1 for r in cmp_rows if r[3]=='AUDIT')}",
+        "",
+        "| Column | Verdict | ODI expression | GEN (control-table) expression |",
+        "|---|---|---|---|",
+    ]
+    for c, o, g, v in cmp_rows:
+        mo = (o or "").replace("|", "\\|").replace("\n", " ")
+        mg = (g or "").replace("|", "\\|").replace("\n", " ")
+        md.append(f"| {c} | {v} | {mo} | {mg} |")
+    (ROOT / "data" / f"{tag}_COMPARE.md").write_text("\n".join(md), encoding="utf-8")
+    with open(ROOT / "data" / f"{tag}_COMPARE.csv", "w", newline="", encoding="utf-8") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["column", "verdict", "odi_expression", "gen_expression"])
+        for c, o, g, v in cmp_rows:
+            w.writerow([c, v, (o or "").replace("\n", " "), (g or "").replace("\n", " ")])
+
+
 def grade(tag, drd, odi_xml, tsch, ttbl):
     print(f"\n{'='*70}\n{tag}: {ttbl}\n{'='*70}")
     drd_p, odi_p = ROOT / drd, ROOT / odi_xml
@@ -143,29 +170,36 @@ def grade(tag, drd, odi_xml, tsch, ttbl):
         print(f"  ODI XML MISSING ({odi_xml}) -- generated only, no grade")
         return
     try:
-        odi = parse_insert(emit_insert(OdiXmlParser(target_schema="", target_table="").parse_text(_read_text(odi_p)), strict=False).sql)
+        odi_full = emit_insert(OdiXmlParser(target_schema="", target_table="").parse_text(_read_text(odi_p)), strict=False).sql
+        odi = parse_insert(odi_full)
     except Exception as e:
         print(f"  ODI parse error: {type(e).__name__}: {str(e)[:60]}")
         return
+    odi_out = ROOT / "data" / f"{tag}_ODI_INSERT.sql"
+    odi_out.write_text(odi_full, encoding="utf-8")
+    print(f"  ODI INSERT:       {len(odi)} cols -> {odi_out.relative_to(ROOT)}")
     if len(odi) <= 1:
-        print(f"  ODI parsed degenerately ({len(odi)} col) -- cannot grade (parser gap for this IKM style)")
+        print(f"  ODI parsed degenerately ({len(odi)} col) -- saved but cannot grade (parser gap for this IKM style)")
         return
     exact = aliasdrift = real = 0
-    reals = []
+    cmp_rows = []
     for c, o in odi.items():
-        if c in AUDIT:
-            continue
         g = gen.get(c, "<MISSING>")
-        if re.sub(r"\s+", "", _strip_comments(o)).upper() == re.sub(r"\s+", "", _strip_comments(g)).upper():
-            exact += 1
+        if c in AUDIT:
+            verdict = "AUDIT"
+        elif re.sub(r"\s+", "", _strip_comments(o)).upper() == re.sub(r"\s+", "", _strip_comments(g)).upper():
+            verdict = "MATCH"; exact += 1
         elif _norm(o) == _norm(g):
-            aliasdrift += 1
+            verdict = "ALIAS_DRIFT"; aliasdrift += 1
         else:
-            real += 1
-            reals.append((c, o, g))
-    print(f"  vs ODI: exact={exact} alias-drift={aliasdrift} REAL={real} (audit excluded)")
-    for c, o, g in reals:
-        print(f"    [{c}] ODI={o[:48]!r} GEN={g[:48]!r}")
+            verdict = "REAL_DIFF"; real += 1
+        cmp_rows.append((c, o, g, verdict))
+    _write_compare(tag, ttbl, cmp_rows)
+    print(f"  vs ODI: exact={exact} alias-drift={aliasdrift} REAL={real} (audit excluded)"
+          f" -> data/{tag}_COMPARE.md + .csv")
+    for c, o, g, v in cmp_rows:
+        if v == "REAL_DIFF":
+            print(f"    [{c}] ODI={o[:48]!r} GEN={g[:48]!r}")
 
 
 if __name__ == "__main__":

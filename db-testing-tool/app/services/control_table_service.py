@@ -1703,7 +1703,16 @@ def build_control_insert_sql(
             if _m_align:
                 _cur_alias = _m_align.group(1).upper()
                 _cur_col = _m_align.group(2).upper()
-                if _cur_col == _src_attr_u_align and _cur_alias != _src_table_bare_align and _cur_alias != "S":
+                # Do NOT realign when the current alias is the source table's OWN
+                # numbered join alias (e.g. source_table SRC_STM_DIM, alias
+                # SRC_STM_DIM_1/_2).  That is the renamed lookup-join alias, not a
+                # wrong alias -- stripping it to the bare name yields an undefined
+                # alias when the dim is joined more than once.  (operator 2026-06-05)
+                _is_own_join_alias = bool(
+                    re.fullmatch(re.escape(_src_table_bare_align) + r"_\d+", _cur_alias)
+                )
+                if (_cur_col == _src_attr_u_align and _cur_alias != _src_table_bare_align
+                        and _cur_alias != "S" and not _is_own_join_alias):
                     expr = f"{_src_table_bare_align}.{_cur_col}"
         lookup_join = sanitize_lookup_join_sql((row.get("lookup_join") or "").strip())
         if lookup_join and lookup_join in join_alias_map:

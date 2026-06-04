@@ -186,3 +186,27 @@ def test_dim_source_gets_natural_key_join():
     # the dim projections resolve to the join alias, not NULL
     assert "NULL AS ACG_TP_ID" not in flat and "NULL AS ACG_TP_NM" not in flat, "ACG dim projection collapsed to NULL"
     assert "ACG_TP_DIM_1.ACG_TP_ID AS ACG_TP_ID" in flat, "ACG_TP_ID not projected from the join alias"
+
+
+_OPEN_DRD = _ROOT / "data" / "taxlot" / "DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx"
+
+
+@pytest.mark.skipif(not _OPEN_DRD.exists(), reason="OPEN DRD fixture missing")
+def test_open_multijoin_dim_projection_not_bare():
+    """OPEN joins SRC_STM_DIM / ACG_TP_DIM more than once.  The projection must
+    reference the suffixed join alias (SRC_STM_DIM_1), never the bare name --
+    which is undefined when the dim is joined multiple times (ORA-00904).  The
+    alias-realignment must not strip a source table's own numbered join alias.
+    (operator 2026-06-05)."""
+    from app.services.control_table_service import analyze_control_table
+    try:
+        res = analyze_control_table(
+            file_bytes=_OPEN_DRD.read_bytes(), filename=_OPEN_DRD.name,
+            target_schema="TAXLOT_OWNER", target_table="OPN_TAX_LOTS_NON_BKR_FACT",
+            source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+        )
+    except Exception as exc:  # PDM (ds_2) not present in this env
+        pytest.skip(f"OPEN target not resolvable: {exc}")
+    sql = (res.get("generated_insert_sql") or "").upper()
+    assert "SRC_STM_DIM.SRC_STM" not in sql, "bare SRC_STM_DIM projection leaked (undefined alias)"
+    assert "ACG_TP_DIM.ACG_TP" not in sql, "bare ACG_TP_DIM projection leaked (undefined alias)"
