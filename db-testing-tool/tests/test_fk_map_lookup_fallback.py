@@ -3,7 +3,10 @@ give-up site. Functional: builds synthetic FK maps via fk_map_service and assert
 the helper resolves only when exactly one non-conflicted edge matches + the source
 column validates in the PDM. None/empty map -> "" (give-up preserved).
 """
-from app.services.control_table_service import _fk_map_lookup_fallback
+from app.services.control_table_service import (
+    _fk_map_lookup_fallback,
+    _fk_map_dim_join_fallback,
+)
 from app.services import fk_map_service as fk
 
 
@@ -66,3 +69,46 @@ def test_m2_source_column_must_exist_in_pdm():
     # source_entry that DOES contain STM_ID -> resolves
     good_entry = {"columns": {"STM_ID": {}, "OTHER_COL": {}}}
     assert _fk_map_lookup_fallback(m, "REF.CL_VAL", "CL_VAL_ID", "STG.SRC_T", good_entry) == "STM_ID"
+
+
+# ---- R5 step 5: dim-site fallback ----------------------------------------
+
+def test_dim_none_or_empty_map():
+    assert _fk_map_dim_join_fallback(None, "FACT", "AR_DIM", {"AR_DIM_ID"}, {"AR_DIM_ID"}) is None
+    assert _fk_map_dim_join_fallback(fk.new_fk_map(3), "FACT", "AR_DIM", {"AR_DIM_ID"}, {"AR_DIM_ID"}) is None
+
+
+def test_dim_unique_edge_returns_key_pair():
+    m = _map_with(("S", "FACT", "AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID"))
+    got = _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"AR_DIM_ID"}, {"AR_DIM_ID"})
+    assert got == ("AR_DIM_ID", "AR_DIM_ID")  # (dim_key, base_key)
+
+
+def test_dim_base_must_match():
+    m = _map_with(("S", "OTHER", "AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID"))
+    assert _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"AR_DIM_ID"}, {"AR_DIM_ID"}) is None
+
+
+def test_dim_ambiguous_returns_none():
+    m = _map_with(
+        ("S", "FACT", "AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID"),
+        ("S", "FACT", "OFST_AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID"),
+    )
+    assert _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"AR_DIM_ID", "OFST_AR_DIM_ID"}, {"AR_DIM_ID"}) is None
+
+
+def test_dim_m2_columns_must_validate():
+    m = _map_with(("S", "FACT", "AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID"))
+    # base_key not in base_cols -> None
+    assert _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"OTHER"}, {"AR_DIM_ID"}) is None
+    # dim_key not in dim_cols -> None
+    assert _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"AR_DIM_ID"}, {"OTHER"}) is None
+
+
+def test_dim_conflicted_edge_skipped():
+    m = _map_with(
+        ("S", "FACT", "AR_DIM_ID", "S", "AR_DIM", "AR_DIM_ID", "drd"),
+        ("S", "FACT", "AR_DIM_ID", "S", "AR_DIM", "OTHER_ID", "drd"),
+    )
+    assert m["joins"]["S.FACT"]["AR_DIM_ID"].get("conflict") is True
+    assert _fk_map_dim_join_fallback(m, "FACT", "AR_DIM", {"AR_DIM_ID"}, {"AR_DIM_ID"}) is None

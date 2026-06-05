@@ -307,6 +307,7 @@ def analyze_control_table(
         target_definition=target_def,
         analysis_rows=analysis_rows,
         source_schema_index=source_index,
+        fk_map=_fk_map,
     )
     comparison = compare_insert_variants(analysis_rows, insert_sql, manual_sql)
     suite_tests = build_control_table_test_defs(
@@ -1251,6 +1252,7 @@ def build_control_insert_sql(
     target_definition: Dict[str, Any],
     analysis_rows: List[Dict[str, Any]],
     source_schema_index: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
+    fk_map: Optional[Dict[str, Any]] = None,
 ) -> str:
     row_map = {row["column"]: row for row in analysis_rows}
 
@@ -1380,7 +1382,7 @@ def build_control_insert_sql(
         for _r in analysis_rows:
             if (_r.get("lookup_join") or "").strip():
                 continue
-            _synth_join = _derive_dim_natural_key_join(_r, _src_ref_name, _base_cols_dim, source_schema_index)
+            _synth_join = _derive_dim_natural_key_join(_r, _src_ref_name, _base_cols_dim, source_schema_index, fk_map=fk_map)
             if _synth_join:
                 _r["lookup_join"] = _synth_join
 
@@ -3921,6 +3923,7 @@ def _derive_dim_natural_key_join(
     base_ref_name: str,
     base_cols: set,
     source_schema_index: Optional[Dict[Tuple[str, str], Dict[str, Any]]],
+    fk_map: Optional[Dict[str, Any]] = None,
 ) -> str:
     """When a row's source is a dimension table (distinct from the base source)
     and the DRD declares no explicit join, derive the natural-key LEFT JOIN the
@@ -3968,7 +3971,15 @@ def _derive_dim_natural_key_join(
                 pair = (dim_key, dim_key)
                 break
     if pair is None:
-        return ""
+        # R5 step 5 (READ-ONLY FK-map fallback): the _CD/_CODE convention found no
+        # key pair. Consult the FK map for a base->dim foreign-key edge. Fires ONLY
+        # on this give-up, so a convention-derived join is never altered -> the
+        # grade cannot regress.
+        _fb = _fk_map_dim_join_fallback(fk_map, base_ref_name, dim_tbl, base_cols, dim_cols)
+        if _fb:
+            pair = _fb
+        else:
+            return ""
     dim_key, base_key = pair
     return (
         f"LEFT JOIN {dim_sch}.{dim_tbl} {dim_tbl}\n"
@@ -4020,6 +4031,49 @@ def _fk_map_lookup_fallback(
         if src_cols and fk_col not in src_cols:
             return ""
     return fk_col
+
+
+def _fk_map_dim_join_fallback(
+    fk_map: Optional[Dict[str, Any]],
+    base_ref_name: str,
+    dim_tbl: str,
+    base_cols: set,
+    dim_cols: set,
+) -> Optional[Tuple[str, str]]:
+    """R5 step 5: find a base->dim foreign-key edge in the FK map when the natural-
+    key (_CD/_CODE) convention found no pair. Returns (dim_key, base_key) or None.
+
+    Conservative + READ-ONLY: resolves ONLY when exactly one NON-conflicted edge
+    references this dim from this base, and BOTH columns validate in their PDM
+    column sets (M2). Never writes the map; never alters a convention-derived join.
+    Generic; no hardcoded names."""
+    if not fk_map or not dim_tbl:
+        return None
+    try:
+        from app.services.fk_map_service import resolve_by_ref
+    except Exception:
+        return None
+    dim_bare = dim_tbl.split(".")[-1].upper()
+    base_bare = (base_ref_name or "").split(".")[-1].upper()
+    matches: List[Dict[str, Any]] = []
+    for cand in resolve_by_ref(fk_map, dim_bare):
+        if cand.get("conflict"):
+            continue
+        cbase = (cand.get("base_fq") or "").split(".")[-1].upper()
+        if base_bare and cbase != base_bare:
+            continue
+        matches.append(cand)
+    if len(matches) != 1:
+        return None
+    base_key = (matches[0].get("fk_col") or "").upper()
+    dim_key = (matches[0].get("ref_col") or "").upper()
+    if not base_key or not dim_key:
+        return None
+    if base_cols and base_key not in {c.upper() for c in base_cols}:
+        return None
+    if dim_cols and dim_key not in {c.upper() for c in dim_cols}:
+        return None
+    return (dim_key, base_key)
 
 
 def derive_lookup_from_transformation(
