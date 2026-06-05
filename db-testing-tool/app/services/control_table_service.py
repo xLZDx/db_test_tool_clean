@@ -573,8 +573,13 @@ def build_analysis_rows(
     for _tcol, _trow in row_by_target.items():
         if _tcol == "CCY_CD" or _tcol.endswith("_CCY_CD"):
             _ccy_src_col = (_trow.get("source_attribute") or "").strip().upper()
-            if "\n" in _ccy_src_col:
-                _ccy_src_col = _ccy_src_col.split("\n", 1)[0].strip()
+            # Cells sometimes merge several values (newline OR comma); keep only the
+            # first physical token, and only substitute when it is a CLEAN column
+            # identifier -- otherwise leave it unset so CCY_CODE is NOT silently
+            # turned into a phantom/multi-value reference (review MAJOR 2026-06-05).
+            _ccy_src_col = re.split(r"[\n,]", _ccy_src_col, 1)[0].strip()
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", _ccy_src_col):
+                _ccy_src_col = ""
             break
 
     # Dominant staging source table + its PDM columns -- used to rewrite a DRD
