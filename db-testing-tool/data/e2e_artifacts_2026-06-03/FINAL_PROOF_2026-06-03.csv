@@ -1,0 +1,44 @@
+section,scenario,key,value
+result,avy,insert_success,True
+result,avy,ora,0
+result,avy,target,IKOROSTELEV.AVY_FACT_SIDE
+result,avy,matched,365/373
+result,avy,real_mismatch,0
+result,avy,reviewable,2
+result,avy,null_as,1
+result,avy,literal0_as,0
+result,avy,ddl_cols,369
+result,close,insert_success,True
+result,close,ora,0
+result,close,target,IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT
+result,close,matched,75/84
+result,close,real_mismatch,0
+result,close,reviewable,7
+result,close,null_as,1
+result,close,literal0_as,0
+result,close,ddl_cols,84
+result,open,insert_success,True
+result,open,ora,0
+result,open,target,IKOROSTELEV.OPN_TAX_LOTS_NON_BKR_FACT
+result,open,matched,65/66
+result,open,real_mismatch,0
+result,open,reviewable,1
+result,open,null_as,4
+result,open,literal0_as,0
+result,open,ddl_cols,67
+rootcause,all,plural_singular,emitter emits logical TAXLOTS_OWNER (plural); physical is TAXLOT_OWNER (singular); 44/45 tables already exist on local FREEPDB1; no DB build needed
+fix,all,db_resolver_pass0a,resolve INSERT target schema to where table actually exists (ALL_TABLES/ALL_VIEWS) when single owner
+fix,all,control_table_pattern,INSERT into IKOROSTELEV control copy (cross-schema INSERT priv on TAXLOT_OWNER absent; ORA-41900 proves SQL valid)
+point,0,no_commit_push,DONE working tree only
+point,1,b1a_target,DONE
+point,2,run_vs_freepdb1,DONE datasource_id SYSDBA-reject commit=false
+point,3,git_clean_repo,GATED not this run
+point,4,token_discipline,DONE lean no 6-agent burn
+point,5_6,doc_csv_plan,DONE FINAL_PROOF + CT_GENERATOR_DRD_INSERT_PLAN + CSV
+point,7,success_criteria,DONE all 3 success=True real_mismatch=0 no spurious 0/NULL
+suite,avy,files,avy__01_CREATE.sql + avy__02_INSERT_clean.sql + avy__03_VALIDATE.sql
+suite,close,files,close__01_CREATE.sql + close__02_INSERT_clean.sql + close__03_VALIDATE.sql
+suite,open,files,open__01_CREATE.sql + open__02_INSERT_clean.sql + open__03_VALIDATE.sql
+caveat,all,reviewable_left,unresolvable cols 2/7/1 left as editable mismatches (operator addendum) not auto-fixed
+caveat,all,control_schema,control tables in IKOROSTELEV due to cross-schema INSERT priv; on prod with grant INSERT into real target
+caveat,all,commit_false,all runs commit=false rolled back; proves parse+resolve+execute not data content

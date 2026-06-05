@@ -1,0 +1,16 @@
+id,severity,finding,file_line,agents
+B1,BLOCKER,upsert_join last-writer-wins no priority/conflict gate -> typo'd DRD clobbers PDM; seen_count = run-count not evidence,fk_map_service.py:113-122,4
+B2,BLOCKER,Hardcoded _KNOWN_SCHEMA_LESS/_WELL_KNOWN_SCHEMAS shadow the map for its own targets (CL_VAL/SRC_STM/ACG) -> fallback unreachable + 2 sources of truth,control_table_service.py:3948;3964-3972,2
+B3,BLOCKER,DRD_UNDERSPECIFIED has no enum/verdict/render path -- today only an invisible SQL comment,absent,1
+B4,BLOCKER,scheme_filter stored but never appended to ON-clause -> CL_VAL fan-out on non-unique keys,fk_map_service.py:118 (no consumer),1-db
+B5,BLOCKER,NVL(TO_CHAR(CL_VAL_ID)) on NUMBER surrogate PK blocks indexes + sentinel collision -> emit clean equality,control_table_service.py:4051;93,1-db
+M1,MAJOR,_effective_src computed before give-up; setting only src_lookup_col keys right col onto stale wrong alias -> re-introduces mis-key,control_table_service.py:4013-4051,1
+M2,MAJOR,FK-map cols bypass PDM existence checks; stale entry emits phantom column -> re-validate else DRD_UNDERSPECIFIED,control_table_service.py:3991-4011,1
+M3,MAJOR,2nd give-up site _derive_dim_natural_key_join (return '') not covered; needs own hook + datasource_id threading,control_table_service.py:3911,1
+M4,MAJOR,Effective-dated dims (AR_DIM EFF_DT/END_DT) cannot be flat entry -> silently wrong effective row -> DRD_UNDERSPECIFIED,plan-2a/6,1-db
+M5,MAJOR,Build order: learning write-back before AVY poisons shared ds_3 map -> reorder fallback read-only first write-back last,plan-8,1
+M6,MAJOR,Dedup must key on (ref_table src_col scheme) at SQL-builder not (base fk_col),control_table_service.py:1455-1479,1-db
+m1,MINOR,load_fk_map corrupt-file -> empty map silently (no signal) -> add WARNING,fk_map_service.py:62-68,1
+m2,MINOR,resolve ambiguous-bare -> None silently -> WARN (diagnostic is the surfacing),fk_map_service.py:136-143,2
+m3,MINOR,em-dash in give-up WARNING + SQL comment (cp1252) -> fix -- while step4 edits block,control_table_service.py:4044;4048,1
+m4,MINOR,_CD<->_CODE / _ID->PK convention only after map narrows the dim (else false-match),plan-2/5,2

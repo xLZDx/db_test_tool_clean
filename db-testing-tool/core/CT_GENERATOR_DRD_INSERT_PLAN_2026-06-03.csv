@@ -1,0 +1,52 @@
+section,key,value
+baseline,avy_target,ODI.SSDS_AVY_FACT_TABLE_NAME (WRONG - unresolved ODI var; real=TRANSACTIONS_OWNER.AVY_FACT_SIDE)
+baseline,avy_matched,365/373 unresolv=2 src_miss=4 odi_extra=2 zeroNull=3
+baseline,close_target,TAXLOTS_OWNER.CLS_TAX_LOTS_NON_BKR_FACT (OK)
+baseline,close_matched,75/84 unresolv=7 src_miss=1 odi_extra=1 zeroNull=6
+baseline,open_target,TAXLOTS_OWNER.OPN_TAX_LOTS_NON_BKR_FACT (OK)
+baseline,open_matched,65/66 unresolv=1 src_miss=0 odi_extra=0 zeroNull=7
+bug,bug1_avy_target,ODI XML targets ODI var SSDS_AVY_FACT_TABLE_NAME (model SSDS_TRANSACTIONS_OWNER); parser took template + schema=ODI; real=TRANSACTIONS_OWNER.AVY_FACT_SIDE
+bug,bug2a_drd_silent,audit cols (CRT_DTM/CRT_USR_NM/LAST_UDT_*/SESN_NUM) DRD-silent -> NULL; ODI populates SYSDATE/USER -> use ODI helper
+bug,bug2b_staging_alias,comparator MATCHED ODI S.COL but S is ODI staging alias absent from DRD FROM -> NULL (WASH_SALE_TP/MISS_IVS_COST_F/TRD_CNCLD_F)
+plan,B1a,ODI XML helper -> physical target + detect-unresolved-var warn + idsToClear ct-target/ct-source-table + clear-on-extract
+plan,run_vs,auth Depends(require_api_key) + datasource_id creds + frontend X-API-Key + commit=false
+plan,issue7,emitter projects ODI realization (helper) for DRD-silent/staging cols instead of NULL; keep DRD-stated NULLs
+plan,git_cleanup,GATED-needs-GO: fresh orphan main -> github.com/xLZDx/db_test_tool_clean; secret-scan+bundle gate; delete old repos last
+commit,53783e4,test: add taxlot DRD+ODI fixtures
+commit,02d2363,Phase 7.19.27 CT PDM-missing lookup -> NULL PDM_MISS
+commit,40c883b,Phase 7.19.26b CASE-aware predicate guard
+commit,a246553,Phase 7.19.26 multi-line CASE projection extraction
+commit,53c6fcf,Phase 7.19.25 FIX column applies verdict overrides
+commit,45641f0,Phase 7.19.24 auto-detect target from ODI XML
+commit,1a9f74f,Phase 7.19.22+23 count math + ANSI-JOIN FROM + name-pairs
+commit,c63c7fa,scope restart .ps1 kill
+commit,26009a2,Phase 7.19.21 comparator accuracy step 1
+commit,06b0891,Phase 7.19.20 Simple-Insert IKM parsing
+commit,304a91b,Phase 7.19.19 compare resilient to MERGE-only
+commit,92c1f90,Phase 7.19.18 generic MERGE-aware ODI parser
+commit,32fd176,Phase 7.19.17 Run vs FREEPDB1
+commit,dd3fccb,Phase 7.19.16 recovered-from-prose stray-alias guard
+commit,9b312d9,Phase 7.19.15 display DRD-driven INSERT + physical column names
+result,nullcut_avy,3 -> 1 (remaining: TRD_CNCLD_F MAX(CASE) over TXN_RLTNP join -- genuine reviewable)
+result,nullcut_close,6 -> 2 (remaining: POS_CLS_CD SESN_NUM DRD-silent+ODI-gap)
+result,nullcut_open,7 -> 4 (remaining: S.col passthroughs left reviewable+editable per addendum)
+result,runvs,WORKS via datasource_id=2 FREEPDB1 (was NO CREDS); commit=false rollback; real ORA errors surfaced
+result,runvs_avy,target blank->ODI var 942; explicit IKOROSTELEV.AVY_FACT_SIDE -> next reviewable col SHRT_SALE_EXMPT_NM
+result,runvs_close,CL_VAL schema fixed; next reviewable COMMON_OWNER.SUB_LOT_MSTR
+result,runvs_open,CL_VAL schema fixed; next reviewable T.TXN_TP_CD invalid identifier
+result,edit_capability,odi-sql-pre contenteditable + Reset SQL + edited badge + odi-run-ds datasource selector -- operator edits inline + Run-vs validates
+result,fixes_100pct,quote-doubling + self-contained helper-fill + base-alias rename + single-schema CL_VAL
+result,fixes_dialed_back,lone-S.col guess + ambiguous-schema -> left as reviewable mismatches (operator addendum)
+result,regression,86 passed (emitter+comparator+projection+fix+run_drd_live)
+result,no_commit,working tree only -- NO commit NO push this run (operator #0)
+followup,git_cleanup,GATED: fresh orphan main -> github.com/xLZDx/db_test_tool_clean + secret-scan + bundle + delete old repos
+followup,panelB_unify,retire build_control_insert_sql heuristic -> route panel B through comparator-driven emitter
+followup,odi_var_resolution,resolve ODI var SSDS_AVY_FACT_TABLE_NAME for AVY target auto-detect
+final,rootcause_correction,emitter emits logical TAXLOTS_OWNER (plural); physical schema is TAXLOT_OWNER (singular); 44/45 tables exist on local FREEPDB1; SUB_LOT_MSTR=DRD typo (ignored); NO DB build needed
+final,db_resolver_pass0a,added shared _owners(ALL_TABLES+ALL_VIEWS) + pass 0a resolve INSERT target schema to physical owner when single
+final,control_table_pattern,INSERT into IKOROSTELEV exact-col control copy of real target (cross-schema INSERT priv on TAXLOT_OWNER absent; ORA-41900 proved SQL valid)
+final,avy,success=True ora=0 matched=365/373 real_mismatch=0 reviewable=2 null_as=1 literal0=0
+final,close,success=True ora=0 matched=75/84 real_mismatch=0 reviewable=7 null_as=1 literal0=0
+final,open,success=True ora=0 matched=65/66 real_mismatch=0 reviewable=1 null_as=4 literal0=0
+final,suites_saved,suites/{avy,close,open}__{01_CREATE,02_INSERT_clean,03_VALIDATE}.sql + runvs_clean_*.json + FINAL_PROOF_2026-06-03.md+csv
+final,no_commit,working tree only -- NO commit NO push (operator #0)
