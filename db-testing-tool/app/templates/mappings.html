@@ -7559,6 +7559,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </select>
             </div>
             <button class="btn btn-primary" style="flex:0 0 130px;height:38px" onclick="odiRunAnalysis()" id="odi-analyze-btn">&#128269; Analyze</button>
+            <button class="btn btn-outline" style="flex:0 0 150px;height:38px;border-color:#a855f7;color:#a855f7" onclick="odiRunV15()" id="odi-v15-btn" title="v15 generic engine: honest DRD-vs-ODI column lineage diff (no AVY/TaxLot heuristics, auto-detects layout)">&#129516; v15 Compare</button>
         </div>
 
         <!-- Loading -->
@@ -7591,6 +7592,49 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div style="font-size:11px;color:#a855f7">ODI Extra</div>
                     <div id="odi-s-extra" style="font-size:24px;font-weight:700;color:#a855f7">0</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- v15 generic engine result (R3, opt-in; v9 path above is untouched) -->
+        <div id="odi-v15-result" style="display:none;margin-bottom:14px;border:1px solid #a855f7;border-radius:8px;padding:12px 14px;background:rgba(168,85,247,.05)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-weight:700;color:#a855f7">v15 generic engine</span>
+                <span id="odi-v15-layout" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+                <div style="padding:8px 12px;background:rgba(148,163,184,.1);border:1px solid var(--border);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-muted)">Mapping cols</div>
+                    <div id="odi-v15-mapping" style="font-size:22px;font-weight:700">0</div>
+                </div>
+                <div style="padding:8px 12px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--success)">In ODI load</div>
+                    <div id="odi-v15-inboth" style="font-size:22px;font-weight:700;color:var(--success)">0</div>
+                </div>
+                <div style="padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--warning)">DRD-only</div>
+                    <div id="odi-v15-drdonly" style="font-size:22px;font-weight:700;color:var(--warning)">0</div>
+                </div>
+                <div style="padding:8px 12px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:#a855f7">ODI-only</div>
+                    <div id="odi-v15-odionly" style="font-size:22px;font-weight:700;color:#a855f7">0</div>
+                </div>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Differences (DRD vs final ODI load)</div>
+            <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 8px;text-align:left">#</th>
+                            <th style="padding:6px 8px;text-align:left">Area / Columns</th>
+                            <th style="padding:6px 8px;text-align:left">Difference Type</th>
+                            <th style="padding:6px 8px;text-align:left">Mapping Logic</th>
+                            <th style="padding:6px 8px;text-align:left">ODI XML Logic</th>
+                            <th style="padding:6px 8px;text-align:left">Conclusion</th>
+                            <th style="padding:6px 8px;text-align:left">Recommended Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-v15-diffbody"></tbody>
+                </table>
             </div>
         </div>
 
@@ -7845,6 +7889,67 @@ document.addEventListener('DOMContentLoaded', function() {
             showToast('Analysis failed: ' + e.message, 'error');
         }
     };
+
+    // R3 (2026-06-06): v15 generic engine -- separate, opt-in path. Does NOT
+    // touch odiRunAnalysis / _odiRender / the v9 tiles above.
+    window.odiRunV15 = async () => {
+        const xmlFile = document.getElementById('odi-xml-file').files[0];
+        const drdFile = document.getElementById('odi-drd-file').files[0];
+        if (!xmlFile) { showToast('Upload an ODI Scenario XML first', 'error'); return; }
+        if (!drdFile) { showToast('v15 engine needs an Excel DRD file', 'error'); return; }
+        if (!/\.(xlsx|xls|xlsm)$/i.test(drdFile.name)) { showToast('v15 engine needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
+        const btn = document.getElementById('odi-v15-btn');
+        btn.disabled = true;
+        document.getElementById('odi-loading').style.display = 'block';
+        document.getElementById('odi-v15-result').style.display = 'none';
+        try {
+            const fd = new FormData();
+            fd.append('xml_file', xmlFile);
+            fd.append('drd_file', drdFile);
+            const resp = await fetch('/api/odi/scenario/compare-v15', { method: 'POST', body: fd });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+                throw new Error(err.detail || 'HTTP ' + resp.status);
+            }
+            _odiRenderV15(await resp.json());
+        } catch(e) {
+            showToast('v15 compare failed: ' + e.message, 'error');
+        } finally {
+            document.getElementById('odi-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    };
+
+    function _odiRenderV15(data) {
+        const s = data.summary || {};
+        document.getElementById('odi-v15-mapping').textContent = s.mapping_columns || 0;
+        document.getElementById('odi-v15-inboth').textContent  = s.in_both || 0;
+        document.getElementById('odi-v15-drdonly').textContent = s.mapping_only || 0;
+        document.getElementById('odi-v15-odionly').textContent = s.xml_only || 0;
+        const det = data.detection || {};
+        document.getElementById('odi-v15-layout').textContent = det.mapping_sheet
+            ? ('sheet ' + det.mapping_sheet + ' | header ' + det.header_row + ' | target ' + det.target_col + ' | conf ' + det.confidence)
+            : '';
+        const diffs = data.differences || [];
+        const body = document.getElementById('odi-v15-diffbody');
+        if (!diffs.length) {
+            body.innerHTML = '<tr><td colspan="7" style="padding:10px;text-align:center;color:var(--success)">No differences -- DRD and final ODI load agree</td></tr>';
+        } else {
+            body.innerHTML = diffs.map(function(r) {
+                return '<tr style="border-bottom:1px solid var(--border)">'
+                    + '<td style="padding:5px 8px;white-space:nowrap">' + escapeHtml(r['#'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-family:monospace;font-size:11px">' + escapeHtml(r['Area / Columns'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-size:11px;white-space:nowrap">' + escapeHtml(r['Difference Type'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Mapping Logic'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['ODI XML Logic'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Conclusion'] || '') + '</td>'
+                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Recommended Action'] || '') + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
+        document.getElementById('odi-v15-result').style.display = 'block';
+        showToast('v15: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + (s.mapping_only||0) + ' DRD-only, ' + (s.xml_only||0) + ' ODI-only', 'info');
+    }
 
     function _odiRender() {
         document.getElementById('odi-loading').style.display = 'none';

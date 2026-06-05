@@ -1024,6 +1024,106 @@ async def compare_odi_vs_drd(
     return base_response
 
 
+@router.post("/scenario/compare-v15")
+async def compare_odi_vs_drd_v15(
+    xml_file: UploadFile = File(...),
+    drd_file: UploadFile = File(...),
+):
+    """R3 (2026-06-06): v15 generic DRD-vs-ODI comparator -- ADDITIVE, opt-in.
+
+    The existing /scenario/compare (v9 comparator) remains the DEFAULT and is
+    completely untouched. This route runs the vendored v15 pipeline
+    (app/services/odi_drd_compare_v15.py) with profile='generic' -- no AVY /
+    TaxLot curated heuristics -- and returns the honest column-level lineage
+    diff that reproduces the external gold reference (AVY 373/369/4/0).
+
+    Offline only; no Oracle DB. DRD must be an Excel workbook (v15 auto-detects
+    the mapping sheet / header row / columns).
+
+    Returns:
+      summary: {mapping_columns, in_both, mapping_only, xml_only}
+      detection: auto-detected DRD layout (sheet/header/cols/confidence)
+      differences: differences-only review rows (full_drd_vs_odi_xml_rules_diff)
+      drd_only_columns / odi_only_columns: column-name lists
+    """
+    import csv as _csv
+    import gc as _gc
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from app.services.odi_drd_compare_v15 import compare_to_dir
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+    drd_bytes = await _read_upload_checked_odi(drd_file)
+
+    drd_name = drd_file.filename or "drd.xlsx"
+    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
+    if drd_ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(
+            422, f"v15 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
+        )
+
+    def _run() -> Dict[str, Any]:
+        # NOTE: openpyxl read_only=True keeps the .xlsx file handle open until the
+        # workbook is GC'd. On Windows that locks the temp file, so we must NOT use
+        # TemporaryDirectory auto-cleanup (WinError 32). Manual dir + gc.collect()
+        # to release the handle + best-effort rmtree(ignore_errors=True).
+        td = _tempfile.mkdtemp(prefix="v15_")
+        tdp = Path(td)
+        try:
+            xlsx_p = tdp / f"drd.{drd_ext}"
+            xml_p = tdp / "odi.xml"
+            out = tdp / "out"
+            xlsx_p.write_bytes(drd_bytes)
+            xml_p.write_bytes(xml_bytes)
+
+            compare_to_dir(xlsx_p, xml_p, out, profile="generic")
+
+            def _read_rows(name: str) -> List[Dict[str, str]]:
+                p = out / name
+                if not p.exists():
+                    return []
+                with p.open(encoding="utf-8-sig", newline="") as fh:
+                    return list(_csv.DictReader(fh))
+
+            col_rows = _read_rows("column_diff.csv")
+            diff_rows = _read_rows("full_drd_vs_odi_xml_rules_diff.csv")
+
+            detection: Dict[str, Any] = {}
+            dlj = out / "detected_layout.json"
+            if dlj.exists():
+                try:
+                    detection = json.loads(dlj.read_text(encoding="utf-8"))
+                except Exception:
+                    detection = {}
+
+            statuses = [r.get("status", "") for r in col_rows]
+            summary = {
+                "mapping_columns": sum(1 for s in statuses if s in ("IN_BOTH", "MAPPING_ONLY")),
+                "in_both": statuses.count("IN_BOTH"),
+                "mapping_only": statuses.count("MAPPING_ONLY"),
+                "xml_only": statuses.count("XML_ONLY"),
+            }
+            return {
+                "engine": "v15-generic",
+                "summary": summary,
+                "detection": detection,
+                "differences": diff_rows,
+                "drd_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "MAPPING_ONLY"],
+                "odi_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "XML_ONLY"],
+                "column_diff_count": len(col_rows),
+            }
+        finally:
+            _gc.collect()  # release any lingering openpyxl read_only file handles
+            _shutil.rmtree(tdp, ignore_errors=True)
+
+    try:
+        return await asyncio.to_thread(_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(422, f"v15 compare error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"v15 compare unexpected error: {exc}") from exc
+
+
 @router.post("/scenario/emit-sql")
 async def emit_sql_from_xml(
     xml_file: UploadFile = File(...),
