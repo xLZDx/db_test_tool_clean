@@ -1,0 +1,24 @@
+section,item,detail
+verdict,better_than_comparator,YES (generic) - reproduces gold reference exactly with no per-file hardcoding
+nature,v15_is,COMPARATOR (DRD-vs-ODI lineage diff) NOT an INSERT generator
+empirical_AVY,counts,mapping=373 in_both=369 DRD_only=4 ODI_only=0 (matches gold 373/369/4)
+empirical_AVY,layout,auto-detected Table-View header12 targetB src Y/Z/AA rule AD conf=1.00 (no override)
+empirical_AVY,steps,walked all 6 ODI staging steps STEP1_STG..STEP5_STG..final MERGE
+empirical_CLOSE,counts,mapping=84 in_both=83 DRD_only=1 ODI_only=0 high_risk=0
+empirical_OPEN,counts,mapping=66 in_both=66 DRD_only=0 ODI_only=0 high_risk=0
+rule_concern,heuristics,ships avy/taxlot curated profiles (build_avy_review_rules_diff:1515) - violates generic rule
+rule_concern,mitigation,--profile generic disables them and still correct; adopt generic-only / delete avy+taxlot branches on vendor-in
+no_regression,generator,v15 does NOT generate INSERTs -> generator + grade harness (CLOSE 67/5/6) UNTOUCHED
+no_regression,comparator,v15 SUPERSEDES comparator.py ODI-vs-DRD (honest 4-diff vs degenerate 365)
+fkmap_relation,generator_steps,FK-map steps 1-6 (generator dead-join fix) still relevant IF generator must emit correct AVY INSERT
+fkmap_relation,comparison_step,FK-map step 7 (comparator staging-chain fix) SUPERSEDED by adopting v15
+done,F4,ODI column in generator Step-3 grid shipped + GUI-proven (pushed 956f925)
+done,plan_v2,T4 consensus FK-map plan v2 written + CSV twin
+done,checkpoint,commit f62942b (F4 + plan v2 + AVY fixtures + e2e harnesses; PNG + stray excluded) LOCAL ONLY
+done,v15_eval,ran all 3 fixtures generic -> reproduces gold reference
+remaining,R1,push checkpoint f62942b to cleannew/main (needs push-GO)
+remaining,R2,vendor v15 generic pipeline into app/services (ASCII-clean profile=generic forced) T3
+remaining,R3,wire R2 as ODI-vs-DRD panel backend flag-gated comparator.py fallback GUI-test all 3 DRDs T3/T4
+remaining,R4,make avy_fact_analysis_outputs the AVY golden fixture for R3 acceptance
+remaining,R5,optional FK-map steps 1-6 generator dead-join fix (separate generator-only T4)
+recommend,next,R2->R3->R4 flag-gated v15 comparison; keep generator frozen; decide R5 separately
