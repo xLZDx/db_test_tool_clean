@@ -1,0 +1,2136 @@
+﻿column,in_mapping,mapping_row,logical_name,action,source,AD_rule,in_xml_final_insert,in_xml_update,in_step1,in_step2,in_step3,in_step4,in_step5,notes
+ACAT_CNTRA_FIRM_CLRG_ID_TP_CD,Y,34,ACAT Contra Firm Clearing ID Type Code,Add,CCAL_REPL_OWNER.ACATS_BROKER.BROKER_ID_TYPE,"ccal_repl_owner.txn t
+LEFT join ccal_repl_owner.acats_broker b
+ON b.broker_id = t.orig_src_stm_code and
+t.src_stm_id IN ( 53, 54 )",Y,Y,N,N,Y,Y,Y,
+ACAT_CNTRA_FIRM_CLRG_NUM,Y,31,ACAT Contra Firm Clearing Number,Add,CCAL_REPL_OWNER.TXN.ORIG_SRC_STM_CODE,"ccal_repl_owner.txn t
+where
+t.src_stm_id IN ( 53, 54 )",Y,Y,N,N,Y,Y,Y,
+ACAT_CNTRA_FIRM_NM,Y,32,ACAT Contra Firm Name,Add,CCAL_REPL_OWNER.ACATS_BROKER.BROKER_NAME,"ccal_repl_owner.txn t
+LEFT join ccal_repl_owner.acats_broker
+ON b.broker_id = t.orig_src_stm_code and
+t.src_stm_id IN ( 53, 54 )",Y,Y,N,N,Y,Y,Y,
+ACAT_CNTRA_FIRM_SHRT_NM,Y,33,ACAT Contra Firm Short Name,Add,CCAL_REPL_OWNER.ACATS_BROKER.BROKER_SHORT_NAME,"ccal_repl_owner.txn t
+LEFT join ccal_repl_owner.acats_broker
+ON b.broker_id = t.orig_src_stm_code and
+t.src_stm_id IN ( 53, 54 )",Y,Y,N,N,Y,Y,Y,
+ACG_TP_CD,Y,55,Accounting Type Code,Existing,COMMON_OWNER.ACG_TP_DIM.ACG_TP_CD,"First preference is to APACASH and then to APASEC
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join common_owner.acg_tp_dim atd ON AP.ACG_TP_ID = atd.ACG_TP_ID",Y,Y,Y,N,Y,Y,Y,
+ACG_TP_DIM_ID,Y,56,Accounting Type Dimension Id,Existing,COMMON_OWNER.ACG_TP_DIM.ACG_TP_DIM_ID,"First preference is to APACASH and then to APASEC
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join common_owner.acg_tp_dim atd ON AP.ACG_TP_ID = atd.ACG_TP_ID",Y,Y,Y,N,Y,Y,Y,
+ACG_TP_ID,Y,58,Accounting Type Id,Add,CCAL_REPL_OWNER.APA.ACG_TP_ID,"First preference is to APACASH and then to APASEC
+
+ccal_repl_owner.txn txn
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+ACG_TP_NM,Y,57,Accounting Type Name,Existing,COMMON_OWNER.ACG_TP_DIM.ACG_TP_NM,"First preference is to APACASH and then to APASEC
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join common_owner.acg_tp_dim atd ON AP.ACG_TP_ID = atd.ACG_TP_ID",Y,Y,Y,N,Y,Y,Y,
+ACR_INT_AMT,Y,233,Accrued Interest Amount,Add,CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT,"If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and FIP.FIP_TP_ID = 124 (FIPINT01, Accrued Interest)
+Then move STM_BASE_CCY_AMT",Y,Y,Y,N,Y,Y,Y,
+ACTV_F,Y,59,Active Flag,Update,CCAL_REPL_OWNER.TXN.ACTV_F,,Y,Y,N,N,Y,Y,Y,
+ACT_CMSN_AMT,Y,230,Actual Commission Amount,Add,CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT,"If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and TXN.TXN_TP_ID not in (14, 1856) -- not Fund Trades
+and FIP.FIP_TP_ID in (123, 160) --FIPCOM01, FIPCOM91
+Then move STM_BASE_CCY_AMT",Y,Y,Y,N,Y,Y,Y,
+AC_CGY,Y,266,Account Category,Add - New attribute,CCSI_OWNER.ar_dim.ar_cgy,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+AC_CGY_CD,Y,264,Account Category Code,Add - New attribute,CCSI_OWNER.ar_dim.ar_cgy_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+AC_ID,N,,,,,,N,N,Y,N,N,N,N,
+AC_OWNSHP_TP,Y,283,Account Ownership Type,Add - New attribute,CCSI_OWNER.ar_dim.ownshp_tp,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+AC_OWNSHP_TP_CD,Y,281,Account Ownership Type Code,Add - New attribute,CCSI_OWNER.ar_dim.ownshp_tp_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+ADL_TRD_INSR,Y,226,Additional Trade Instruction,Add,CCAL_REPL_OWNER.TXN.ADL_TRD_INSR,,Y,Y,N,N,Y,Y,Y,
+AGRT_ORIG_FEES,Y,60,Aggregate Original Fees,"Remove
+Restore",CCAL_REPL_OWNER.FIP.FIP_ORIG_AMT,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+LEFT join ccal_repl_owner.fip f ON f.apa_id = ap.apa_id",Y,Y,Y,N,Y,Y,Y,
+AGRT_STMT_FEES,Y,61,Aggregate Statement Fees,"Remove
+Restore",CCAL_REPL_OWNER.FIP.FIP_STMT_AMT,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+LEFT join ccal_repl_owner.fip f ON f.apa_id = ap.apa_id",Y,Y,Y,N,Y,Y,Y,
+ALT_DSC_TRAILER_2,N,,,,,,N,N,Y,N,N,N,N,
+APA_CODE_CNT,N,,,,,,N,N,N,Y,N,N,N,
+APA_CODE_LIST,N,,,,,,N,N,N,Y,N,N,N,
+APA_EXT_QUALFR,N,,,,,,N,N,Y,N,N,N,N,
+APA_ID,N,,,,,,N,N,Y,N,N,N,N,
+APA_TP_CD,N,,,,,,N,N,Y,N,N,N,N,
+APA_TP_DSC,N,,,,,,N,N,Y,N,N,N,N,
+APA_TP_ID,N,,,,,,N,N,Y,N,N,N,N,
+APA_TP_NM,N,,,,,,N,N,Y,N,N,N,N,
+AR_DIM_ID,Y,218,Arrangement Dimension Id,Existing,CCSI_OWNER.AR_DIM.AR_DIM_ID,"ccal_repl_owner.txn t
+LEFT join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+AR_ID,Y,62,Arrangement Id,Existing,CCAL_REPL_OWNER.TXN.AR_ID,,Y,Y,Y,N,Y,Y,Y,
+AR_ORIG_SRC_STM_CD,Y,36,Arrangement Originating Source System Code,Add,CCSI_OWNER.AR_DIM.ORIG_SRC_STM_CD,"ccal_repl_owner.txn t
+join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+AR_SETL_TP_CD,Y,50,Arrangement Settlement Type Code,Add,CCSI_OWNER.AR_DIM.SETL_TP_CD,"ccal_repl_owner.txn t
+LEFT join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+AR_SETL_TP_DSC,Y,51,Arrangement Settlement Type Description,Add,CCSI_OWNER.AR_DIM.SETL_TP,"ccal_repl_owner.txn t
+LEFT join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+AVY_CGY,N,,,,,,N,N,Y,N,N,N,N,
+AVY_CL_ID,N,,,,,,N,N,Y,N,N,N,N,
+AVY_TP,N,,,,,,N,N,Y,N,N,N,N,
+BASE_POS_QTY,Y,377,Base Position Quantity,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC91",Y,Y,N,N,Y,Y,Y,
+BATCH_DT,Y,63,Batch Date,Existing,CCAL_REPL_OWNER.J$TXN.BATCH_DT,"ccal_repl_owner.txn t
+join ccal_repl_owner.j$txn jt ON jt.txn_id = t.txn_id",Y,N,N,N,Y,Y,Y,INSERT_ONLY_NOT_UPDATED
+BFR_INCM_PYMT_FACE_VAL_AMT,Y,376,Before Income Payment Face Value Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC83",Y,Y,N,N,Y,Y,Y,
+BFR_REPYMT_FACE_VAL_AMT,Y,375,Before Repayment Face Value Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC81",Y,Y,N,N,Y,Y,Y,
+BKG_DT,Y,64,Booking Date,Existing,CCAL_REPL_OWNER.TXN.BKG_DT,,Y,Y,N,N,Y,Y,Y,
+BKR_ABC_CLSS,Y,263,Brokerage ABC Class,Add - New attribute,CCSI_OWNER.ar_dim.ABC_CLSS_NM,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_ABC_CLSS_CD,Y,262,Brokerage ABC Class Code,Add - New attribute,CCSI_OWNER.ar_dim.ABC_CLSS_CD,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AC_CGY,Y,267,Brokerage Account Category,Add - New attribute,CCSI_OWNER.ar_dim.ar_cgy,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AC_CGY_CD,Y,265,Brokerage Account Category Code,Add - New attribute,CCSI_OWNER.ar_dim.ar_cgy_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AC_NUM,Y,250,Brokerage Account Number,Add - New attribute,CCSI_OWNER.ar_dim.orig_src_stm_ar_id,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AC_OWNSHP_TP,Y,284,Brokerage Account Ownership Type,Add - New attribute,CCSI_OWNER.ar_dim.ownshp_tp,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AC_OWNSHP_TP_CD,Y,282,Brokerage Account Ownership Type Code,Add - New attribute,CCSI_OWNER.ar_dim.ownshp_tp_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_AR_DIM_ID,Y,216,Brokerage Arrangement Dim Id,Existing,CCSI_OWNER.AR_DIM.AR_DIM_ID,Populate with AR_DIM_ID based on the lookup for BKR_AR_ID,Y,Y,N,N,N,Y,Y,
+BKR_AR_ID,Y,66,Brokerage Arrangement Id,Existing,"CCAL_REPL_OWNER.APA
+TXN.BKR_AR_ID
+AR_ID","ccal_repl_owner.txn t 
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+join ccal_repl_owner.AR_DIM BKR_AR_DIM ON T.AR_ID = BKR_AR_DIM.AR_ID
+and TD >= BKR_AR_DIM.EFF_DT (+) 
+and TD < BKR_AR_DIM.END_DT (+))
+
+If BKR_AR_DIM.ORIG_SRC_STM_CD = 'BKRBO1' then populate with T.AR_ID
+Else if AP.BKR_AR_ID is not NULL then use ap.BKR_AR_ID
+Else join ccsi_owner.AR_GRP_SUBDIM asd ON asd.AR_ID = t.AR_ID
+and t.td >= asd.EFF_DT
+and t.td < asd.END_DT
+and populate with asd.LINKED_BKR_AR_ID",Y,Y,Y,N,Y,Y,Y,
+BKR_BSN_LINE_AFFLT,Y,268,Brokerage Business Line Affiliation,Add - New attribute,CCSI_OWNER.ar_dim.bsn_line_afflt,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_BSN_LINE_AFFLT_CD,Y,269,Brokerage Business Line Affiliation Code,Add - New attribute,CCSI_OWNER.ar_dim.bsn_line_afflt_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_ERISA_F,Y,260,Brokerage ERISA Flag,Add - New attribute,CCSI_OWNER.ar_dim.ERISSA_F,"( nvl(ar_dim .ERISSA_F, 'N') )
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_FEE_BASE_AC_F,Y,286,Brokerage Fee Based Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.fee_base_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_FIRM_AC_F,Y,285,Brokerage Firm Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.firm_ac_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_IRA_F,Y,259,Brokerage IRA Flag,Add - New attribute,CCSI_OWNER.ar_dim.IRA_F,"( nvl(ar_dim .ira_f, 'N') )
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_ORIG_SRC_STM_CD,Y,261,Brokerage Originating Source System Code,Add - New attribute,CCSI_OWNER.ar_dim.ORIG_SRC_STM_CD,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_RJ_BSN_UNIT,Y,280,Brokerage RJ Business Unit,Add - New attribute,CCSI_OWNER.ar_dim.rj_bsn_unit,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_RJ_BSN_UNIT_CD,Y,278,Brokerage RJ Business Unit Code,Add - New attribute,CCSI_OWNER.ar_dim.rj_bsn_unit_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_RJ_TAX_RPT_RSPL_F,Y,276,Brokerage RJ Tax Reporting Responsibility Flag,Add - New attribute,CCSI_OWNER.ar_dim.rj_tax_rpt_rspl_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_RJ_TRUST_F,Y,287,Brokerage RJ Trust Flag,Add - New attribute,CCSI_OWNER.ar_dim.bsn_line_afflt_cd,"ar_dim.bsn_line_afflt_cd in ('RJTNA','RJTCNH') then 'Y' else 'N' end as rj_trust_flag
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_TAX_AC_F,Y,275,Brokerage Taxable Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.tax_ac_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_TAX_RPT_CLNT_ID,Y,273,Brokerage Tax Reporting Client Id,Add - New attribute,CCSI_OWNER.ar_dim.tax_rpt_party_id,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BKR_TST_AC_F,Y,271,Brokerage Test Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.tst_ar_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,N,N,Y,
+BOND_ACRTN_DCN_AMT,Y,371,Bond Accretion Discount Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APACSH logic from 'ETL Notes' tab.
+Applicable only for APACSH82",Y,Y,N,N,Y,Y,Y,
+BOND_AMRZ_PREM_AMT,Y,372,Bond Amortization Premium Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APACSH logic from 'ETL Notes' tab.
+Applicable only for APACSH83",Y,Y,N,N,Y,Y,Y,
+BR_CD,Y,65,Branch Code,Existing,CCAL_REPL_OWNER.TXN.BR_CODE,,Y,Y,N,N,N,N,N,
+BR_CODE,N,,,,,,N,N,Y,N,Y,Y,Y,
+BUY_SELL_IND,Y,67,Buy Sell Indicator,Existing,CCAL_REPL_OWNER.TXN.BUY_SELL_IND,,Y,Y,N,N,Y,Y,Y,
+CASH_ALT_DSC_TRAILER_2,Y,73,Cash Alternate Description Trailer 2,Existing,CCAL_REPL_OWNER.APA.ALT_DSC,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_APA_EXT_QUALFR,Y,74,Cash Asset Package External Qualifier,Add,CCAL_REPL_OWNER.APA.APA_EXT_QUALFR,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_APA_TP_CD,Y,76,Cash Asset Package Type Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_APA_TP_DSC,Y,77,Cash Asset Package Type Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_APA_TP_NM,Y,79,Cash asset Package Type Name,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_AVY_CGY,Y,68,Cash Activity Category,Update,CCAL_REPL_OWNER.AVY_CL.AVY_CGY,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+CASH_AVY_TP,Y,71,Cash Activity Type,Existing,CCAL_REPL_OWNER.AVY_CL.AVY_TP,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+CASH_CIRD_PD_ID,Y,80,Cash Cird Product Id,Existing,CCAL_REPL_OWNER.CCAL_CIRD_PD_MAP.CIRD_PD_ID,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.apa ap 
+left join ccal_repl_owner.ccal_cird_pd_map ccpd ON ap.pd_id = ccpd.ccal_pd_id and ccpm.actv_f = 'Y'",Y,Y,N,N,Y,Y,Y,
+CASH_DB_CR_CD,Y,81,Cash Debit Credit Code,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.apa ap 
+left join ccal_repl_owner.cl_val cv ON ap.db_cr_id = cv.cl_val_id
+and cv.cl_scm_id = '15'",Y,Y,N,N,Y,Y,Y,
+CASH_DB_CR_NM,Y,82,Cash Debit Credit Name,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.apa ap 
+left join ccal_repl_owner.cl_val cv ON ap.db_cr_id = cv.cl_val_id
+and cv.cl_scm_id = '15'",Y,Y,N,N,Y,Y,Y,
+CASH_DSC_TRAILER_1,Y,83,Cash Description Trailer 1,Existing,CCAL_REPL_OWNER.APA.APA_DSC,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_NNA_CGY_ID,Y,243,Cash Net New Asset Category ID,Add,CCAL_REPL_OWNER.TXN_AVY_CL.NNA_CGY_ID,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+CASH_NNA_CGY_NM,Y,244,Cash Net New Asset Category Name,Add,CCAL_REPL_OWNER.NNA_CGY.NNA_CGY_NM,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.net_new _ast_cgy nna ON nna.net_new_ast_cgy_id = tac.net_new_ast_cgy_id",Y,Y,N,N,Y,Y,Y,
+CASH_PD_DIM_ID,Y,90,Cash Investment Product Dim Id,Existing,CIRD_OWNER.IMT_PD_DIM.IMT_PD_DIM_ID,"Use APACSH logic from 'ETL Notes' tab and below logic.
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+LEFT join cird_owner.imt_pd_dim ipd ON ipd.CCAL_PD_ID = ap.PD_ID
+and ipd.eff_dt <= t.td
+and ipd.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+CASH_PD_ID,Y,89,Cash CCAL Product Id,Existing,CCAL_REPL_OWNER.APA.PD_ID,Use APACSH logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+CASH_POS_TP_CD,Y,85,Cash Position Type Code,Existing,COMMON_OWNER.CASH_POS_TP_DIM.CASH_POS_TP_CD,"ccal_repl_owner.apa ap 
+left join common_owner.cash_pos_tp_dim cptd ON ap.CASH_POS_TP_ID = cptd.CASH_POS_TP_ID",Y,Y,Y,N,Y,Y,Y,
+CASH_POS_TP_DIM_ID,Y,86,Cash Position Type Dimension Id,Existing,COMMON_OWNER.CASH_POS_TP_DIM.CASH_POS_TP_DIM_ID,"ccal_repl_owner.apa ap 
+left join common_owner.cash_pos_tp_dim cptd ON ap.CASH_POS_TP_ID = cptd.CASH_POS_TP_ID",Y,Y,Y,N,Y,Y,Y,
+CASH_POS_TP_ID,Y,88,Cash Position Type Id,Add,CCAL_REPL_OWNER.APA.CASH_POS_TP_ID,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+CASH_POS_TP_NM,Y,87,Cash Position Type Name,Existing,COMMON_OWNER.CASH_POS_TP_DIM.CASH_POS_TP_NM,"ccal_repl_owner.apa ap 
+left join common_owner.cash_pos_tp_dim cptd ON ap.CASH_POS_TP_ID = cptd.CASH_POS_TP_ID",Y,Y,Y,N,Y,Y,Y,
+CASH_SBC_AMT,Y,92,Cash System Base Currency Amount,Update,CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT,"Use APACSH logic from 'ETL Notes' tab.
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+	 else exception entire transaction",Y,Y,N,N,Y,Y,Y,
+CASH_SIMP_DSPL_AVY_CGY,Y,69,Cash Simplified Display Activity Category,Add,CCAL_REPL_OWNER.AVY_CL.DSPL_AVY_CGY,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+CASH_SIMP_DSPL_AVY_TP,Y,72,Cash Simplified Display Activity Type,Add,CCAL_REPL_OWNER.AVY_CL.DSPL_AVY_TP,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+CASH_SRC_SEQ_NUM,Y,91,Cash Source Sequence Number,Update,CCAL_REPL_OWNER.APA.SRC_SEQ_NUM,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CASH_TXN_AMT,Y,93,Cash Transaction Amount,Update,CCAL_REPL_OWNER.APA.TXN_AMT,"Use APACSH logic from 'ETL Notes' tab.
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          calculate aggregated value from APA.TXN_AMT fields from 'APACSH04' and 'APACSH11' and store it in Cash Transaction Amount and Cash System base currency amount
+	 else exception entire transaction",Y,Y,N,N,Y,Y,Y,
+CCY_CD,Y,97,Currency Code,Existing,CCAL_REPL_OWNER.APA.txn_iso_ccy_code,,Y,Y,N,N,Y,Y,Y,
+CCY_DIM_ID,Y,98,Currency Dimension Id,Existing,CIRD_OWNER.CCY_DIM.CCY_DIM_ID,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join cird_owner.ccy_dim cd ON cd.ccy_cd = ap.txn_iso_ccy_code",Y,Y,Y,N,Y,Y,Y,
+CDSC_AMT,Y,235,Contingent Deferred Sales Charge Amount,Add,"CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT
+OTHR_FEE","If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and TXN.TXN_TP_ID in (14, 1856) -- Fund Trades
+and TXN.BUY_SELL_IND = 'Sell'
+and FIP.FIP_TP_ID = 132 (FIPFEE02, Miscellaneous Fee(s))
+Then
+for TXN.SRC_STM_ID = 94 move STM_BASE_CCY_AMT
+for TXN.SRC_STM_ID = 25 move OTHR_FEE",Y,Y,Y,N,Y,Y,Y,
+CF_GEN_F,Y,84,Cash Flow Generation Flag,Existing,CCAL_REPL_OWNER.TXN.CF_GEN_F,,Y,Y,N,N,Y,Y,Y,
+CIRD_PD_ID,N,,,,,,N,N,Y,N,N,N,N,
+CLNT_FRIENDLY_DESC,N,,,,,,N,N,Y,N,N,N,N,
+CLNT_FRIENDLY_DSC,Y,94,Client Friendly Description,Existing,CCAL_REPL_OWNER.APA.CLNT_FRIENDLY_DESC,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,N,N,Y,Y,Y,
+CNCSN_AMT,Y,234,Concession Amount,Add,CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT,"If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and TXN.TXN_TP_ID in (14, 1856) -- Fund Trades
+and FIP.FIP_TP_ID in (123, 160) --FIPCOM01, FIPCOM91
+Then move STM_BASE_CCY_AMT",Y,Y,Y,N,Y,Y,Y,
+CRT_DTM,Y,95,Create Datetime,Existing,CCAL_REPL_OWNER.TXN.CRT_DTM,,Y,N,Y,Y,Y,Y,Y,INSERT_ONLY_NOT_UPDATED
+CRT_USR_NM,Y,96,Create User Name,Update,CCAL_REPL_OWNER.TXN.CRT_USR_NM,,Y,N,Y,Y,Y,Y,Y,INSERT_ONLY_NOT_UPDATED
+CSH_APA_ID,Y,75,Cash Asset Package Id,Existing,CCAL_REPL_OWNER.APA.APA_ID,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CSH_APA_TP_ID,Y,78,Cash Asset Package Type Id,Existing,CCAL_REPL_OWNER.APA.APA_TP_ID,Use APACSH logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+CSH_AVY_CL_ID,Y,70,Cash Activity Classification Id,Existing,CCAL_REPL_OWNER.TXN_AVY_CL.AVY_CL_ID,"Use APACSH logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id",Y,Y,N,N,Y,Y,Y,
+DB_CARD_ORIG_CCY,Y,254,Debit Card Original Currency,Add - New attribute,Reference_Repl_Owner.CCY.CCY_NM,"Only applicable to SRC_STM_ID = 60 (ACTDETTD)
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+join REFERENCE_repl_OWNER.CCY orig on apa.orig_ccy_id = orig.CCY_ISO_NUM_CODE",Y,Y,Y,N,Y,Y,Y,
+DB_CARD_ORIG_CCY_CD,Y,253,Debit Card Original Currency Code,Add - New attribute,Reference_Repl_Owner.CCY.CCY_CODE,"Only applicable to SRC_STM_ID = 60 (ACTDETTD)
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+join REFERENCE_repl_OWNER.CCY orig on apa.orig_ccy_id = orig.CCY_ISO_NUM_CODE
+
+TBC if CDS values are to be left padded with 0 to 3",Y,Y,Y,N,Y,Y,Y,
+DB_CARD_TXN_DT,Y,252,Debit Card Transaction Date,Add - New attribute,CCAL_REPL_OWNER.TXN.ORIG_TD,"For TXN.SRC_STM_ID = 60 (ACTDETTD), use ORIG_TD.
+Suppress from Original Trade Date for ACTDETTD source",Y,Y,N,N,Y,Y,Y,
+DB_CR_CD,N,,,,,,N,N,Y,N,N,N,N,
+DB_CR_NM,N,,,,,,N,N,Y,N,N,N,N,
+DOL_IND_CD,Y,99,Department Of Labor Indicator Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.dol_ind_id = cv.cl_val_id
+and cv.cl_scm_id = '35'",Y,Y,N,N,Y,Y,Y,
+DOL_IND_ID,Y,100,Department Of Labor Indicator Id,Existing,CCAL_REPL_OWNER.TXN.DOL_IND_ID,,Y,Y,N,N,Y,Y,Y,
+DOL_IND_NM,Y,101,Department Of Labor Indicator Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.dol_ind_id = cv.cl_val_id
+and cv.cl_scm_id = '35'",Y,Y,N,N,Y,Y,Y,
+DRVD_TRD_CPCTY_CD,Y,223,Derived Trade Capacity Code,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,,Y,Y,N,N,Y,Y,Y,
+DRVD_TRD_CPCTY_ID,Y,225,Derived Trade Capacity Id,Add,CCAL_REPL_OWNER.TXN.DRVD_TRD_CPCTY_TP_ID,,Y,Y,N,N,Y,Y,Y,
+DRVD_TRD_CPCTY_NM,Y,224,Derived Trade Capacity Name,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,,Y,Y,N,N,Y,Y,Y,
+DSC_TRAILER_1,N,,,,,,N,N,Y,N,N,N,N,
+DSPL_AVY_CGY,N,,,,,,N,N,Y,N,N,N,N,
+DSPL_AVY_TP,N,,,,,,N,N,Y,N,N,N,N,
+DVDN_RCRD_DT,Y,25,Dividend Record Date,Add,CCAL_REPL_OWNER.TXN.DVDN_RCRD_DT,,Y,Y,N,N,Y,Y,Y,
+EQTY_IDY,Y,335,Equity Industry,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_4,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_IDY_CD,Y,336,Equity Industry Code,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_4_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_IDY_GRP,Y,337,Equity Industry Group,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_3,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_IDY_GRP_CD,Y,338,Equity Industry Group Code,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_3_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_SECT,Y,339,Equity Sector,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_2,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_SECT_CD,Y,340,Equity Sector Code,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_2_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_SUP_SECT,Y,341,Equity Super Sector,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_1,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EQTY_SUP_SECT_CD,Y,342,Equity Super Sector Code,Add - New attribute,cird_owner.imt_pd_dim.eqty_sect_lvl_1_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+EXCP_CASH_APA_CODE,N,,,,,,N,N,N,N,Y,Y,Y,
+EXEC_DTM,Y,104,Execution Date,Update,CCAL_REPL_OWNER.TXN.EXEC_DTM,,Y,Y,N,N,Y,Y,Y,
+EXEC_SBTP_CD,Y,105,Execution Subtype Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_SBTP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '6'",Y,Y,N,N,Y,Y,Y,
+EXEC_SBTP_DSC,Y,106,Execution Subtype Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_SBTP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '6'",Y,Y,N,N,Y,Y,Y,
+EXEC_SBTP_ID,Y,107,Execution Subtype Id,Existing,CCAL_REPL_OWNER.TXN.EXEC_SBTP_ID,,Y,Y,N,N,Y,Y,Y,
+EXEC_SBTP_NM,Y,108,Execution Subtype Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_SBTP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '6'",Y,Y,N,N,Y,Y,Y,
+EXEC_TP_CD,Y,109,Execution Type Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_TP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '5'",Y,Y,N,N,Y,Y,Y,
+EXEC_TP_DSC,Y,110,Execution Type Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_TP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '5'",Y,Y,N,N,Y,Y,Y,
+EXEC_TP_ID,Y,111,Execution Type Id,Existing,CCAL_REPL_OWNER.TXN.EXEC_TP_ID,,Y,Y,N,N,Y,Y,Y,
+EXEC_TP_NM,Y,112,Execution Type Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON t.EXEC_TP_ID = cv.CL_VAL_ID
+and cv.cl_scm_id = '5'",Y,Y,N,N,Y,Y,Y,
+EXG_CD,Y,102,Exchange Code,Existing,CCAL_REPL_OWNER.TXN.EXG_CODE,,Y,Y,N,N,Y,Y,Y,
+EXG_DIM_ID,Y,54,Exchange Dimension Id,Existing,CIRD_OWNER.EXG_DIM.EXG_DIM_ID,"ccal_repl_owner.txn t
+left join cird_owner.exg_dim ed ON ed.EXG_CD = t.exg_code",Y,Y,N,N,Y,Y,Y,
+EXG_NM,Y,103,Exchange Name,Existing,CIRD_OWNER.EXG_DIM.EXG_NM,"ccal_repl_owner.txn t
+left join cird_owner.exg_dim ed ON ed.EXG_CD = t.exg_code",Y,Y,N,N,Y,Y,Y,
+FA_NUM,Y,113,FA Number,Existing,CCAL_REPL_OWNER.TXN.FA_NUM,,Y,Y,Y,N,Y,Y,Y,
+FA_OWN_EMPE_ID,Y,29,Owner FA Employee Id,Add,SSDS_DAL_OWNER.FA_NUMBER_V.RESPONSIBLE_PARTY_EMPLOYEE_ID,,Y,Y,N,N,N,Y,Y,
+FND_FAM,Y,356,Fund Family,Add - New attribute,cird_owner.imt_pd_dim.fnd_fam,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMP_SRC_ACTN_CD,Y,15,IMPACT Source Action Code,Add,CCAL_REPL_OWNER.TXN.SRC_ACTN_CODE,,Y,Y,N,N,Y,Y,Y,
+IMP_SRC_ACTN_NM,Y,16,IMPACT Source Action Name,Add,REFERENCE_REPL_OWNER.IMPCT_ACTION_LKU.desc_text,"ccal_repl_owner.txn t
+left join ccal_repl_owner.impct_action_lku lk ON t.src_actn_code = impct_action_lku.action_code",Y,Y,N,N,Y,Y,Y,
+IMT_CL_LVL_1,Y,359,Instrument Classification Level 1,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_1,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_1_CD,Y,360,Instrument Classification Level 1 Code,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_1_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_2,Y,361,Instrument Classification Level 2,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_2,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_2_CD,Y,362,Instrument Classification Level 2 Code,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_2_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_3,Y,363,Instrument Classification Level 3,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_3,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_3_CD,Y,364,Instrument Classification Level 3 Code,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_3_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_4,Y,365,Instrument Classification Level 4,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_4,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_4_CD,Y,366,Instrument Classification Level 4 Code,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_4_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_5,Y,367,Instrument Classification Level 5,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_5,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+IMT_CL_LVL_5_CD,Y,368,Instrument Classification Level 5 Code,Add - New attribute,cird_owner.IMT_PD_DIM.imt_cl_lvl_5_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+ISIN,Y,239,ISIN,,CCAL_REPL_OWNER.APA.ISIN,"Use APASEC and Product Information logic from 'ETL Notes' tab.
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC",Y,Y,Y,N,Y,Y,Y,
+LAST_UDT_DTM,Y,220,Last Update Datetime,Add,LAST_UDT_USR_NM.Audit column. DEFAULT USER,Audit column. DEFAULT USER,Y,Y,N,N,Y,Y,Y,
+LAST_UDT_USR_NM,Y,219,Last Update User Name,Add,LAST_UDT_USR_NM.Audit column. DEFAULT sysdate,Audit column. DEFAULT sysdate,Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_RSN_DIM_ID,Y,115,Legacy Cancellation Compliance Reason Type Dimension Id,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_RSN_TP_DIM.LGCY_CNCL_CMPLN_RSN_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_rsn_tp_dim ld ON ld.lgcy_cncl_cmpln_rsn_tp_id = t.lgcy_cncl_cmpln_rsn_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_RSN_TP_CD,Y,114,Legacy Cancellation Compliance Reason Type Code,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_RSN_TP_DIM.LGCY_CNCL_CMPLN_RSN_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_rsn_tp_dim ld ON ld.lgcy_cncl_cmpln_rsn_tp_id = t.lgcy_cncl_cmpln_rsn_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_RSN_TP_ID,Y,117,Legacy Cancellation Compliance Reason Type Id,Add,CCAL_REPL_OWNER.TXN.LGCY_CNCL_CMPLN_RSN_TP_ID,,Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_RSN_TP_NM,Y,116,Legacy Cancellation Compliance Reason Type Name,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_RSN_TP_DIM.LGCY_CNCL_CMPLN_RSN_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_rsn_tp_dim ld ON ld.lgcy_cncl_cmpln_rsn_tp_id = t.lgcy_cncl_cmpln_rsn_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_SRC_DIM_ID,Y,119,Legacy Cancellation Compliance Source Type Dimension Id,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_SRC_TP_DIM.LGCY_CNCL_CMPLN_SRC_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_src_tp_dim ld ON ld.lgcy_cncl_cmpln_src_tp_id = t.lgcy_cncl_cmpln_src_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_SRC_TP_CD,Y,118,Legacy Cancellation Compliance Source Type Code,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_SRC_TP_DIM.LGCY_CNCL_CMPLN_SRC_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_src_tp_dim ld ON ld.lgcy_cncl_cmpln_src_tp_id = t.lgcy_cncl_cmpln_src_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_SRC_TP_ID,Y,121,Legacy Cancellation Compliance Source Type Id,Add,CCAL_REPL_OWNER.TXN.LGCY_CNCL_CMPLN_SRC_TP_ID,,Y,Y,N,N,Y,Y,Y,
+LGCY_CNCL_CMPLN_SRC_TP_NM,Y,120,Legacy Cancellation Compliance Source Type Name,Existing,TRANSACTIONS_OWNER.LGCY_CNCL_CMPLN_SRC_TP_DIM.LGCY_CNCL_CMPLN_SRC_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_cncl_cmpln_src_tp_dim ld ON ld.lgcy_cncl_cmpln_src_tp_id = t.lgcy_cncl_cmpln_src_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_MKT_TP_CD,Y,122,Legacy Market Type Code,Existing,TRANSACTIONS_OWNER.LGCY_MKT_TP_DIM.LGCY_MKT_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_mkt_tp_dim lmtd ON lmtd.lgcy_mkt_tp_id = t.lgcy_mkt_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_MKT_TP_DIM_ID,Y,123,Legacy Market Type Dimension Id,Existing,TRANSACTIONS_OWNER.LGCY_MKT_TP_DIM.LGCY_MKT_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_mkt_tp_dim lmtd ON lmtd.lgcy_mkt_tp_id = t.lgcy_mkt_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_MKT_TP_ID,Y,125,Legacy Market Type Id,Add,CCAL_REPL_OWNER.TXN.LGCY_MKT_TP_ID,,Y,Y,N,N,Y,Y,Y,
+LGCY_MKT_TP_NM,Y,124,Legacy Market Type Name,Existing,TRANSACTIONS_OWNER.LGCY_MKT_TP_DIM.LGCY_MKT_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_mkt_tp_dim lmtd ON lmtd.lgcy_mkt_tp_id = t.lgcy_mkt_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_TRD_CPCTY_TP_CD,Y,126,Legacy Trade Capacity Type Code,Existing,"TRANSACTIONS_OWNER
+CCAL_REPL_OWNER.LGCY_TRD_CPCTY_TP_DIM
+CL_VAL.LGCY_TRD_CPCTY_TP_CD
+CL_VAL_CODE","If t.src_stm_id <> 3 (not INSTBO1):
+ccal_repl_owner.txn t
+left join transactions_owner.lgcy_trd_cpcty_tp_dim ltctd ON t.lgcy_trd_cpcty_tp_id = ltctd.lgcy_trd_cpcty_tp_id
+
+If t.src_stm_id = 3 (INSTBO1):
+ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cl on cl.cl_val_id = t.lgcy_trd_cpcty_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_TRD_CPCTY_TP_DIM_ID,Y,127,Legacy Trade Capacity Type Dimension Id,Existing,TRANSACTIONS_OWNER.LGCY_TRD_CPCTY_TP_DIM.LGCY_TRD_CPCTY_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.lgcy_trd_cpcty_tp_dim ltctd ON t.lgcy_trd_cpcty_tp_id = ltctd.lgcy_trd_cpcty_tp_id",Y,Y,N,N,Y,Y,Y,
+LGCY_TRD_CPCTY_TP_ID,Y,129,Legacy Trade Capacity Type Id,Add,CCAL_REPL_OWNER.TXN.LGCY_TRD_CPCTY_TP_ID,,Y,Y,N,N,Y,Y,Y,
+LGCY_TRD_CPCTY_TP_NM,Y,128,Legacy Trade Capacity Type Name,Existing,"TRANSACTIONS_OWNER
+CCAL_REPL_OWNER.LGCY_TRD_CPCTY_TP_DIM
+CL_VAL.LGCY_TRD_CPCTY_TP_NM
+CL_VAL_NM","If t.src_stm_id <> 3 (not INSTBO1):
+ccal_repl_owner.txn t
+left join transactions_owner.lgcy_trd_cpcty_tp_dim ltctd ON t.lgcy_trd_cpcty_tp_id = ltctd.lgcy_trd_cpcty_tp_id
+
+If t.src_stm_id = 3 (INSTBO1):
+ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cl on cl.cl_val_id = t.lgcy_trd_cpcty_tp_id",Y,Y,N,N,Y,Y,Y,
+LINKED_BKR_AR_ID,N,,,,,,N,N,N,N,Y,Y,N,
+MF_AC_NUM,Y,45,MF Account Number,Add,CCSI_OWNER.AR_DIM.MF_DRC_EXT_AC_NUM,"ccal_repl_owner.txn t
+LEFT join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+MM_ALT_ID,Y,35,Money Movement Alternate Id,Add,CCAL_REPL_OWNER.TXN.ORIG_SRC_STM_CODE,"ccal_repl_owner.txn t
+where
+t.src_stm_id= '60' and t.ORIG_SRC_STM_CODE like 'MM%' and t.SRC_CRT_USRNM = 'BPMWRAPB';",Y,Y,N,N,Y,Y,Y,
+MODL_STRTG_DTL_AST_CLSS,Y,343,Model Strategy Detail Asset Class,Add - New attribute,cird_owner.imt_pd_dim.firm_modl_lvl_2,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+MODL_STRTG_DTL_AST_CLSS_CD,Y,344,Model Strategy Detail Asset Class Code,Add - New attribute,cird_owner.imt_pd_dim.firm_modl_lvl_2_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+MODL_STRTG_SMY_AST_CLSS,Y,345,Model Strategy Summary Asset Class,Add - New attribute,cird_owner.imt_pd_dim.firm_modl_lvl_1,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+MODL_STRTG_SMY_AST_CLSS_CD,Y,346,Model Strategy Summary Asset Class Code,Add - New attribute,cird_owner.imt_pd_dim.firm_modl_lvl_1_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+MRKUP_RATE,Y,228,Markup Rate,Add,CCAL_REPL_OWNER.APA.MRKUP_RATE,Use APASEC logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+NNA_CGY_ID,N,,,,,,N,N,Y,N,N,N,N,
+NNA_CGY_NM,N,,,,,,N,N,Y,N,N,N,N,
+NO_SIS_SCR_MVMT_TXN_PRC,Y,379,No SIS security movement Transaction Price,Add - New attribute,CCAL_REPL_OWNER.APA.SCR_PRC_IN_TXN_CCY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC93",Y,Y,N,N,Y,Y,Y,
+NO_SIS_SCR_MVMT_TXN_QTY,Y,378,No SIS security movement Transaction Quantity,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC93",Y,Y,N,N,Y,Y,Y,
+OFST_AR_DIM_ID,Y,217,Offset Arrangement Dim Id,Existing,CCSI_OWNER.AR_DIM.AR_DIM_ID,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+LEFT join ccsi_repl_owner.ar_dim ard ON ard.AR_ID = ap.OFST_AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td",Y,Y,Y,N,Y,Y,Y,
+OFST_AR_ID,Y,130,Offset Arrangement Id,Existing,CCAL_REPL_OWNER.APA.OFST_AR_ID,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+OFST_AR_ORIG_SRC_STM_CD,Y,47,Offset Arrangement Originating Source System Code,Add,CCSI_OWNER.AR_DIM.ORIG_SRC_STM_CD,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccsi_owner.ar_dim ad ON AP.OFST_AR_ID =  ad.AR_ID
+and t.td >= ad.EFF_DT
+and t.td < ad.END_DT",Y,Y,Y,N,Y,Y,Y,
+OFST_AR_SETL_TP_CD,Y,48,Offset Arrangement Settlement Type Code,Add,CCSI_OWNER.AR_DIM.SETL_TP_CD,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccsi_owner.ar_dim ad ON AP.OFST_AR_ID =  ad.AR_ID
+and t.td >= ad.EFF_DT
+and t.td < ad.END_DT",Y,Y,Y,N,Y,Y,Y,
+OFST_AR_SETL_TP_DSC,Y,49,Offset Arrangement Settlement Type Description,Add,CCSI_OWNER.AR_DIM.SETL_TP,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccsi_owner.ar_dim ad ON AP.OFST_AR_ID =  ad.AR_ID
+and t.td >= ad.EFF_DT
+and t.td < ad.END_DT",Y,Y,Y,N,Y,Y,Y,
+OFST_ORIG_SRC_STM_AR_ID,Y,46,Offset Originating Source System Arrangement Id,Add,CCSI_OWNER.AR_DIM.ORIG_SRC_STM_AR_ID,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccsi_owner.ar_dim ad ON AP.OFST_AR_ID =  ad.AR_ID
+and t.td >= ad.EFF_DT
+and t.td < ad.END_DT",Y,Y,Y,N,Y,Y,Y,
+OMS_EXEC_TP_CD,Y,132,Order Management System Executing Type Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.oms_exec_tp_id
+and cv.cl_scm_id = '96'",Y,Y,N,N,Y,Y,Y,
+OMS_EXEC_TP_DSC,Y,133,Order Management System Executing Type Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.oms_exec_tp_id
+and cv.cl_scm_id = '96'",Y,Y,N,N,Y,Y,Y,
+OMS_EXEC_TP_ID,Y,134,Order Management System Executing Type Id,Existing,CCAL_REPL_OWNER.TXN.OMS_EXEC_TP_ID,,Y,Y,N,N,Y,Y,Y,
+OMS_EXEC_TP_NM,Y,135,Order Management System Executing Type Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.oms_exec_tp_id
+and cv.cl_scm_id = '96'",Y,Y,N,N,Y,Y,Y,
+OMS_ORDR_KEY,Y,136,Order Management System Order Key,Existing,CCAL_REPL_OWNER.TXN.OMS_ORDR_KEY,,Y,Y,N,N,Y,Y,Y,
+OPT_CLSS_CD,Y,131,Option Class Code,Existing,CCAL_REPL_OWNER.TXN.OPTS_CLSS_CODE,,Y,Y,N,N,Y,Y,Y,
+ORIG_BKG_DT,Y,137,Original Booking Date,Existing,CCAL_REPL_OWNER.TXN.ORIG_BKG_DT,,Y,Y,N,N,Y,Y,Y,
+ORIG_SRC_STM_AR_ID,Y,52,Originating Source System Arrangement Id,Add,"CCSI_OWNER.AR_DIM
+AR_AC_SUBDIM.ORIG_SRC_STM_AR_ID
+AC_NUM","ccal_repl_owner.txn t
+join ccal_repl_owner.apa apa on apa.exec_id = t.txn_id
+ 
+WHEN txn.src_stm_id = 5 (RJBNK1) and apa.ac_id is not null (NOTE: APA on ESP activity is always APACSH defined on [ETL Notes] tab)
+THEN
+left join ccsi_owner.ar_ac_subdim aas ON 
+aas.ar_id = t.ar_id 
+AND aas.dep_ac_setup_id = apa.ac_id
+and aas.eff_dt <= t.td
+and aas.end_dt > t.td
+use aas.AC_NUM
+ELSE
+ccal_repl_owner.txn t
+left join ccsi_owner.ar_dim ard ON ard.AR_ID = t.AR_ID
+and ard.eff_dt <= t.td
+and ard.end_dt > t.td
+use ard.ORIG_SRC_STM_AR_ID",Y,Y,N,N,Y,Y,Y,
+ORIG_SRC_STM_CD,Y,215,Original Source System Code,Existing,CCAL_REPL_OWNER.TXN.ORIG_SRC_STM_CODE,,Y,Y,N,N,Y,Y,Y,
+ORIG_SRC_STM_ID,Y,214,Original Source System Id,Existing,CCAL_REPL_OWNER.TXN.ORIG_SRC_STM_ID,,Y,Y,N,N,Y,Y,Y,
+ORIG_TD,Y,139,Orignal Trade Date,Existing,CCAL_REPL_OWNER.TXN.ORIG_TD,,Y,Y,Y,N,Y,Y,Y,
+ORIG_TRD_NUM,Y,138,Original Trade Number,Existing,CCAL_REPL_OWNER.TXN.ORIG_TRD_NUM,,Y,Y,N,N,Y,Y,Y,
+OTHR_FEE_AMT,Y,236,Other Fee Amount,Add,"CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT
+OTHR_FEE","If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and FIP.FIP_TP_ID = 132 (FIPFEE02, Miscellaneous Fee(s))
+Then
+for TXN.SRC_STM_ID = 94 move STM_BASE_CCY_AMT
+for TXN.SRC_STM_ID = 25 move OTHR_FEE",Y,Y,Y,N,Y,Y,Y,
+OWN_FA_CRN_ADV_F,Y,290,Owner FA Current Advisor Flag,Add - New attribute,ssds_dal_owner.PERSON_BROKERAGE_SUBDIMENSION_V.CURRENT_ADVISOR_FLAG,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.PERSON_BROKERAGE_SUBDIMENSION_V brk_own_psn_brk_subdim on brk_own_psn_brk.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_CSS_PSN_ID,Y,289,Owner FA CSS Person Id,Add - New attribute,SSDS_DAL_OWNER.PERSON_RV.CSS_PERSON_ID,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.SSDS_DAL_OWNER.PERSON_RV brk_own_psn on brk_own_psn.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_DEPT_BR_CD,Y,291,Owner FA Department Branch Code,Add - New attribute,SSDS_DAL_OWNER.PERSON_RV.DEPARTMENT_BRANCH_CODE,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.SSDS_DAL_OWNER.PERSON_RV brk_own_psn on brk_own_psn.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_DSCR_F,Y,292,Owner FA Discretionary Flag,Add - New attribute,SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_INDICATOR,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date;
+JOIN SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V brk_own_resp_ams_disc on brk_own_resp_ams_disc.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_resp_ams_disc.effective_date
+AND t.td < brk_own_resp_ams_disc.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_DSCR_ST,Y,293,Owner FA Discretionary Status,Add - New attribute,SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_STATUS,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date;
+JOIN SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V brk_own_resp_ams_disc on brk_own_resp_ams_disc.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_resp_ams_disc.effective_date
+AND t.td < brk_own_resp_ams_disc.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_DSCR_ST_CD,Y,294,Owner FA Discretionary Status Code,Add - New attribute,SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V.DISCRETIONARY_STATUS_CODE,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date;
+JOIN SSDS_DAL_OWNER.PERSON_AMS_DISCRETIONARY_STATUS_V brk_own_resp_ams_disc on brk_own_resp_ams_disc.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_resp_ams_disc.effective_date
+AND t.td < brk_own_resp_ams_disc.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_BR_CD,Y,299,Owner FA Entity Branch Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_branch_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_BSN_OPN_DT,Y,330,Owner FA Entity Business Open Date,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_business_open_date,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_BSN_ST,Y,300,Owner FA Entity Business Status,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_business_status,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_CSS_ID,Y,333,Owner FA Entity CSS Id,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_css_id,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_DIV_CD,Y,301,Owner FA Entity Division Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_division_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_DIV_DSC,Y,302,Owner FA Entity Division Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_division_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_DIV_NODE,Y,303,Owner FA Entity Division Node,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_division_node,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_LOB_AB_F,Y,327,Owner FA Entity LOB Alex Brown Flag,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.lob_alex_brown_boolean,"case when own_fa_ent.lob_alex_brown_boolean =1 then 'y' else 'n' end as Owner_FA_entity_lob_alex_brown_flag,
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_LOB_AMS_F,Y,328,Owner FA Entity LOB AMS Flag,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.lob_ams_boolean,"case when own_fa_ent.lob_ams_boolean=1 then 'y' else 'n' end as Owner_FA_entity_lob_ams_flag,
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_LOB_BSN_MODL,Y,329,Owner FA Entity LOB Business Model,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.lob_business_model,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_LONG_CD,Y,331,Owner FA Entity Long Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_code_long,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_MAIN_BR_STE,Y,304,Owner FA Entity Main Branch State,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_main_branch_state,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_OSJ,Y,305,Owner FA Entity OSJ,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_osj,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RJAS_ID_F,Y,319,Owner FA Entity RJAS Id Flag,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_rjas_id_boolean,"case when own_fa_ent.entity_rjas_id_boolean=1 then 'y' else 'n' end                            as Owner_FA_entity_rjas_id_flag,
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RSK_HIER_BSN_UNIT_CD,Y,317,Owner FA Entity Risk Hierarchy Business Unit Code,Add - New attribute,SSDS_DAL_OWNER.ENTERPRISE_ENTITY_RISK_DIM.entity_risk_business_unit_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND brk_own_fa_ent.entity_recycled_boolean  = 0
+AND brk_own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RISK_DIMENSION_V own_risk_ent on own_fa_ent.entity_enterprise_id = own_risk_ent.entity_enterprise_id
+AND t.td >= own_risk_ent.effective_date
+AND t.td < own_risk_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RSK_HIER_BSN_UNIT_DSC,Y,318,Owner FA Entity Risk Hierarchy Business Unit Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RISK_DIM.entity_risk_business_unit_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND brk_own_fa_ent.entity_recycled_boolean  = 0
+AND brk_own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RISK_DIMENSION_V own_risk_ent on own_fa_ent.entity_enterprise_id = own_risk_ent.entity_enterprise_id
+AND t.td >= own_risk_ent.effective_date
+AND t.td < own_risk_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_BSN_MODL_CD,Y,306,Owner FA Entity Retail Hierarchy Business Model Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_business_model_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_BSN_MODL_DSC,Y,307,Owner FA Entity Retail Hierarchy Business Model Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_business_model_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_RPT_UNIT_CD,Y,310,Owner FA Entity Retail Hierarchy Reporting Unit Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_reporting_unit_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_RPT_UNIT_DSC,Y,311,Owner FA Entity Retail Hierarchy Reporting Unit Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_reporting_unit_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_TERR_CD,Y,315,Owner FA Entity Retail Hierarchy Territory Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_territory_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_HIER_TERR_DSC,Y,316,Owner FA Entity Retail Hierarchy Territory Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_territory_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_CPX_CD,Y,334,Owner FA Entity Retail Sales Complex Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_complex_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_DIV_CD,Y,312,Owner FA Entity Retail Sales Division Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_division_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_HIER_LOB_CD,Y,308,Owner FA Entity Retail Sales Hierarchy LOB Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_lob_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_HIER_LOB_DSC,Y,309,Owner FA Entity Retail Sales Hierarchy LOB Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_lob_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_HIER_RGON_CD,Y,313,Owner FA Entity Retail Sales Hierarchy Region Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_region_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_RTL_SALE_HIER_RGON_DSC,Y,314,Owner FA Entity Retail Sales Hierarchy Region Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V.entity_retail_sales_region_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0
+Join ssds_dal_owner.ENTERPRISE_ENTITY_RETAIL_DIMENSION_V own_rtl_ent on own_rtl_ent.entity_enterprise_id = own_fa_ent.entity_enterprise_id
+AND t.td >= own_rtl_ent.effective_date
+AND t.td < own_rtl_ent.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SBTP,Y,323,Owner FA Entity Subtype,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_subtype,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SBTP_CD,Y,324,Owner FA Entity Subtype Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_subtype_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SHRT_CD,Y,332,Owner FA Entity Short Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_code_short,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SUBDIV_CD,Y,320,Owner FA Entity Subdivision Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_subdivision_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SUBDIV_DSC,Y,321,Owner FA Entity Subdivision Description,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_subdivision_description,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_SUBS,Y,322,Owner FA Entity Subsidiary,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_subsidiary,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_TP,Y,325,Owner FA Entity Type,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_type,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_ENT_TP_CD,Y,326,Owner FA Entity Type Code,Add - New attribute,ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V.entity_type_code,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+Join ssds_dal_owner.ENTERPRISE_ENTITY_DIM_V own_fa_ent on own_fa_ent.entity_code_long = fa_number_v1.fa_number_entity_code
+AND t.td >= own_fa_ent.effective_date
+AND t.td < own_fa_ent.end_date
+AND own_fa_ent.entity_recycled_boolean  = 0
+AND own_fa_ent.entity_financial_ria_boolean  = 0",Y,Y,N,N,N,N,Y,
+OWN_FA_FINRA_CRD_CLSS_CD,Y,295,Owner FA FINRA CRD Class Code,Add - New attribute,SSDS_DAL_OWNER.PERSON_RV.FINRA_CRD_CLASS_CODE,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.SSDS_DAL_OWNER.PERSON_RV brk_own_psn on brk_own_psn.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_HR_ST_CD,Y,296,Owner FA HR Status Code,Add - New attribute,SSDS_DAL_OWNER.PERSON_RV.HR_STATUS_CODE,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.SSDS_DAL_OWNER.PERSON_RV brk_own_psn on brk_own_psn.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_NUM,Y,27,Owner FA Number,Add,CCSI_OWNER.AR_GRP_SUBDIM.FA_NUM,"select fa.FA_NUM from 
+ccal_repl_owner.txn t
+LEFT JOIN ccsi_owner.AR_GRP_SUBDIM fa ON t.AR_ID = fa.AR_ID
+and t.td >= fa.EFF_DT
+and t.td < fa.END_DT;",Y,Y,N,N,Y,Y,Y,
+OWN_FA_NUM_ENT_CD,Y,28,Owner FA Number Entity Code,Add,SSDS_DAL_OWNER.FA_NUMBER_V.FA_NUMBER_ENTITY_CODE,"Derive based on OWN_FA_NUM field.
+
+left join SSDS_DAL_OWNER.FA_NUMBER_V fn on fn.FA_NUMBER = OWN_FA_NUM
+and t.td >= fn.EFF_DT
+AND t.td < fn.END_DT",Y,Y,N,N,N,Y,Y,
+OWN_FA_NUM_ENT_ENTP_ID,Y,30,Owner FA Number Entity Enterprise Id,Add,SSDS_DAL_OWNER.ENTERPRISE_ENTITY_DIM_V.ENTITY_ENTERPRISE_ID,"Derive based on OWN_FA_NUM_ENT_CD field.
+
+LEFT JOIN SSDS_DAL_OWNER.ENTERPRISE_ENTITY_DIM_V e
+ON e.Entity_code_long = OWN_FA_NUM_ENT_CD
+AND t.td >= e.EFF_DT 
+AND t.td < e.END_DT
+AND e.ENTITY_RECYCLED_BOOLEAN='0'
+AND e.ENTITY_FINANCIAL_RIA_BOOLEAN = '0'",Y,Y,N,N,N,Y,Y,
+OWN_FA_NUM_TP,Y,370,Owner FA Number Type,Add - New attribute,SSDS_DAL_OWNER.CODE_SET_VALUE_V.CODE_VALUE_DESCRIPTION,"Fetch CODE_SET_VALUE_V.CODE_VALUE_DESCRIPTION As OWN_FA_NUM_TP
+ 
+LEFT Join with CCAL_REPL_OWNER.TXN TXN With CCSI_OWNER.AR_GRP_SUBDIM AR_GRP_SUBDIM ON TXN.AR_ID = AR_GRP_SUBDIM.AR_ID
+And TXN.TD >= AR_GRP_SUBDIM.EFF_DT
+And TXN.TD < AR_GRP_SUBDIM.END_DT
+Left Join SSDS_DAL_OWNER.FA_NUMBER_V FA_NUMBER_V ON AR_GRP_SUBDIM.FA_NUM = FA_NUMBER_V.FA_NUMBER
+And TXN.TD >= FA_NUMBER_V.EFFECTIVE_DATE
+And TXN.TD < FA_NUMBER_V.END_DATE
+Left Join SSDS_DAL_OWNER.CODE_SET_VALUE_V CODE_SET_VALUE_V ON CODE_SET_VALUE_V.CODE_VALUE_ID = FA_NUMBER_V.FA_NUMBER_TYPE_CODE_ID
+And TXN.TD >= CODE_SET_VALUE_V.EFFECTIVE_DATE
+And TXN.TD < CODE_SET_VALUE_V.END_DATE",Y,Y,N,N,Y,Y,Y,
+OWN_FA_NUM_TP_CD,Y,369,Owner FA Number Type Code,Add - New attribute,SSDS_DAL_OWNER.FA_NUMBER_V.FA_NUMBER_TYPE_CODE,"Fetch FA_NUMBER_V.FA_NUMBER_TYPE_CODE As OWN_FA_NUM_TP_CD
+
+LEFT Join with CCAL_REPL_OWNER.TXN TXN With CCSI_OWNER.AR_GRP_SUBDIM AR_GRP_SUBDIM ON TXN.AR_ID = AR_GRP_SUBDIM.AR_ID
+And TXN.TD >= AR_GRP_SUBDIM.EFF_DT
+And TXN.TD < AR_GRP_SUBDIM.END_DT
+Left Join SSDS_DAL_OWNER.FA_NUMBER_V FA_NUMBER_V ON AR_GRP_SUBDIM.FA_NUM = FA_NUMBER_V.FA_NUMBER
+And TXN.TD >= FA_NUMBER_V.EFFECTIVE_DATE
+And TXN.TD < FA_NUMBER_V.END_DATE",Y,Y,N,N,Y,Y,Y,
+OWN_FA_PRODUCER_F,Y,297,Owner FA Producer Flag,Add - New attribute,SSDS_DAL_OWNER.PERSON_RV.PRODUCER_FLAG,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.SSDS_DAL_OWNER.PERSON_RV brk_own_psn on brk_own_psn.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_FA_QUALF_ADV_F,Y,298,Owner FA Qualified Advisor Flag,Add - New attribute,ssds_dal_owner.PERSON_BROKERAGE_SUBDIMENSION_V.QUALIFIED_ADVISOR_FLAG,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.PERSON_BROKERAGE_SUBDIMENSION_V brk_own_psn_brk_subdim on brk_own_psn_brk.EMPLOYEE_ID = fa_number_v1.responsible_party_employee_id
+AND t.td >= brk_own_psn.effective_date
+AND t.td < brk_own_psn.end_date",Y,Y,N,N,N,N,Y,
+OWN_IMP_FA_NUM,Y,26,Owner IMPACT FA Number,Add,CCAL_REPL_OWNER.TXN.SALE_PSN_NUM,,Y,Y,N,N,Y,Y,Y,
+OWN_PRIM_FA_NUM,Y,288,Owner Primary FA Number,Add - New attribute,ssds_dal_owner.fa_number_v.fa_number,"fetch fa_number_v2.fa_number
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccsi_owner.ar_grp_subdim ar_grp_subdim ON ar_grp_subdim.ar_id = t.ar_id
+AND  t.td >= ar_grp_subdim.eff_dt
+AND  t.td < ar_grp_subdim.end_dt
+join ccsi_owner.ar_dim bkr_ar_dim on ar_grp_subdim.linked_bkr_ar_id = bkr_ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt
+JOIN ssds_dal_owner.fa_number_v fa_number_v1 ON UPPER(TRIM((bkr_ar_dim.own_bsn_ent_cd) = fa_number_v1.fa_number
+AND  t.td >= fa_number_v1.effective_date
+AND  t.td < fa_number_v1.end_date
+JOIN ssds_dal_owner.fa_number_v fa_number_v2 on fa_number_v2.responsible_party_employee_id = fa_number_v1.responsible_party_employee_id
+and fa_number_v2.fa_number_type_code in ('pri','PRI')
+AND  t.td >= fa_number_v2.effective_date
+AND  t.td < fa_number_v2.end_date",Y,Y,N,N,N,N,Y,
+PD_CMPOS_DSC,Y,347,Product Composite Description,Add - New attribute,CCAL_REPL_OWNER.APA.PD_CMPOS_DSC,"Use Product Information logic from ETL Notes Tab
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+ccal_repl_owner.apa ap
+join ccal_repl_owner.txn t ON  ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+PD_DIM_ID,N,,,,,,N,N,Y,N,N,N,N,
+PD_DSC,Y,349,Product Description,Add - New attribute,cird_owner.imt_pd_dim.pd_dsc,"Use Product Information logic from ETL Notes Tab
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+PD_SHRT_NM,Y,348,Product Short Name,Add - New attribute,cird_owner.imt_pd_dim.pd_nm,"Use Product Information logic from ETL Notes Tab
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+REIVS_PRC,Y,381,Reinvested Price,Add - New attribute,CCAL_REPL_OWNER.APA.SCR_PRC_IN_TXN_CCY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC94",Y,Y,N,N,Y,Y,Y,
+REIVS_SHR_QTY,Y,380,Reinvested Shares Quantity,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APASEC logic from 'ETL Notes' tab.
+Applicable only for APASEC94",Y,Y,N,N,Y,Y,Y,
+REL_TXN_ID,Y,196,Target Transaction Id,Update,CCAL_REPL_OWNER.TXN_RLTNP.TRGT_TXN_ID,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id
+and tr.actv_f = 'Y'",Y,Y,N,N,Y,Y,Y,
+REL_TXN_RLTNP_TP_CD,Y,144,Related Transaction Relationship Type Code,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id and tr.actv_f = 'Y'
+left join ccal_repl_owner.cl_val cv ON cl_val_id = tr.TXN_RLTNP_TP_ID
+and cv.cl_scm_id = '4'",Y,Y,N,N,Y,Y,Y,
+REL_TXN_RLTNP_TP_ID,Y,143,Related Transaction Relationship Type Id,Add,CCAL_REPL_OWNER.TXN_RLTNP.TXN_RLTNP_TP_ID,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id
+and tr.actv_f = 'Y'",Y,Y,N,N,Y,Y,Y,
+REL_TXN_RLTNP_TP_NM,Y,145,Related Transaction Relationship Type Name,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id and tr.actv_f = 'Y'
+left join ccal_repl_owner.cl_val cv ON cl_val_id = tr.TXN_RLTNP_TP_ID
+and cv.cl_scm_id = '4'",Y,Y,N,N,Y,Y,Y,
+REL_TXN_SRC_STM_CD,Y,142,Related Transaction Source System Code,Add,COMMON_OWNER.SRC_STM_DIM.SRC_STM_CD,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id
+and tr.actv_f = 'Y'
+left join ccal_repl_owner.txn t2 ON tr.trgt_txn_id = t2.txn_id
+left join ccal_repl_owner.src_stm_dim stm ON t2.src_stm_id = stm.src_stm_id",Y,Y,N,N,Y,Y,Y,
+REL_TXN_SRC_STM_DIM_ID,Y,140,Related Transaction Source System Dim Id,Existing,COMMON_OWNER.SRC_STM_DIM.SRC_STM_DIM_ID,"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id
+and tr.actv_f = 'Y'
+left join ccal_repl_owner.txn t2 ON tr.trgt_txn_id = t2.txn_id
+left join ccal_repl_owner.src_stm_dim stm ON t2.src_stm_id = stm.src_stm_id",Y,Y,N,N,Y,Y,Y,
+REL_TXN_SRC_STM_ID,Y,141,Related Transaction Source System Id,Add,CCAL_REPL_OWNER.TXN.SRC_STM_ID (from T2),"ccal_repl_owner.txn t
+left join ccal_repl_owner.txn_rltnp tr ON t.txn_id = tr.src_txn_id
+and tr.actv_f = 'Y'
+left join ccal_repl_owner.txn t2 ON tr.trgt_txn_id = t2.txn_id",Y,Y,N,N,Y,Y,Y,
+RJ_BSN_UNIT,Y,279,RJ Business Unit,Add - New attribute,CCSI_OWNER.ar_dim.rj_bsn_unit,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+RJ_BSN_UNIT_CD,Y,277,RJ Business Unit Code,Add - New attribute,CCSI_OWNER.ar_dim.rj_bsn_unit_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+RJ_TRUST_BOOK_VAL_AMT,Y,373,RJ Trust Book Value Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APACSH logic from 'ETL Notes' tab.
+Applicable only for APACSH84",Y,Y,N,N,Y,Y,Y,
+RJ_TRUST_RLZD_TAX_GAIN_OR_LOSS_AMT,Y,374,RJ Trust Realized Taxable Gain or Loss Amount,Add - New attribute,CCAL_REPL_OWNER.APA.ORIG_QTY,"Use APACSH logic from 'ETL Notes' tab.
+Applicable only for APACSH85",Y,Y,N,N,Y,Y,Y,
+ROWNM,N,,,,,,N,N,N,N,N,Y,Y,
+RPT_CL_LVL_1,Y,350,Reporting Classification Level 1,Add - New attribute,cird_owner.imt_pd_dim.rpt_cl_lvl_1,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+RPT_CL_LVL_2,Y,351,Reporting Classification Level 2,Add - New attribute,cird_owner.imt_pd_dim.rpt_cl_lvl_2,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+RPT_STRTG_DTL_AST_CLSS,Y,352,Reporting Strategy Detail Asset Class,Add - New attribute,cird_owner.imt_pd_dim.firm_rpt_lvl_2,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+RPT_STRTG_DTL_AST_CLSS_CD,Y,353,Reporting Strategy Detail Asset Class Code,Add - New attribute,cird_owner.imt_pd_dim.firm_rpt_lvl_2_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+RPT_STRTG_SMY_AST_CLSS,Y,354,Reporting Strategy Summary Asset Class,Add - New attribute,cird_owner.imt_pd_dim.firm_rpt_lvl_1,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+RPT_STRTG_SMY_AST_CLSS_CD,Y,355,Reporting Strategy Summary Asset Class Code,Add - New attribute,cird_owner.imt_pd_dim.firm_rpt_lvl_1_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+SALE_CHRG_RATE,N,,,,,,N,N,Y,N,N,N,N,
+SALE_CHRG_RATE_MULTI_NUM,Y,146,Sales Charge Rate Multiplier Number,Add,CCAL_REPL_OWNER.APA.SALE_CHRG_RATE,"Use APACSH logic from 'ETL Notes' tab.
+
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else exception entire transaction
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.cl_val cv ON AP.APA_TP_ID = cv.CL_VAL_ID AND
+CASE    WHEN AP.SALE_CHRG_RATE_TP_ID = 2507 
+            THEN AP.SALE_CHRG_RATE",Y,Y,N,N,Y,Y,Y,
+SALE_CHRG_RATE_PCT,Y,147,Sales Charge Rate,Update,CCAL_REPL_OWNER.APA.SALE_CHRG_RATE,"Use APACSH logic from 'ETL Notes' tab.
+
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else exception entire transaction
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.cl_val cv ON AP.APA_TP_ID = cv.CL_VAL_ID AND
+CASE   WHEN AP.SALE_CHRG_RATE_TP_ID = 2506 
+            THEN AP.SALE_CHRG_RATE",Y,Y,N,N,Y,Y,Y,
+SALE_CHRG_RATE_TP_CD,Y,148,Sales Charge Rate Type Code,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"Use APACSH logic from 'ETL Notes' tab and below logic:
+
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else exception entire transaction
+
+ccal_repl_owner.apa ap 
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = ap.sale_chrg_rate_tp_id
+and cv.cl_scm_id = '73'",Y,Y,Y,N,Y,Y,Y,
+SALE_CHRG_RATE_TP_ID,Y,149,Sales Charge Rate Type Id,Existing,CCAL_REPL_OWNER.APA.SALE_CHRG_RATE_TP_ID,"Use APACSH logic from 'ETL Notes' tab.
+
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else exception entire transaction",Y,Y,Y,N,Y,Y,Y,
+SALE_CHRG_RATE_TP_NM,Y,150,Sales Charge Rate Type Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"Use APACSH logic from 'ETL Notes' tab and below logic:
+
+For a Transaction, If 2 APACSH records exists
+     If (one record is 'APACSH04' & other is 'APACSH11') 
+          then skip 'APACSH04' record and load 'APACSH11' but use the values to
+          populate sales charge attributes from 'APACSH04' for 5 attributes (Sales Charge Rate Multiplier Number, Sales Charge Rate, Sales Charge Rate Type Code, Sales Charge Rate Type Id, Sales Charge Rate Type Name)
+     else exception entire transaction
+
+ccal_repl_owner.apa ap 
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = ap.sale_chrg_rate_tp_id
+and cv.cl_scm_id = '73'",Y,Y,Y,N,Y,Y,Y,
+SBC_AMT,N,,,,,,N,N,Y,N,N,N,N,
+SBC_CCY_CALC_DT,Y,192,System Base Currency Calculation Date,Existing,CCAL_REPL_OWNER.APA.STM_BASE_CCY_CLC_DTM,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+SBC_CCY_CD,Y,193,System Base Currency Code,Existing,CCAL_REPL_OWNER.APA.STM_BASE_ISO_CCY_CODE,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,N,N,Y,Y,Y,
+SBC_CCY_DIM_ID,Y,194,System Base Currency Dimension Id,Existing,CIRD_OWNER.CCY_DIM.CCY_DIM_ID,"ccal_repl_owner.apa ap
+left join cird_owner.ccy_dim cd ON ap.stm_base_iso_ccy_code = cd.ccy_cd",Y,Y,Y,N,Y,Y,Y,
+SBC_EXG_RATE,Y,195,System Base Currency Exchange Rate,Update,CCAL_REPL_OWNER.APA.STM_BASE_CCY_EXG_RATE,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+SCR_APA_TP_CD,Y,159,Security Asset Package Type Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SCR_APA_TP_DSC,Y,160,Security Asset Package Type Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SCR_APA_TP_NM,Y,162,Security Asset Package Type Name,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SCR_AVY_CGY,Y,151,Security Activity Category,Update,CCAL_REPL_OWNER.AVY_CL.AVY_CGY,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SCR_AVY_TP,Y,154,Security Activity Type,Existing,CCAL_REPL_OWNER.AVY_CL.AVY_TP,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SCR_NNA_CGY_ID,Y,245,Security Net New Asset Category ID,Add,CCAL_REPL_OWNER.TXN_AVY_CL.NNA_CGY_ID,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SCR_NNA_CGY_NM,Y,246,Security Net New Asset Category Name,Add,CCAL_REPL_OWNER.NNA_CGY.NNA_CGY_NM,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.net_new _ast_cgy nna ON nna.net_new_ast_cgy_id = tac.net_new_ast_cgy_id",Y,Y,N,N,Y,Y,Y,
+SCR_OPT_SYMB,Y,222,Security Option Symbol,Add,CCAL_REPL_OWNER.APA.OPT_SYMB,"Use APASEC and Product Information logic from 'ETL Notes' tab.
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC",Y,Y,Y,N,Y,Y,Y,
+SCR_SIMP_DSPL_AVY_CGY,Y,152,Security Simplified Display Activity Category,Add,CCAL_REPL_OWNER.AVY_CL.DSPL_AVY_CGY,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SCR_SIMP_DSPL_AVY_TP,Y,155,Security Simplified Display Activity Type,Add,CCAL_REPL_OWNER.AVY_CL.DSPL_AVY_TP,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SD,Y,176,Settlement Date,Existing,CCAL_REPL_OWNER.TXN.SD,,Y,Y,N,N,Y,Y,Y,
+SDIRA_TXN_TP,Y,256,SDIRA Transaction Type,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"For TXN.SRC_STM_ID = 60 (ACTDETTD), use TRADE_NUMBER.
+Parse to extract SDIRA Transaction Type.
+For example, from ""02726"" value it will be ""027"", while 26 stands for 2026 year. Lookup CL_VAL_CODE (does not exist today)",Y,Y,N,N,N,N,Y,
+SDIRA_TXN_TP_CD,Y,255,SDIRA Transaction Type Code,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"For TXN.SRC_STM_ID = 60 (ACTDETTD), use TRADE_NUMBER.
+Parse to extract SDIRA Transaction Type.
+For example, from ""02726"" value it will be ""027"", while 26 stands for 2026 year. Lookup CL_VAL_CODE (does not exist today)
+Suppress from Trade Date for ACTDETTD source",Y,Y,N,N,N,N,Y,
+SDIRA_TXN_YR,Y,257,SDIRA Transaction Year,Add - New attribute,CCAL_REPL_OWNER.TXN.TRD_NUM,"For TXN.SRC_STM_ID = 60 (ACTDETTD), use TRADE_NUMBER.
+Parse to extract SDIRA Transaction Year (last two digits) and add century part.
+For example, from ""02726"" value it will be ""027"" for SDIRA Transaction Type, while 26 stands for 2026 year.",Y,Y,N,N,Y,Y,Y,
+SD_DIM_ID,Y,177,Settlement Date Dimension Id,Existing,COMMON_OWNER.DATE_DIM.DT_DIM_ID,"ccal_repl_owner.txn t
+left join common_owner.dt_dim dd ON t.sd = dd.cal_dt",Y,Y,N,N,Y,Y,Y,
+SEC_ALT_DSC_TRAILER_2,Y,156,Security Alternate Description Trailer 2,Existing,CCAL_REPL_OWNER.APA.ALT_DSC,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_APA_EXT_QUALFR,Y,157,Security Asset Package External Qualifier,Update,CCAL_REPL_OWNER.APA.APA_EXT_QUALFR,"Use APASEC logic from 'ETL Notes' tab.
+
+Note: In SSDS_DAL_OWNER.ACTIVITY_FACT_V remove security_asset_package_external_qualifier field, because values on this field is always null, so there is no need to expose this field in view.",Y,Y,N,N,Y,Y,Y,
+SEC_APA_ID,Y,158,Security Asset Package Id,Existing,CCAL_REPL_OWNER.APA.APA_ID,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_APA_TP_ID,Y,161,Security Asset Package Type Id,Existing,CCAL_REPL_OWNER.APA.APA_TP_ID,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_AVY_CL_ID,Y,153,Security Activity Classification Id,Existing,CCAL_REPL_OWNER.AVY_CL.AVY_CL_ID,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.txn_avy_cl tac ON tac.txn_id = t.txn_id and tac.actv_f = 'Y' and ap.apa_id = tac.apa_id
+left join ccal_repl_owner.avy_cl acl ON acl.avy_cl_id = tac.avy_cl_id",Y,Y,N,N,Y,Y,Y,
+SEC_CIRD_PD_ID,Y,163,Security CIRD Product Id,Existing,CCAL_REPL_OWNER.ccal_cird_pd_map.CIRD_PD_ID,"Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+left join ccal_repl_owner.ccal_cird_pd_map ccpm on ccpm.ccal_pd_id = ap.pd_id
+and ccpm.actv_f = 'Y'",Y,Y,N,N,Y,Y,Y,
+SEC_DB_CR_CD,Y,164,Security Debit Credit Code,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.apa ap
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = ap.db_cr_id dci
+and cv.cl_scm_id = '15'",Y,Y,N,N,Y,Y,Y,
+SEC_DB_CR_NM,Y,165,Security Debit Credit Name,Update,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"Use APASEC logic from 'ETL Notes' tab and below logic:
+ccal_repl_owner.apa ap
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = ap.db_cr_id dci
+and cv.cl_scm_id = '15'",Y,Y,N,N,Y,Y,Y,
+SEC_DSC_TRAILER_1,Y,166,Security Description Trailer 1,Existing,CCAL_REPL_OWNER.APA.APA_DSC,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_FEE_AMT,Y,232,SEC Fee Amount,Add,CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT,"If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and FIP.FIP_TP_ID = 126 (FIPTAX03, SEC Fee)
+Then move STM_BASE_CCY_AMT",Y,Y,Y,N,Y,Y,Y,
+SEC_ORIG_QTY,Y,167,Security Original Quantity,Update,CCAL_REPL_OWNER.APA.ORIG_QTY,Use APASEC logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+SEC_PD_DIM_ID,Y,170,Security Investment Product Dim Id,Existing,CIRD_OWNER.IMT_PD_DIM.IMT_PD_DIM_ID,"Use APASEC logic from 'ETL Notes' tab and below logic.
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+LEFT join cird_owner.imt_pd_dim ipd ON ipd.CCAL_PD_ID = ap.PD_ID
+and ipd.eff_dt <= t.td
+and ipd.end_dt > t.td",Y,Y,N,N,Y,Y,Y,
+SEC_PD_ID,Y,169,Security Product Id,Existing,CCAL_REPL_OWNER.APA.PD_ID,"Use APASEC and Product Information logic from 'ETL Notes' tab.
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC",Y,Y,Y,N,Y,Y,Y,
+SEC_PRC_IN_TXN_CCY,Y,171,Security Price In Transaction Currency,Update,CCAL_REPL_OWNER.APA.SCR_PRC_IN_TXN_CCY,Use APASEC logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+SEC_SBC_AMT,Y,174,Security System Base Currency Amount,Update,CCAL_REPL_OWNER.APA.STM_BASE_CCY_AMT,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_SRC_CUSIP,Y,168,Security source CUSIP,Existing,CCAL_REPL_OWNER.APA.SRC_PD_ID,"Use APASEC and Product Information logic from 'ETL Notes' tab.
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC",Y,Y,Y,N,Y,Y,Y,
+SEC_SRC_PRC_IN_SBC,Y,172,Security Source Price In System Base Currency,Update,CCAL_REPL_OWNER.APA.SCR_PRC_IN_SBC,Use APASEC logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+SEC_SRC_SEQ_NUM,Y,173,Security Source Sequence Number,Update,CCAL_REPL_OWNER.APA.SRC_SEQ_NUM,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SEC_TXN_AMT,Y,175,Security Transaction Amount,Update,CCAL_REPL_OWNER.APA.TXN_AMT,Use APASEC logic from 'ETL Notes' tab.,Y,Y,N,N,Y,Y,Y,
+SESS_NO,Y,221,Session Number,Existing,SESS_NO.123456,123456,Y,Y,Y,Y,Y,Y,Y,
+SHDW_TXN_TP_CD,Y,13,SHADOW Transaction Type Code,Add,CCAL_REPL_OWNER.TXN.SRC_TXN_TP,,Y,Y,N,N,Y,Y,Y,
+SHDW_TXN_TP_NM,Y,14,SHADOW Transaction Type Name,Add,CCAL_REPL_OWNER.SHDW_TXN_TP.SRC_TXN_TP_NM,Look up using TXN.SRC_TXN_TP=SHDW_TXN_TP.SRC_TXN_TP,Y,Y,N,N,Y,Y,Y,
+SHRT_SALE_EXMPT_CD,Y,384,Short Sale Exempt Code,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_CODE,N,N,N,N,N,N,N,MAPPING_ONLY_NOT_IN_FINAL_XML
+SHRT_SALE_EXMPT_NM,Y,385,Short Sale Exempt Name,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"Use CL_VAL_ID =   , check in CL_VAL table where CL_SCM_ID = 115 and use CL_VAL_NM",N,N,N,N,N,N,N,MAPPING_ONLY_NOT_IN_FINAL_XML
+SHR_CLSS_TP,Y,358,Share Class Type,Add - New attribute,cird_owner.imt_pd_dim.shr_clss_tp_nm,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+SHR_CLSS_TP_CD,Y,357,Share Class Type Code,Add - New attribute,cird_owner.imt_pd_dim.shr_clss_tp_cd,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+JOIN ccal_repl_owner.ccal_cird_pd_map ccal_cird_pd_map on ON ap.pd_id = ccal_cird_pd_map.ccal_pd_id
+ND ccal_cird_pd_map.actv_f = 'Y'
+JOIN cird_owner.imt_pd_dim  imt_pd_dim1 on ap.pd_id = imt_pd_dim1.cird_pd_id (-- cird_pd-based dimension (only used when src_stm_id = 93))
+AND t.td >= imt_pd_dim1.eff_dt
+AND t.td < imt_pd_dim1.end_dt
+JOIN cird_owner.imt_pd_dim  imt_pd_dim ON  ap.pd_id = imt_pd_dim.ccal_pd_id (ccal_pd-based dimension)
+AND t.td >= imt_pd_dim.eff_dt
+AND t.td < imt_pd_dim.end_dt
+JOIN cird_owner.imt_pd_dim imt_pd_dim_cird ON ccal_cird_pd_map.cird_pd_id = imt_pd_dim_cird.cird_pd_id (Dimension via mapped cird_pd)
+AND t.td >= imt_pd_dim_cird.eff_dt
+AND t.td < imt_pd_dim_cird.end_dt;",Y,Y,Y,N,Y,Y,Y,
+SIS_AC_CL_CD,Y,20,SIS Account Classification Code,Add,CCAL_REPL_OWNER.TXN.SRC_PRIM_CL,,Y,Y,N,N,Y,Y,Y,
+SIS_DLTD_EV_CD,Y,251,SIS Detailed Events Code,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.cl_val cv
+left join ccal_repl_owner.cl_val cv ON
+cv.cl_val_id = t.SRC_BUY_SELL_MULTI_ID
+and cv.CL_SCM_ID = '99' (this is excessive; using cl_val_id no need to use CL_SCM. Added for consistency with existing Name attribute)",Y,Y,N,N,N,N,Y,
+SIS_DLTD_EV_ID,Y,17,SIS Detailed Events Id,Add,CCAL_REPL_OWNER.TXN.SRC_BUY_SELL_MULTI_ID,,Y,Y,N,N,Y,Y,Y,
+SIS_DLTD_EV_NM,Y,18,SIS Detailed Events Name,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.cl_val cv
+left join ccal_repl_owner.cl_val cv ON
+cv.cl_val_id = t.SRC_BUY_SELL_MULTI_ID
+and
+cv.CL_SCM_ID = '99'",Y,Y,N,N,Y,Y,Y,
+SIS_USR_ID,Y,19,SIS User Id,Add,CCAL_REPL_OWNER.TXN.USR_ID,,Y,Y,N,N,Y,Y,Y,
+SRC_BUY_SELL_MULTI_ID,N,,,,,,N,N,Y,N,Y,Y,N,
+SRC_CNCL_RSN_CD,Y,22,Source Cancellation Reason Code,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON 
+cl_val.cl_val_id = t.SRC_CNCL_RSN_ID
+cs.cl_scm_id = '102'",Y,Y,N,N,Y,Y,Y,
+SRC_CNCL_RSN_ID,Y,21,Source Cancellation Reason Id,Add,CCAL_REPL_OWNER.TXN.SRC_CNCL_RSN_ID,,Y,Y,N,N,Y,Y,Y,
+SRC_CNCL_RSN_NM,Y,23,Source Cancellation Reason Name,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON 
+cl_val.cl_val_id = t.SRC_CNCL_RSN_ID
+cs.cl_scm_id = '102'",Y,Y,N,N,Y,Y,Y,
+SRC_CNCL_X_RVSN_CD,Y,39,Source Cancel / Revision Code,Add,CCAL_REPL_OWNER.TXN.SRC_CXL_REV,,Y,Y,N,N,Y,Y,Y,
+SRC_CRT_USRNM,Y,178,Source Create User Name,Existing,CCAL_REPL_OWNER.TXN.SRC_CRT_USRNM,,Y,Y,Y,N,Y,Y,Y,
+SRC_EFF_DT,Y,179,Source Effective Date,Existing,CCAL_REPL_OWNER.APA.SRC_EFF_DT,"Use 'Source effective Date' logic from ETL Notes.
+
+If there is only iAPASEC or only iAPACSH, grab source effective date from the iAPASEC/iAPACSH
+If there is atleast 1 APASEC or APACSH, grab source effective date from that APASEC/APACSH
+
+ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id",Y,Y,Y,N,Y,Y,Y,
+SRC_ENTR_CNL_TP_CD,Y,180,Source Entry Channel Type Code,Existing,TRANSACTIONS_OWNER.SRC_ENTR_CNL_TP_DIM.SRC_ENTR_CNL_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.SRC_ENTR_CNL_TP_DIM sectd ON t.src_entr_cnl_tp_id = sectd.src_entr_cnl_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_ENTR_CNL_TP_DIM_ID,Y,181,Source Entry Channel Type Dimension Id,Existing,TRANSACTIONS_OWNER.SRC_ENTR_CNL_TP_DIM.SRC_ENTR_CNL_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.SRC_ENTR_CNL_TP_DIM sectd ON t.src_entr_cnl_tp_id = sectd.src_entr_cnl_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_ENTR_CNL_TP_ID,Y,183,Source Entry Channel Type Id,Add,CCAL_REPL_OWNER.TXN.SRC_ENTR_CNL_TP_ID,,Y,Y,N,N,Y,Y,Y,
+SRC_ENTR_CNL_TP_NM,Y,182,Source Entry Channel Type Name,Existing,TRANSACTIONS_OWNER.SRC_ENTR_CNL_TP_DIM.SRC_ENTR_CNL_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.SRC_ENTR_CNL_TP_DIM sectd ON t.src_entr_cnl_tp_id = sectd.src_entr_cnl_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_ENTR_DTM,Y,184,Source Entry Datetime,Existing,CCAL_REPL_OWNER.TXN.SRC_ENTR_DTM,,Y,Y,Y,N,Y,Y,Y,
+SRC_OPT_CLSS_CD,Y,40,Source Option Class Code,Add,CCAL_REPL_OWNER.TXN.SRC_OPT_CLS,,Y,Y,N,N,Y,Y,Y,
+SRC_PCS_TP_CD,Y,187,Source Processing Type Code,Existing,TRANSACTIONS_OWNER.SRC_PCS_TP_DIM.SRC_PCS_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.src_pcs_tp_dim sptd ON t.src_pcs_tp_id = sptd.src_pcs_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_PCS_TP_DIM_ID,Y,185,Source Processing Type Dimension Id,Existing,TRANSACTIONS_OWNER.SRC_PCS_TP_DIM.SRC_PCS_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.src_pcs_tp_dim sptd ON t.src_pcs_tp_id = sptd.src_pcs_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_PCS_TP_ID,Y,186,Source Processing Type Id,Add,CCAL_REPL_OWNER.TXN.SRC_PCS_TP_ID,"ccal_repl_owner.txn t
+left join transactions_owner.src_pcs_tp_dim sptd ON t.src_pcs_tp_id = sptd.src_pcs_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_PCS_TP_NM,Y,188,Source Processing Type Name,Existing,TRANSACTIONS_OWNER.SRC_PCS_TP_DIM.SRC_PCS_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.src_pcs_tp_dim sptd ON t.src_pcs_tp_id = sptd.src_pcs_tp_id",Y,Y,N,N,Y,Y,Y,
+SRC_SEQ_NUM,N,,,,,,N,N,Y,N,N,N,N,
+SRC_STM_CD,Y,189,Source System Code,Existing,COMMON_OWNER.SRC_STM_DIM.SRC_STM_CD,"ccal_repl_owner.txn t
+left join common_owner.src_stm_dim ssd ON ssd.src_stm_id = t.src_stm_id",Y,Y,N,N,Y,Y,Y,
+SRC_STM_ID,Y,37,Source System Id,Add,CCAL_REPL_OWNER.TXN.SRC_STM_ID,,Y,Y,Y,N,Y,Y,Y,
+SRC_STM_NM,Y,38,Source System Name,Add,COMMON_OWNER.SRC_STM_DIM.SRC_STM_NM,"ccal_repl_owner.txn t
+left JOIN common_owner.src_stm_dim ss
+on t.src_stm_id = ss.src_stm_id",Y,Y,N,N,Y,Y,Y,
+SRC_TXN_CODE,Y,191,Source Transaction Code,Existing,CCAL_REPL_OWNER.TXN.SRC_TXN_CODE,.,Y,Y,N,N,Y,Y,Y,
+SRC_TXN_SEQ_NUM,Y,24,Source Transaction Sequence Number,Add,CCAL_REPL_OWNER.TXN.SRC_TXN_SEQ_NUM,,Y,Y,N,N,Y,Y,Y,
+STD_CMSN_AMT,Y,229,Standard Commission Amount,Add,CCAL_REPL_OWNER.APA.STD_CMSN_AMT,Use APACSH logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+STEP_IN_OUT_IND_CD,Y,382,Step In Out Indicator Code,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_CODE,N,N,N,N,N,N,N,MAPPING_ONLY_NOT_IN_FINAL_XML
+STEP_IN_OUT_IND_NM,Y,383,Step In Out Indicator Name,Add - New attribute,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,Use CL_VAL_ID =   check in CL_VAL table where CL_SCM_ID = 114 and use CL_VAL_NM,N,N,N,N,N,N,N,MAPPING_ONLY_NOT_IN_FINAL_XML
+STM_BASE_ISO_CCY_CODE,N,,,,,,N,N,Y,N,N,N,N,
+SYMB,Y,238,Symbol,,CCAL_REPL_OWNER.APA.SYMB,"Use APASEC and Product Information logic from 'ETL Notes' tab.
+Product Information: (Security source CUSIP, Security Product Id, Security CIRD Product Id, Security Option Symbol, Symbol, ISIN, Product Composite Description, Product Short Name, Product Description)
+If there is atleast 1 APASEC, consider above fields from that APASEC
+If there is an iAPASEC but no APASEC, consider above fields from iAPASEC",Y,Y,Y,N,Y,Y,Y,
+TAX_AC_F,Y,274,Taxable Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.tax_ac_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+TAX_RPT_CLNT_ID,Y,272,Tax Reporting Client Id,Add - New attribute,CCSI_OWNER.ar_dim.tax_rpt_party_id,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+TD,Y,197,Trade Date,Update,CCAL_REPL_OWNER.TXN.TD,,Y,Y,Y,N,Y,Y,Y,
+TD_DIM_ID,Y,53,Trade Date Dimension Id,Existing,COMMON_OWNER.DATE_DIM.DT_DIM_ID,"ccal_repl_owner.txn t
+LEFT join common_owner.date_dim dd ON t.td = dd.cal_dt",Y,Y,N,N,Y,Y,Y,
+TM_PRC_DISCRETION_F,Y,242,Time Price Discretion Flag,Add,CCAL_REPL_OWNER.TXN,,Y,Y,N,N,Y,Y,Y,
+TRD_CNCLD_F,Y,237,Trade Cancelled Flag,Add,"TRD_CNCLD_F.TRD_CNCLD_F.If there is a record in CCAL_REPL_OWNER.TXN_RLTNP table with TXN.TXN_ID = TXN_RLTNP.TRGT_TXN_ID
+and TXN_RLTNP_TP_ID = 69 (Cancel)
+and TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID
+then set to 'Y' for both TRGT_TXN_ID and SRC_TXN_ID.
+
+The check should be performed each time when a new record is written into CCAL_REPL_OWNER.TXN_RLTNP with TXN_RLTNP_TP_ID = 69 and update the flag for both TRGT_TXN_ID and SRC_TXN_ID, if TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID.
+
+Note: TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID is needed because it is possible that cancellation trade points to itself when the original trade that is being cancelled is not found. In this case Cancelled Flag should not be set to 'Y'","If there is a record in CCAL_REPL_OWNER.TXN_RLTNP table with TXN.TXN_ID = TXN_RLTNP.TRGT_TXN_ID
+and TXN_RLTNP_TP_ID = 69 (Cancel)
+and TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID
+then set to 'Y' for both TRGT_TXN_ID and SRC_TXN_ID.
+
+The check should be performed each time when a new record is written into CCAL_REPL_OWNER.TXN_RLTNP with TXN_RLTNP_TP_ID = 69 and update the flag for both TRGT_TXN_ID and SRC_TXN_ID, if TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID.
+
+Note: TXN_RLTNP.TRGT_TXN_ID <> TXN_RLTNP.SRC_TXN_ID is needed because it is possible that cancellation trade points to itself when the original trade that is being cancelled is not found. In this case Cancelled Flag should not be set to 'Y'",Y,Y,N,N,Y,Y,Y,
+TRD_FCTR_RATE,Y,227,Trade Factor Rate,Add,CCAL_REPL_OWNER.APA.TRD_FCTR_RATE,Use APASEC logic from 'ETL Notes' tab.,Y,Y,Y,N,Y,Y,Y,
+TRD_NUM,Y,198,Trade Number,Existing,CCAL_REPL_OWNER.TXN.TRD_NUM,,Y,Y,N,N,Y,Y,Y,
+TRD_PCS_FEE_AMT,Y,231,Trade Processing Fee Amount,Add,CCAL_REPL_OWNER.FIP.STM_BASE_CCY_AMT,"If TXN.SRC_STM_ID in (25, 94) --STSR or STSR2
+and FIP.FIP_TP_ID = 125 (FIPFEE01, Processing (handling) Fee)
+Then move STM_BASE_CCY_AMT",Y,Y,Y,N,Y,Y,Y,
+TRD_SLCT_TP_CD,Y,201,Trade Solicitation Type Code,Existing,TRANSACTIONS_OWNER.TRD_SLCT_TP_DIM.TRD_SLCT_TP_CD,"ccal_repl_owner.txn t
+left join transactions_owner.trd_slct_tp_dim tstd ON t.trd_slct_tp_id = tstd.trd_slct_tp_id",Y,Y,N,N,Y,Y,Y,
+TRD_SLCT_TP_DIM_ID,Y,199,Trade Solicitation Type Dimension Id,Existing,TRANSACTIONS_OWNER.TRD_SLCT_TP_DIM.TRD_SLCT_TP_DIM_ID,"ccal_repl_owner.txn t
+left join transactions_owner.trd_slct_tp_dim tstd ON t.trd_slct_tp_id = tstd.trd_slct_tp_id",Y,Y,N,N,Y,Y,Y,
+TRD_SLCT_TP_ID,Y,200,Trade Solicitation Type Id,Add,CCAL_REPL_OWNER.TXN.TRD_SLCT_TP_ID,,Y,Y,N,N,Y,Y,Y,
+TRD_SLCT_TP_NM,Y,202,Trade Solicitation Type Name,Existing,TRANSACTIONS_OWNER.TRD_SLCT_TP_DIM.TRD_SLCT_TP_NM,"ccal_repl_owner.txn t
+left join transactions_owner.trd_slct_tp_dim tstd ON t.trd_slct_tp_id = tstd.trd_slct_tp_id",Y,Y,N,N,Y,Y,Y,
+TST_AC_F,Y,270,Test Account Flag,Add - New attribute,CCSI_OWNER.ar_dim.tst_ar_f,"JOIN ccal_repl_owner.txn t with ccal_repl_owner.Apa ap on ap.exec_id = t.txn_id
+join ccsi_owner.ar_dim ar_dim on t.ar_id = ar_dim.ar_id
+AND  t.td >= ar_dim.eff_dt
+AND  t.td < ar_dim.end_dt",Y,Y,N,N,Y,Y,Y,
+TXN_AMT,N,,,,,,N,N,Y,N,N,N,N,
+TXN_CCY,Y,258,Transaction Currency,Add - New attribute,Reference_Repl_Owner.CCY.CCY_NM,"ccal_repl_owner.txn t
+join ccal_repl_owner.apa ap ON ap.exec_id = t.txn_id
+join REFERENCE_repl_OWNER.CCY txn on apa.txn_iso_ccy_code = txn.CCY_CODE",Y,Y,N,N,Y,Y,Y,
+TXN_CL_F,Y,203,Transaction Classification Flag,Existing,CCAL_REPL_OWNER.TXN.TXN_CL_F,,Y,Y,N,N,Y,Y,Y,
+TXN_ID,Y,204,Transaction Id,Existing,CCAL_REPL_OWNER.TXN.TXN_ID,,Y,N,Y,Y,Y,Y,Y,INSERT_ONLY_NOT_UPDATED
+TXN_ISO_CCY_CODE,N,,,,,,N,N,Y,N,N,N,N,
+TXN_RCNCL_REPL_CNT,Y,41,Transaction Reconciliation Replay Count,Add,CCAL_REPL_OWNER.TXN.TXN_REPL_CNT,,Y,Y,N,N,Y,Y,Y,
+TXN_RCNCL_ST_CD,Y,43,Transaction Reconciliation Status Code,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_st_id
+and cv.CL_SCM_ID = 12",Y,Y,N,N,Y,Y,Y,
+TXN_RCNCL_ST_ID,Y,42,Transaction Reconciliation Status Id,Add,CCAL_REPL_OWNER.TXN.TXN_ST_ID,,Y,Y,N,N,Y,Y,Y,
+TXN_RCNCL_ST_NM,Y,44,Transaction Reconciliation Status Name,Add,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_st_id
+and cv.CL_SCM_ID = 12",Y,Y,N,N,Y,Y,Y,
+TXN_SBTP_ID,Y,208,Transaction Subtype Id,Existing,CCAL_REPL_OWNER.TXN.TXN_SBTP_ID,,Y,Y,N,N,Y,Y,Y,
+TXN_SRC_KEY,Y,205,Transaction Source Key,Existing,CCAL_REPL_OWNER.TXN.TXN_SRC_KEY,,Y,Y,N,N,Y,Y,Y,
+TXN_SRC_STM_DIM_ID,Y,190,Transaction Source System Dimension Id,Existing,COMMON_OWNER.SRC_STM_DIM.SRC_STM_DIM_ID,"ccal_repl_owner.txn t
+left join common_owner.src_stm_dim ssd ON ssd.src_stm_id = t.src_stm_id",Y,Y,N,N,Y,Y,Y,
+TXN_SRC_TAX_CD,Y,240,Transaction Source Tax Code,Add,CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP.SRC_TAX_CODE,"Left join to CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP LKP table on TXN.SRC_TAX_CODE_ID = LKP.SRC_TAX_CODE_ID
+and LKP.ACTV_F = 'Y'",Y,Y,N,N,Y,Y,Y,
+TXN_SRC_TAX_CD_DSC,Y,241,Transaction Source Tax Code Description,Add,CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP.SRC_TAX_CODE_DSC,"Left join to CCAL_REPL_OWNER.TXN_SRC_TAX_CODE_LKUP LKP table on TXN.SRC_TAX_CODE_ID = LKP.SRC_TAX_CODE_ID
+and LKP.ACTV_F = 'Y'",Y,Y,N,N,Y,Y,Y,
+TXN_SUB_TP_CD,Y,206,Transaction Subtype Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_sbtp_id
+and cv.cl_scm_id = '3'",Y,Y,N,N,Y,Y,Y,
+TXN_SUB_TP_DSC,Y,207,Transaction Subtype Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_sbtp_id
+and cv.cl_scm_id = '3'",Y,Y,N,N,Y,Y,Y,
+TXN_SUB_TP_NM,Y,209,Transaction Subtype Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_sbtp_id
+and cv.cl_scm_id = '3'",Y,Y,N,N,Y,Y,Y,
+TXN_TP_CD,Y,210,Transaction Type Code,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_CODE,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_tp_id
+and cv.cl_scm_id = '2'",Y,Y,N,N,Y,Y,Y,
+TXN_TP_DSC,Y,211,Transaction Type Description,Existing,CCAL_REPL_OWNER.CL_VAL.DSC,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_tp_id
+and cv.cl_scm_id = '2'",Y,Y,N,N,Y,Y,Y,
+TXN_TP_ID,Y,212,Transaction Type Id,Existing,CCAL_REPL_OWNER.TXN.TXN_TP_ID,,Y,Y,N,N,Y,Y,Y,
+TXN_TP_NM,Y,213,Transaction Type Name,Existing,CCAL_REPL_OWNER.CL_VAL.CL_VAL_NM,"ccal_repl_owner.txn t
+left join ccal_repl_owner.cl_val cv ON cv.cl_val_id = t.txn_tp_id
+and cv.cl_scm_id = '2'",Y,Y,N,N,Y,Y,Y,
+YLD,Y,247,Yield,Add,CCAL_REPL_OWNER.APA.YIELD,value to be picked from APASEC,Y,Y,Y,N,Y,Y,Y,
+YTW,Y,248,Yield To Worst,Add,CCAL_REPL_OWNER.APA.YIELD_TO_WORST,value to be picked from APASEC,Y,Y,Y,N,Y,Y,Y,
+YTW_CD,Y,249,Yield To Worst Code,Add,CCAL_REPL_OWNER.APA.YIELD_TO_WORST_CD,value to be picked from APASEC,Y,Y,Y,N,Y,Y,Y,

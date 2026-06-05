@@ -2396,6 +2396,8 @@ def compare_summary(xlsx_path, xml_path, *, profile: str = "generic") -> dict:
         "in_both": counts.get("IN_BOTH", 0),
         "mapping_only": counts.get("MAPPING_ONLY", 0),
         "xml_only": counts.get("XML_ONLY", 0),
+        "drd_only_columns": [r["target_column"] for r in column_diff_rows if r["status"] == "MAPPING_ONLY"],
+        "odi_only_columns": [r["target_column"] for r in column_diff_rows if r["status"] == "XML_ONLY"],
         "detection": detection.as_human(),
     }
 
