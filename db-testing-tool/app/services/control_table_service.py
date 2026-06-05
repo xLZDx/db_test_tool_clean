@@ -261,6 +261,13 @@ def analyze_control_table(
             etl_block_index = build_block_index(parse_all_sheets(file_bytes))
     except Exception:
         etl_block_index = None
+    # R5 step 4: load the per-datasource FK map as a READ-ONLY join-resolution
+    # fallback for lookup give-up sites. Best-effort: missing/empty map -> no-op.
+    try:
+        from app.services.fk_map_service import load_fk_map as _load_fk_map
+        _fk_map = _load_fk_map(source_datasource_id)
+    except Exception:
+        _fk_map = None
     analysis_rows = build_analysis_rows(
         rows=rows,
         baseline_tests=baseline_tests,
@@ -269,6 +276,7 @@ def analyze_control_table(
         target_definition=target_def,
         source_schema_index=source_index,
         etl_block_index=etl_block_index,
+        fk_map=_fk_map,
     )
     # Operator-locked (2026-05-29 Phase 7.4, reverts Phase 7.3 Issue 1):
     # DDL comes from PDM / real DB ONLY.  We do NOT silently default
@@ -738,6 +746,7 @@ def build_analysis_rows(
     target_definition: Dict[str, Any],
     source_schema_index: Dict[Tuple[str, str], Dict[str, Any]],
     etl_block_index: Optional[Any] = None,
+    fk_map: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     baseline_by_target = {
         (t.get("target_field") or "").upper(): t
@@ -830,6 +839,7 @@ def build_analysis_rows(
                 target_col=col_name,
                 source_schema_index=source_schema_index,
                 source_block=expr_info.get("source_block") or fallback_source_block(row),
+                fk_map=fk_map,
             )
             _plain_ref_forms = {normalize_sql_expr(f"S.{source_attr}")}
             if _src_table_for_check:
@@ -3966,6 +3976,52 @@ def _derive_dim_natural_key_join(
     )
 
 
+def _fk_map_lookup_fallback(
+    fk_map: Optional[Dict[str, Any]],
+    lookup_table: str,
+    join_col: str,
+    src_table: str,
+    source_entry: Optional[Dict[str, Any]],
+) -> str:
+    """R5 step 4: when a lookup's source-side key is unresolved, consult the FK map
+    (PDM foreign keys) for the source column that references this lookup table.
+
+    Returns the validated source column name, or "" to keep the give-up (ON 1=0).
+    Conservative + READ-ONLY: resolves ONLY when exactly one NON-conflicted FK edge
+    matches (source table -> this lookup; ref_col == join_col when known) AND the
+    source column exists in the source table's PDM (M2). Never writes the map and
+    never alters a join that already resolved. Generic; no hardcoded names."""
+    if not fk_map or not lookup_table:
+        return ""
+    try:
+        from app.services.fk_map_service import resolve_by_ref
+    except Exception:
+        return ""
+    lk_bare = lookup_table.split(".")[-1].upper()
+    src_bare = (src_table or "").split(".")[-1].upper()
+    jc = (join_col or "").upper()
+    matches: List[Dict[str, Any]] = []
+    for cand in resolve_by_ref(fk_map, lk_bare):
+        if cand.get("conflict"):
+            continue
+        base_bare = (cand.get("base_fq") or "").split(".")[-1].upper()
+        if src_bare and base_bare != src_bare:
+            continue
+        if jc and (cand.get("ref_col") or "").upper() != jc:
+            continue
+        matches.append(cand)
+    if len(matches) != 1:
+        return ""
+    fk_col = (matches[0].get("fk_col") or "").upper()
+    if not fk_col:
+        return ""
+    if source_entry is not None:
+        src_cols = set((source_entry.get("columns") or {}).keys())
+        if src_cols and fk_col not in src_cols:
+            return ""
+    return fk_col
+
+
 def derive_lookup_from_transformation(
     *,
     row: Dict[str, Any],
@@ -3973,6 +4029,7 @@ def derive_lookup_from_transformation(
     target_col: str,
     source_schema_index: Dict[Tuple[str, str], Dict[str, Any]],
     source_block: str = "",
+    fk_map: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, str]:
     transformation = (row.get("transformation") or "").strip()
     src_schema = (row.get("source_schema") or "").strip()
@@ -4087,14 +4144,28 @@ def derive_lookup_from_transformation(
         source_expr = src_lookup_literal if re.fullmatch(r"-?\d+(?:\.\d+)?", src_lookup_literal) else f"'{src_lookup_literal}'"
         on_sql = f"LK.{join_col} = {source_expr}"
     elif not src_lookup_col:
-        # If we cannot resolve a valid source lookup key, keep the join non-matching but executable.
-        logger.warning(
-            "derive_lookup_from_transformation: src_lookup_col unresolved for lookup_table=%s join_col=%s "
-            "— ON clause set to 1=0; all joined columns will be NULL",
-            lookup_table,
-            join_col,
-        )
-        on_sql = "1 = 0 /* WARNING: lookup key unresolved — joined cols will be NULL */"
+        # R5 step 4 (READ-ONLY FK-map fallback): before giving up, ask the FK map
+        # which source column references this lookup table. Fires ONLY on this
+        # give-up path -- a join that already resolved is never altered, so the
+        # grade cannot regress. None/empty map -> no-op -> ON 1=0 as before.
+        _fb_col = _fk_map_lookup_fallback(fk_map, lookup_table, join_col, src_table, source_entry)
+        if _fb_col:
+            src_lookup_col = _fb_col
+            _src_ref = f"{_effective_src}.{src_lookup_col}"
+            on_sql = f"NVL(TO_CHAR(LK.{join_col}), '{NVL_NULL_SENTINEL}') = NVL(TO_CHAR({_src_ref}), '{NVL_NULL_SENTINEL}')"
+            logger.info(
+                "derive_lookup_from_transformation: FK-map resolved source key %s for lookup_table=%s join_col=%s",
+                _fb_col, lookup_table, join_col,
+            )
+        else:
+            # If we cannot resolve a valid source lookup key, keep the join non-matching but executable.
+            logger.warning(
+                "derive_lookup_from_transformation: src_lookup_col unresolved for lookup_table=%s join_col=%s "
+                "— ON clause set to 1=0; all joined columns will be NULL",
+                lookup_table,
+                join_col,
+            )
+            on_sql = "1 = 0 /* WARNING: lookup key unresolved — joined cols will be NULL */"
     else:
         _src_ref = f"{_effective_src}.{src_lookup_col}"
         on_sql = f"NVL(TO_CHAR(LK.{join_col}), '{NVL_NULL_SENTINEL}') = NVL(TO_CHAR({_src_ref}), '{NVL_NULL_SENTINEL}')"
