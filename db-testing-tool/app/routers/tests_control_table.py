@@ -873,6 +873,11 @@ async def compare_control_table_documents(
 
     return {
         "documents": [{"name": d["name"], "mapping_count": len(d["mappings"])} for d in docs],
+        # F4 (operator 2026-06-05): expose the already-computed per-doc per-target
+        # projection so the Step-3 generator grid can surface the ODI column
+        # (DRD / Generated / Manual / ODI) by reusing this comparison -- no new
+        # extraction, generator untouched.  Keyed by doc name -> {target -> [exprs]}.
+        "docs_by_target": {d["name"]: (d.get("by_target") or {}) for d in docs},
         "pairwise": pairwise,
         "multi_compare": {
             "common_target_count": len(all_targets),

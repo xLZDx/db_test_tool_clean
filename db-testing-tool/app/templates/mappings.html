@@ -5313,6 +5313,7 @@ function exportControlTableComparisonCsv() {
             'DRD Expression',
             'Generated Expression',
             'Manual Expression',
+            'ODI Expression',
             'Rule Expression',
             'Recommended Source',
             'Training Rule ID',
@@ -5326,6 +5327,7 @@ function exportControlTableComparisonCsv() {
                 row.drd_expression || '',
                 row.generated_expression || '',
                 row.manual_expression || '',
+                (() => { const _m=(window._ctDocOdiByTarget||{}); const _v=_m[(row.column||'').toUpperCase()]; return Array.isArray(_v)?_v.join('; '):(_v||''); })(),
                 row.rule_expression || '',
                 row.recommended_source || '',
                 row.training_rule_id || '',
@@ -5913,6 +5915,7 @@ function _renderControlTableComparison(comparison) {
                         <th>DRD</th>
                         <th>Generated</th>
                         <th>Manual</th>
+                        <th>ODI</th>
                         <th>Apply</th>
                         <th>Training</th>
                     </tr>
@@ -5951,6 +5954,7 @@ function _renderControlTableComparison(comparison) {
                                     </div>
                                 </td>
                                 <td><div style="max-width:240px;white-space:pre-wrap;font-family:monospace;font-size:11px">${fmtExpr(row.manual_expression)}</div></td>
+                                <td><div style="max-width:240px;white-space:pre-wrap;font-family:monospace;font-size:11px">${(() => { const _m=(window._ctDocOdiByTarget||{}); const _v=_m[(row.column||'').toUpperCase()]; const _s=Array.isArray(_v)?_v.join('; '):(_v||''); return _s ? fmtExpr(_s) : '<span style="color:var(--text-muted)">&mdash; (run ODI compare)</span>'; })()}</div></td>
                                 <td>
                                     <select class="form-control ct-compare-choice" data-column="${escapeHtml(row.column)}" style="min-width:130px" onchange="onCtCompareChoiceChange(this,'${escapeHtml(row.column)}')">
                                         ${hasRule ? `<option value="rule" ${selectedChoice === 'rule' ? 'selected' : ''}>Rule</option>` : ''}
@@ -7113,6 +7117,20 @@ async function runControlTableDocCompare() {
             odi_file_2: odi2,
             manual_sql: manualSql,
         });
+
+        // F4 (operator 2026-06-05): reuse the per-doc per-target projection this
+        // compare already computed to populate the Step-3 grid's ODI column
+        // (DRD / Generated / Manual / ODI).  Prefer ODI XML 1, fall back to 2.
+        // Display-only; the generator + grade are untouched.
+        const _dbt = res.docs_by_target || {};
+        const _odiMap = _dbt['ODI XML 1'] || _dbt['ODI XML 2'] || {};
+        window._ctDocOdiByTarget = {};
+        for (const _k in _odiMap) { window._ctDocOdiByTarget[(_k || '').toUpperCase()] = _odiMap[_k]; }
+        try {
+            if (typeof _ctState !== 'undefined' && _ctState.analysis && _ctState.analysis.comparison) {
+                _renderControlTableComparison(_ctState.analysis.comparison);
+            }
+        } catch (_e) {}
 
         const docs = Array.isArray(res.documents) ? res.documents : [];
         const pairwise = Array.isArray(res.pairwise) ? res.pairwise : [];
