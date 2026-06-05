@@ -275,3 +275,89 @@ def test_close_fx_placeholder_still_resolves_to_its_currency_source():
     flat = re.sub(r"\s+", "", (res.get("generated_insert_sql") or "").upper())
     assert "NML_ISO_CCY_CODE='USD'" in flat, \
         "CLOSE FX CASE lost its currency source col (regression)"
+
+
+# ---------------------------------------------------------------------------
+# Shared DRD-prose interpreters: the comparison BASELINE (drd_expression) must
+# honor the SAME rules the emitter does, so a correctly-generated CASE/literal
+# does NOT show as a false GENERATED_MISMATCH against a raw-source-column
+# baseline.  (operator 2026-06-05: "посмотри ZERO_COST_BSS_F ... используй этот
+# модуль сравнения для сгенерированных инсертов")
+# ---------------------------------------------------------------------------
+
+
+def _comparison_row(res, col: str):
+    for r in (res.get("comparison", {}) or {}).get("rows", []) or []:
+        if (r.get("column") or "").upper() == col.upper():
+            return r
+    return None
+
+
+def test_module_level_prose_interpreters_are_importable_and_pure():
+    """The interpreters are module-level (shared by emitter + baseline), pure,
+    and generic: flag/constant prose -> SQL, but lookup/conditional prose is NOT
+    collapsed to a literal."""
+    from app.services.control_table_service import (
+        _extract_if_then_else_case,
+        _extract_constant_rule_expr,
+        _extract_default_expr,
+    )
+    # flag conditional -> CASE on the row's real source column
+    assert _extract_if_then_else_case(
+        "if ZERO_BSS_IND is 01 then set to Y else N", "ZERO_BSS_IND_F", "S"
+    ) == "CASE WHEN S.ZERO_BSS_IND_F = '01' THEN 'Y' ELSE 'N' END"
+    # constant rule -> resolved literal
+    assert _extract_constant_rule_expr("Use value- Closed") == "'Closed'"
+    assert _extract_constant_rule_expr("populate as 6") == "6"
+    assert _extract_constant_rule_expr("Always NULL") == "NULL"
+    # GUARD: a lookup-phrased rule needs a real join -> NOT collapsed to a literal
+    assert _extract_constant_rule_expr("Use SRC_RCRD_TP_ID in CL_VAL and get code") is None
+    assert _extract_constant_rule_expr("look up CL_VAL_NM") is None
+    # GUARD: a conditional is NOT a pure constant
+    assert _extract_constant_rule_expr("if X is 01 then set to Y else N") is None
+    # DEFAULT clause prose
+    assert _extract_default_expr("AUDIT COLUMN. DEFAULT SYSDATE") == "SYSDATE"
+    assert _extract_default_expr("plain source column") is None
+
+
+@pytestmark_drd
+def test_close_baseline_flag_conditional_matches_generated():
+    """ZERO_COST_BSS_F: DRD prose "if ZERO_BSS_IND is 01 then set to Y else N".
+    The drd_expression BASELINE must now be the CASE (not the raw source column)
+    so it MATCHES the (correct) generated CASE instead of a false mismatch."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(), filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+    )
+    row = _comparison_row(res, "ZERO_COST_BSS_F")
+    assert row is not None, "ZERO_COST_BSS_F missing from comparison"
+    drd_u = re.sub(r"\s+", " ", (row.get("drd_expression") or "").upper())
+    assert "CASE WHEN" in drd_u and "ZERO_BSS_IND_F = '01'" in drd_u, \
+        f"baseline did not interpret the flag prose into a CASE: {drd_u!r}"
+    assert row.get("status") == "match_all", \
+        f"expected match_all (baseline CASE == generated CASE), got {row.get('status')!r}"
+    assert row.get("is_real_difference") is False
+
+
+@pytestmark_drd
+def test_close_baseline_constant_rule_matches_generated():
+    """POS_CLS_TP: DRD prose "Use value- Closed".  The drd_expression baseline
+    must be the resolved literal 'Closed' (not the raw OPN_CLS column) so it
+    MATCHES the generated 'Closed' -- reconcile must NOT revert the literal."""
+    from app.services.control_table_service import analyze_control_table
+
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(), filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+    )
+    row = _comparison_row(res, "POS_CLS_TP")
+    assert row is not None, "POS_CLS_TP missing from comparison"
+    assert (row.get("drd_expression") or "").strip().upper() == "'CLOSED'", \
+        f"baseline did not resolve the constant rule: {row.get('drd_expression')!r}"
+    assert row.get("status") == "match_all", \
+        f"expected match_all (baseline 'Closed' == generated 'Closed'), got {row.get('status')!r}"
+    assert row.get("is_real_difference") is False

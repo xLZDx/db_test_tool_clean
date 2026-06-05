@@ -545,6 +545,117 @@ def _load_table_def_from_live_db(datasource_id: int, schema: str, table: str) ->
         return None
 
 
+# ---------------------------------------------------------------------------
+# Shared DRD-prose interpreters (operator 2026-06-05).
+#
+# These turn DRD free-text rules into SQL and are the SINGLE source of truth
+# used by BOTH the control-INSERT emitter (build_control_insert_sql) AND the
+# comparison baseline (build_analysis_rows -> drd_expression).  Keeping them in
+# one place means the "DRD" column of the Step-3 grid reflects the SAME
+# interpretation the generator emits; otherwise a correctly-generated
+# CASE/literal shows as a false GENERATED_MISMATCH against a raw-source-column
+# baseline.  Pure functions: they depend only on their arguments + the
+# module-level regexes/sets below.  Generic -- no hardcoded table/column names.
+_DEFAULT_PROSE_RE = re.compile(
+    r"\bDEFAULT\s+(SYSDATE|SYSTIMESTAMP|USER|CURRENT_DATE|CURRENT_TIMESTAMP|NULL|-?\d+(?:\.\d+)?|'[^']*')",
+    flags=re.IGNORECASE,
+)
+
+
+def _extract_default_expr(text: str) -> Optional[str]:
+    """Extract a SQL literal from prose of the shape "...DEFAULT <expr>..."
+    where <expr> is SYSDATE / USER / NULL / numeric / quoted string.  Returns
+    None when no DEFAULT clause is present.  Generic; not column/table bound."""
+    if not text:
+        return None
+    m = _DEFAULT_PROSE_RE.search(text)
+    if not m:
+        return None
+    val = m.group(1).strip()
+    # Normalize bare keyword forms to upper-case canonical SQL.
+    if val.upper() in {
+        "SYSDATE", "SYSTIMESTAMP", "USER",
+        "CURRENT_DATE", "CURRENT_TIMESTAMP", "NULL",
+    }:
+        return val.upper()
+    return val
+
+
+_CONST_VAL = r"('[^']*'|-?\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9_]*)"
+_CONST_RULE_RES = [
+    re.compile(
+        r"\b(?:populate\s+(?:as|with)|use\s+value|set\s+to|constant"
+        r"|hard\s*-?cod\w*\s+(?:as\s+|to\s+)?)\s*[-:]?\s*" + _CONST_VAL,
+        re.IGNORECASE,
+    ),
+    re.compile(r"\balways\s+(NULL|'[^']*'|-?\d+(?:\.\d+)?)", re.IGNORECASE),
+]
+_CONST_RULE_SKIP = ("get code", "get name", "and get", "look up", "lookup")
+_CONST_KW_STOP = {
+    "JOIN", "FROM", "SELECT", "WHERE", "AND", "OR", "ON", "USE", "AS",
+    "TABLE", "LOOKUP", "THE", "VALUE", "COLUMN", "FIELD",
+}
+
+
+def _emittable_constant(val: str) -> Optional[str]:
+    """Coerce a captured constant token into an emittable SQL literal: a keyword
+    (NULL/SYSDATE/...) is upper-cased; a number is kept as-is; a quoted string is
+    re-quoted (an empty source value yields the 2-char literal ``''``, which is
+    TRUTHY); a bare SQL stop-word yields None.  Returns None when there is
+    nothing safely emittable.  (operator 2026-06-05)"""
+    v = (val or "").strip()
+    if not v:
+        return None
+    if v.upper() in {"NULL", "SYSDATE", "SYSTIMESTAMP", "USER",
+                     "CURRENT_DATE", "CURRENT_TIMESTAMP"}:
+        return v.upper()
+    if re.match(r"^-?\d+(?:\.\d+)?$", v):
+        return v
+    if len(v) >= 2 and v[0] in "'\"" and v[-1] == v[0]:
+        return "'" + v[1:-1].replace("'", "''") + "'"
+    if v.upper() in _CONST_KW_STOP:
+        return None
+    return "'" + v.replace("'", "''") + "'"
+
+
+def _extract_constant_rule_expr(text: str) -> Optional[str]:
+    """DRD constant rule -> resolved literal.  "Always NULL" / "populate as 6" /
+    "Use value- Closed" -> NULL / 6 / 'Closed'.  Lookup phrasings ("... and get
+    code/name", "look up") are excluded (they need a real join), and a
+    conditional ("if X is 01 then Y else N") is NOT a pure constant -- deferred
+    to _extract_if_then_else_case so it is never collapsed to a single literal."""
+    if not text:
+        return None
+    if any(m in text.lower() for m in _CONST_RULE_SKIP):
+        return None
+    if re.search(r"\b(IF|THEN|ELSE|WHEN|CASE|END)\b", text, re.IGNORECASE):
+        return None
+    for rx in _CONST_RULE_RES:
+        m = rx.search(text)
+        if m:
+            return _emittable_constant(m.group(1))
+    return None
+
+
+def _extract_if_then_else_case(trans: str, src_attr: str, src_ref: str) -> Optional[str]:
+    """A simple flag rule "if ZERO_BSS_IND is 01 then set to Y else N" becomes
+    CASE WHEN <src>.<src_attr> = '01' THEN 'Y' ELSE 'N' END, using the row's real
+    source column (the prose name may be abbreviated).  (operator 2026-06-04)"""
+    sa = (src_attr or "").strip()
+    if not sa:
+        return None
+    m = re.search(
+        r"\bif\b\s+[A-Za-z0-9_]+\s+(?:is|=|==)\s+'?([A-Za-z0-9_]+)'?\s+then\s+"
+        r"(?:set\s+to\s+)?'?([A-Za-z0-9_]+)'?\s+else\s+'?([A-Za-z0-9_]+)'?",
+        trans or "", re.IGNORECASE,
+    )
+    if not m:
+        return None
+    _val, _then, _else = m.group(1), m.group(2), m.group(3)
+    col = f"{src_ref}.{sa}" if src_ref else sa
+    return f"CASE WHEN {col} = '{_val}' THEN '{_then}' ELSE '{_else}' END"
+
+
 def build_analysis_rows(
     *,
     rows: List[Dict[str, Any]],
@@ -697,6 +808,30 @@ def build_analysis_rows(
         drd_expr = reconcile_drd_expr_with_source_attr(
             drd_expr, _src_tbl_bare_drd, source_attr, source_attr_in_pdm=_sa_in_pdm,
         )
+
+        # Shared DRD-prose rules (operator 2026-06-05): a DEFAULT clause, a
+        # constant rule ("Use value- Closed" / "populate as 6" / "Always NULL"),
+        # or a flag conditional ("if X is 01 then set to Y else N") is the
+        # AUTHORITATIVE DRD intent.  Apply the SAME interpreters the INSERT
+        # emitter uses (same priority order) so the comparison baseline reflects
+        # the generated SQL instead of the raw source column -- otherwise a
+        # correct generated CASE/literal shows as a false GENERATED_MISMATCH.
+        # Runs LAST so reconcile_drd_expr_with_source_attr cannot revert a
+        # resolved literal back to <source_table>.<source_attribute>.
+        _trans_for_prose = row.get("transformation") or ""
+        # Same priority order + `is not None` discipline as the emitter (lines
+        # ~1700) so a resolved empty-string literal '' is never dropped by
+        # truthiness.  First non-None interpreter wins.
+        for _cand in (
+            _extract_default_expr(source_attr),
+            _extract_default_expr(_trans_for_prose),
+            _extract_constant_rule_expr(_trans_for_prose),
+            _extract_constant_rule_expr(source_attr),
+            _extract_if_then_else_case(_trans_for_prose, source_attr, _src_tbl_bare_drd),
+        ):
+            if _cand is not None:
+                drd_expr = _cand
+                break
 
         analysis.append(
             {
@@ -1449,82 +1584,9 @@ def build_control_insert_sql(
             return False
         return any(kw in t for kw in _PROSE_LEAK_KEYWORDS)
 
-    # Phase 7.19.6 (2026-06-01): extract a SQL literal from prose
-    # of the shape "...DEFAULT <expr>..." where <expr> is SYSDATE,
-    # USER, NULL, a numeric literal, or a quoted string. Returns
-    # None when no DEFAULT clause is present. Generic; not bound to
-    # any specific column or table.
-    _DEFAULT_PROSE_RE = re.compile(
-        r"\bDEFAULT\s+(SYSDATE|SYSTIMESTAMP|USER|CURRENT_DATE|CURRENT_TIMESTAMP|NULL|-?\d+(?:\.\d+)?|'[^']*')",
-        flags=re.IGNORECASE,
-    )
-    def _extract_default_expr(text: str) -> Optional[str]:
-        if not text:
-            return None
-        m = _DEFAULT_PROSE_RE.search(text)
-        if not m:
-            return None
-        val = m.group(1).strip()
-        # Normalize bare keyword forms to upper-case canonical SQL.
-        if val.upper() in {
-            "SYSDATE", "SYSTIMESTAMP", "USER",
-            "CURRENT_DATE", "CURRENT_TIMESTAMP", "NULL",
-        }:
-            return val.upper()
-        return val
-
-    # DRD constant-rule honoring (operator 2026-06-04): the INSERT-build path
-    # must honor the same constant rules the ODI<->DRD comparison does -- a row
-    # whose `transformation` says "Always NULL" / "populate as 6" / "Use value-
-    # Closed" must emit that resolved constant (matching ODI), NOT the raw
-    # drd_expression lookup the generator otherwise builds.  Lookup phrasings
-    # ("... and get code/name", "look up") are excluded (they need a real join).
-    _CONST_VAL = r"('[^']*'|-?\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9_]*)"
-    _CONST_RULE_RES = [
-        re.compile(
-            r"\b(?:populate\s+(?:as|with)|use\s+value|set\s+to|constant"
-            r"|hard\s*-?cod\w*\s+(?:as\s+|to\s+)?)\s*[-:]?\s*" + _CONST_VAL,
-            re.IGNORECASE,
-        ),
-        re.compile(r"\balways\s+(NULL|'[^']*'|-?\d+(?:\.\d+)?)", re.IGNORECASE),
-    ]
-    _CONST_RULE_SKIP = ("get code", "get name", "and get", "look up", "lookup")
-    _CONST_KW_STOP = {
-        "JOIN", "FROM", "SELECT", "WHERE", "AND", "OR", "ON", "USE", "AS",
-        "TABLE", "LOOKUP", "THE", "VALUE", "COLUMN", "FIELD",
-    }
-
-    def _emittable_constant(val: str) -> Optional[str]:
-        v = (val or "").strip()
-        if not v:
-            return None
-        if v.upper() in {"NULL", "SYSDATE", "SYSTIMESTAMP", "USER",
-                         "CURRENT_DATE", "CURRENT_TIMESTAMP"}:
-            return v.upper()
-        if re.match(r"^-?\d+(?:\.\d+)?$", v):
-            return v
-        if len(v) >= 2 and v[0] in "'\"" and v[-1] == v[0]:
-            return "'" + v[1:-1].replace("'", "''") + "'"
-        if v.upper() in _CONST_KW_STOP:
-            return None
-        return "'" + v.replace("'", "''") + "'"
-
-    def _extract_constant_rule_expr(text: str) -> Optional[str]:
-        if not text:
-            return None
-        if any(m in text.lower() for m in _CONST_RULE_SKIP):
-            return None
-        # A conditional rule ("if X is 01 then set to Y else N", CASE/WHEN) is
-        # NOT a pure constant -- never collapse it to a single literal.  (operator
-        # 2026-06-04: ZERO_COST_BSS_F = "if ZERO_BSS_IND is 01 then set to Y else
-        # N" must NOT become 'Y'.)  Defer to the conditional/expression path.
-        if re.search(r"\b(IF|THEN|ELSE|WHEN|CASE|END)\b", text, re.IGNORECASE):
-            return None
-        for rx in _CONST_RULE_RES:
-            m = rx.search(text)
-            if m:
-                return _emittable_constant(m.group(1))
-        return None
+    # DEFAULT-clause + constant-rule interpreters are module-level shared helpers
+    # (_extract_default_expr / _extract_constant_rule_expr) so the comparison
+    # baseline honors the SAME rules as this emitter.  (operator 2026-06-05)
 
     # Target-only column remap (operator 2026-06-04): a transformation/CASE may
     # reference a TARGET column name (e.g. EXG_RATE) that does NOT exist in the
@@ -1578,24 +1640,8 @@ def build_control_insert_sql(
             return ph
         return ""
 
-    def _extract_if_then_else_case(trans: str, src_attr: str, src_ref: str) -> Optional[str]:
-        """A simple flag rule "if ZERO_BSS_IND is 01 then set to Y else N" becomes
-        CASE WHEN <src>.<src_attr> = '01' THEN 'Y' ELSE 'N' END, using the row's
-        real source column (the prose name may be abbreviated).  (operator
-        2026-06-04)"""
-        sa = (src_attr or "").strip()
-        if not sa:
-            return None
-        m = re.search(
-            r"\bif\b\s+[A-Za-z0-9_]+\s+(?:is|=|==)\s+'?([A-Za-z0-9_]+)'?\s+then\s+"
-            r"(?:set\s+to\s+)?'?([A-Za-z0-9_]+)'?\s+else\s+'?([A-Za-z0-9_]+)'?",
-            trans or "", re.IGNORECASE,
-        )
-        if not m:
-            return None
-        _val, _then, _else = m.group(1), m.group(2), m.group(3)
-        col = f"{src_ref}.{sa}" if src_ref else sa
-        return f"CASE WHEN {col} = '{_val}' THEN '{_then}' ELSE '{_else}' END"
+    # _extract_if_then_else_case is a module-level shared helper (see above) so
+    # the comparison baseline emits the SAME flag CASE.  (operator 2026-06-05)
 
     select_lines = []
     insert_cols = []
