@@ -6108,7 +6108,7 @@ function _renderControlTableValidation(result) {
         const cols = weakJoinRows.map(r => r.column).slice(0, 30).join(', ');
         blocks.push(`<div style="margin-top:8px"><strong>Join definitions needing review (${weakJoinRows.length}):</strong><br>${escapeHtml(cols)}${weakJoinRows.length > 30 ? ' ...' : ''}</div>`);
     }
-    if (!blocks.length && !(result?.join_alias_issues?.length)) {
+    if (!blocks.length && !(result?.join_alias_issues?.length) && !(result?.drd_underspecified?.length)) {
         panel.innerHTML = '<span style="color:var(--success)">No missing KB/PDM metadata or weak lookup joins detected.</span>';
         return;
     }
@@ -6117,6 +6117,16 @@ function _renderControlTableValidation(result) {
     if (joinAliasIssues.length) {
         const issueList = joinAliasIssues.map(i => `${i.alias}.${i.column}`).join(', ');
         blocks.push(`<div style="margin-top:8px;padding:6px;border:1px solid var(--danger);border-radius:4px;background:rgba(239,68,68,.08)"><strong style="color:var(--danger)">&#9888; Undefined aliases in SELECT (${joinAliasIssues.length}) — missing JOINs:</strong><br>${escapeHtml(issueList)}<br><span style="font-size:11px;color:var(--text-muted)">These references will cause ORA-00904. Use the Coach to add the missing JOINs or apply corrections.</span></div>`);
+    }
+    // R5 step 3: DRD_UNDERSPECIFIED bucket -- joins the generator could not build
+    // from the DRD (emitted as ON 1=0). Its own bucket, not MATCH/MISMATCH.
+    const drdUnderspec = result?.drd_underspecified || [];
+    if (drdUnderspec.length) {
+        const items = drdUnderspec.slice(0, 30).map(u => {
+            const al = (u.aliases && u.aliases.length) ? (' [' + u.aliases.join(',') + ']') : '';
+            return (u.kind || 'join_unresolved') + al;
+        }).join('; ');
+        blocks.push(`<div style="margin-top:8px;padding:6px;border:1px solid var(--warning);border-radius:4px;background:rgba(245,158,11,.08)"><strong style="color:var(--warning)">DRD_UNDERSPECIFIED (${drdUnderspec.length}) -- joins the DRD did not specify enough to build (set to ON 1=0; dependent columns are NULL):</strong><br>${escapeHtml(items)}${drdUnderspec.length > 30 ? ' ...' : ''}<br><span style="font-size:11px;color:var(--text-muted)">A genuine DRD gap surfaced, not a silent NULL. The FK-map fallback resolves these where it can.</span></div>`);
     }
     panel.innerHTML = blocks.join('');
 }

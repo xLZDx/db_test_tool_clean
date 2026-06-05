@@ -35,6 +35,7 @@ from app.services.control_table_service import (
     load_target_table_definition,
     normalize_insert_source_target_aliases,
     validate_insert_join_aliases,
+    scan_underspecified_joins,
     _enforce_not_null_in_insert_sql,
 )
 from app.routers.tests_utils import (
@@ -745,6 +746,7 @@ async def analyze_control_table_from_drd(
     result["state_restored"] = state_restored
     result["state_file_name"] = restored_state.file_name if restored_state else ""
     result["join_alias_issues"] = validate_insert_join_aliases(result.get("generated_insert_sql", ""))
+    result["drd_underspecified"] = scan_underspecified_joins(result.get("generated_insert_sql", ""))
     return result
 
 

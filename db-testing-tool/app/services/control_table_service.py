@@ -3457,6 +3457,55 @@ def validate_insert_join_aliases(sql_text: str) -> List[Dict[str, str]]:
     return issues
 
 
+# R5 step 3 (2026-06-06): DRD_UNDERSPECIFIED is a first-class verdict for a join
+# the generator could NOT resolve from the DRD. The give-up sites already emit a
+# LEFT JOIN with ``ON 1 = 0 /* ... */`` (so the statement still compiles and the
+# dependent columns are honestly NULL), but until now that gap was only an
+# invisible SQL comment (finding B3). The scanner below surfaces every such join
+# as a structured record so the Step-3 grid shows it as its own bucket -- NOT a
+# MATCH and NOT a silent NULL. The FK-map fallback (step 4) plugs in BEFORE this
+# give-up, so a join the map resolves drops out of this bucket automatically.
+DRD_UNDERSPECIFIED = "DRD_UNDERSPECIFIED"
+
+_UNDERSPEC_RE = re.compile(r"1\s*=\s*0\s*/\*\s*(?P<body>.*?)\*/", re.IGNORECASE | re.DOTALL)
+_UNDEF_ALIAS_RE = re.compile(r"undefined\s+alias\(es\)\s*([A-Z0-9_$#.,\s]+)", re.IGNORECASE)
+
+
+def scan_underspecified_joins(insert_sql: str) -> List[Dict[str, Any]]:
+    """Read-only scan of an already-emitted INSERT...SELECT for joins the generator
+    neutralized to ``ON 1 = 0`` (the DRD did not specify enough to build them).
+
+    Returns one record per neutralized join:
+    ``{verdict: DRD_UNDERSPECIFIED, kind, aliases, detail}`` where ``kind`` is one
+    of ``undefined_alias`` / ``lookup_key_unresolved`` / ``self_join_key_unresolved``
+    / ``join_unresolved``. Does NOT modify the SQL or the generation logic, so the
+    grade harness is unaffected. Generic; no hardcoded table/column names."""
+    out: List[Dict[str, Any]] = []
+    if not insert_sql:
+        return out
+    for m in _UNDERSPEC_RE.finditer(insert_sql):
+        body = re.sub(r"\s+", " ", m.group("body")).strip()
+        low = body.lower()
+        kind = "join_unresolved"
+        aliases: List[str] = []
+        if "undefined alias" in low:
+            kind = "undefined_alias"
+            am = _UNDEF_ALIAS_RE.search(body)
+            if am:
+                aliases = [a.strip().upper() for a in re.split(r"[,\s]+", am.group(1)) if a.strip()]
+        elif "lookup key unresolved" in low:
+            kind = "lookup_key_unresolved"
+        elif "self-join key unresolved" in low:
+            kind = "self_join_key_unresolved"
+        out.append({
+            "verdict": DRD_UNDERSPECIFIED,
+            "kind": kind,
+            "aliases": aliases,
+            "detail": body,
+        })
+    return out
+
+
 def select_expr_for_column(
     col_name: str,
     row: dict,
