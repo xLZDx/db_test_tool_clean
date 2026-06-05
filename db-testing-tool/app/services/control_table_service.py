@@ -577,6 +577,23 @@ def build_analysis_rows(
                 _ccy_src_col = _ccy_src_col.split("\n", 1)[0].strip()
             break
 
+    # Dominant staging source table + its PDM columns -- used to rewrite a DRD
+    # prose source name in a CASE (e.g. TAX_LOT_OPN_MSTR / TAXLOT_DTL_OPN) onto
+    # the real staging table when the referenced column exists there.
+    _st_counts: Dict[str, int] = {}
+    _st_schema: Dict[str, str] = {}
+    for _r in rows:
+        _st = (_r.get("source_table") or "").strip().upper().split("\n")[0].split(",")[0].split(".")[-1]
+        if _st and not _is_lookup_table_name(_st):
+            _st_counts[_st] = _st_counts.get(_st, 0) + 1
+            _st_schema.setdefault(_st, (_r.get("source_schema") or "").strip().upper())
+    _base_src_tbl = max(_st_counts, key=_st_counts.get) if _st_counts else ""
+    _base_src_cols: set = set()
+    if _base_src_tbl and source_schema_index:
+        _bent = find_table(source_schema_index, _st_schema.get(_base_src_tbl, ""), _base_src_tbl)
+        if _bent:
+            _base_src_cols = {c.upper() for c in (_bent.get("columns") or {}).keys()}
+
     analysis = []
     for col in target_definition.get("columns", []) or []:
         col_name = (col.get("name") or "").strip().upper()
@@ -631,7 +648,10 @@ def build_analysis_rows(
             if derived_expr and (not expr_info.get("expression") or normalize_sql_expr(drd_expr) in _plain_ref_forms):
                 drd_expr = derived_expr
 
-        transformed_expr = derive_transformation_expression(row, source_attr, ccy_source_col=_ccy_src_col)
+        transformed_expr = derive_transformation_expression(
+            row, source_attr, ccy_source_col=_ccy_src_col,
+            base_source_table=_base_src_tbl, base_source_cols=_base_src_cols,
+        )
         _plain_xform_set: set[str] = {"", normalize_sql_expr(f"S.{source_attr}")}
         if _src_table_for_check:
             _plain_xform_set.add(normalize_sql_expr(f"{_src_table_for_check}.{source_attr}"))
@@ -3449,7 +3469,53 @@ def infer_lookup_source_key_from_text(transformation: str, fallback: str = "") -
     return (fallback or "").strip().upper()
 
 
-def derive_transformation_expression(row: Dict[str, Any], source_attr: str, ccy_source_col: str = "") -> str:
+def _rewrite_prose_alias_to_staging(expr: str, base_table: str, base_cols: set) -> str:
+    """Rewrite a prose-qualified ``<alias>.<col>`` (a DRD author's LOGICAL/upstream
+    source name, e.g. ``TAX_LOT_OPN_MSTR.MISS_COST_F`` / ``TAXLOT_DTL_OPN.
+    CVRD_UNCVRD``) onto the real staging source table when ``<col>`` actually
+    exists there -- the way ODI does.  Without it, the is_safe guard drops the
+    whole CASE and the column collapses to a bare/NULL fallback.
+
+    Safety (review 2026-06-05): the rewrite is SKIPPED for a JOINED dim/lookup
+    table (``_is_lookup_table_name`` or ``*_DIM``), the source alias ``S``, and
+    generated lookup aliases (``LK#`` / ``table_N``) -- so a legitimate dim
+    reference inside a CASE (e.g. ``ACG_TP_DIM.<col>``) is PRESERVED even when its
+    column name collides with a staging column.  An upstream source name like
+    ``TAXLOT_DTL_OPN`` (a real table, but NOT joined here -- the staging table
+    already carries its columns) IS rewritten, exactly as ODI does.  Single-quoted
+    literals are masked first so a quoted value containing a dot is never
+    rewritten.  Generic, no hardcoded names.  (operator 2026-06-05: OPEN deeper)"""
+    base_table = (base_table or "").upper()
+    if not base_table or not base_cols:
+        return expr
+
+    def _rw(m: "re.Match") -> str:
+        alias, col = m.group(1).upper(), m.group(2).upper()
+        if (col in base_cols and alias != base_table and alias != "S"
+                and not _is_lookup_table_name(alias) and not alias.endswith("_DIM")
+                and not re.fullmatch(r"LK\d*", alias)
+                and not re.fullmatch(r"[A-Z_][A-Z0-9_]*_\d+", alias)):
+            return f"{base_table}.{m.group(2)}"
+        return m.group(0)
+
+    # Mask single-quoted literals so a value like 'SRC.COL' is never rewritten.
+    _lits: List[str] = []
+
+    def _stash(m: "re.Match") -> str:
+        _lits.append(m.group(0))
+        return f"__LIT_{len(_lits) - 1}__"
+
+    masked = re.sub(r"'(?:''|[^'])*'", _stash, expr)
+    masked = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_#$]+)", _rw, masked, flags=re.IGNORECASE)
+    for _i, _lit in enumerate(_lits):
+        masked = masked.replace(f"__LIT_{_i}__", _lit)
+    return masked
+
+
+def derive_transformation_expression(
+    row: Dict[str, Any], source_attr: str, ccy_source_col: str = "",
+    base_source_table: str = "", base_source_cols: Optional[set] = None,
+) -> str:
     transformation = (row.get("transformation") or "").strip()
     notes = (row.get("notes") or "").strip()
     source_table = (row.get("source_table") or "").strip()
@@ -3467,6 +3533,11 @@ def derive_transformation_expression(row: Dict[str, Any], source_attr: str, ccy_
                 re.sub(r"\b(?:SRC|SOURCE|S)\.", src_prefix, case_expr, flags=re.IGNORECASE),
                 source_schema=(row.get("source_schema") or "").strip(),
                 source_table=source_table,
+            )
+            normalized = _rewrite_prose_alias_to_staging(
+                normalized,
+                base_source_table or source_table.upper().split(".")[-1],
+                base_source_cols or set(),
             )
             return normalized if is_safe_transformation_expression(normalized, source_attr) else ""
 

@@ -234,6 +234,33 @@ def test_open_fx_placeholder_resolves_to_drd_currency_source():
         "FX CASE still uses the old hardcoded NML_ISO_CCY_CODE"
 
 
+@pytest.mark.skipif(not _OPEN_DRD.exists(), reason="OPEN DRD fixture missing")
+def test_open_prose_alias_case_rewritten_to_staging():
+    """DRD CASEs that reference a prose/logical source name (TAX_LOT_OPN_MSTR /
+    TAXLOT_DTL_OPN) must be rewritten onto the real staging table when the column
+    exists there (the way ODI does), not dropped to a bare column / NULL by the
+    is_safe guard.  MISS_COST_BSS_F / MISS_IVS_COST_F / COST_BSS_LEGS_CVR_F each
+    carry such a CASE.  (operator 2026-06-05: OPEN deeper, item B)"""
+    from app.services.control_table_service import analyze_control_table
+    try:
+        res = analyze_control_table(
+            file_bytes=_OPEN_DRD.read_bytes(), filename=_OPEN_DRD.name,
+            target_schema="TAXLOT_OWNER", target_table="OPN_TAX_LOTS_NON_BKR_FACT",
+            source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+        )
+    except Exception as exc:  # PDM (ds_2) not present in this env
+        pytest.skip(f"OPEN target not resolvable: {exc}")
+    sql = (res.get("generated_insert_sql") or "").upper()
+    flat = re.sub(r"\s+", " ", sql)
+    # each prose-alias column now emits a real CASE, not a bare column / NULL
+    for col in ("MISS_COST_BSS_F", "MISS_IVS_COST_F", "COST_BSS_LEGS_CVR_F"):
+        assert re.search(rf"\bEND\s+AS\s+{col}\b", flat), \
+            f"{col} did not emit a CASE (prose-alias rewrite dropped it)"
+    # the prose/logical source names must NOT leak into the emitted SQL
+    assert "TAX_LOT_OPN_MSTR." not in sql, "prose alias TAX_LOT_OPN_MSTR leaked into INSERT"
+    assert "TAXLOT_DTL_OPN." not in sql, "prose alias TAXLOT_DTL_OPN leaked into INSERT"
+
+
 @pytestmark_drd
 def test_close_fx_placeholder_still_resolves_to_its_currency_source():
     """The generic CCY_CODE resolution must NOT regress CLOSE: CLOSE's CCY_CD
