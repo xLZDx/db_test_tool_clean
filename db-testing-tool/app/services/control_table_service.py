@@ -656,6 +656,69 @@ def _extract_if_then_else_case(trans: str, src_attr: str, src_ref: str) -> Optio
     return f"CASE WHEN {col} = '{_val}' THEN '{_then}' ELSE '{_else}' END"
 
 
+def _leading_placeholder(trans: str, target_cols_set: set, all_source_attrs: set) -> str:
+    """A combined cost/factor rule often leads with a logical placeholder for the
+    row's base value: ``ORIG_COST COST_AMT, case ... THEN ORIG_COST ...``.  Return
+    that placeholder (e.g. ORIG_COST / OPN_FCTR / FMV) when the rule starts
+    ``<placeholder> <target_col>,`` -- the caller resolves it to the row's own
+    source column.  Module-level + parametrised so BOTH the INSERT emitter and the
+    comparison baseline resolve the placeholder identically; otherwise the emitter
+    resolves it (matching ODI) while the baseline keeps the raw placeholder and the
+    column shows as a false GENERATED_MISMATCH.  Generic.  (operator 2026-06-04/05)"""
+    m = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s+([A-Za-z][A-Za-z0-9_]*)\s*,", trans or "")
+    if not m:
+        return ""
+    ph, nxt = m.group(1).upper(), m.group(2).upper()
+    if nxt in target_cols_set and ph not in all_source_attrs and ph not in target_cols_set:
+        return ph
+    return ""
+
+
+def _build_tgt_src_remap(rows: List[Dict[str, Any]], all_source_attrs: set) -> Dict[str, str]:
+    """{target_col -> source_attr} for target columns that are NOT themselves any
+    row's source attribute and differ from their own source -- a CASE/expression
+    may name a TARGET column (e.g. OPN_PRC_FCTR) whose value comes from a
+    differently-named SOURCE column (SBC_OPN_PRC_FCTR).  ONE shared builder used by
+    BOTH the INSERT emitter and the comparison baseline so the two never drift.
+    Generic; no hardcoded names.  (operator 2026-06-05)"""
+    remap: Dict[str, str] = {}
+    for _r in rows:
+        _tc = (_r.get("column") or "").strip().upper()
+        _sa = (_r.get("source_attribute") or "").strip().upper()
+        if _tc and _sa and _tc != _sa and _tc not in all_source_attrs:
+            remap[_tc] = _sa
+    return remap
+
+
+def _has_top_level_comma(text: str) -> bool:
+    """True if ``text`` has a comma outside all parentheses and single-quoted
+    literals -- i.e. the cell holds more than one comma-separated expression, so a
+    trailing fragment must NOT be folded into an auto-closed CASE.  (operator
+    2026-06-05, agent-review-hardened)"""
+    depth = 0
+    in_lit = False
+    i = 0
+    s = text or ""
+    while i < len(s):
+        c = s[i]
+        if in_lit:
+            if c == "'":
+                if i + 1 < len(s) and s[i + 1] == "'":
+                    i += 1  # escaped '' inside a literal
+                else:
+                    in_lit = False
+        elif c == "'":
+            in_lit = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth = max(0, depth - 1)
+        elif c == "," and depth == 0:
+            return True
+        i += 1
+    return False
+
+
 def build_analysis_rows(
     *,
     rows: List[Dict[str, Any]],
@@ -852,6 +915,37 @@ def build_analysis_rows(
                 "etl_block_body": etl_block_body,
             }
         )
+
+    # B1 (operator 2026-06-05): resolve a leading logical placeholder in the
+    # baseline drd_expression the SAME way the emitter does (lines ~1800).  A
+    # cost/factor CASE whose DRD placeholder (ORIG_COST / FMV / OPN_FCTR) the
+    # generator resolves to the row's source column must resolve identically in
+    # the baseline, else the column shows as a false GENERATED_MISMATCH.  Runs
+    # after the full analysis is built so the column + source-attr sets are
+    # complete; uses the SAME module-level _leading_placeholder as the emitter.
+    _tcs = {(a.get("column") or "").strip().upper() for a in analysis if (a.get("column") or "").strip()}
+    _asa = {(a.get("source_attribute") or "").strip().upper() for a in analysis if (a.get("source_attribute") or "").strip()}
+    # Target-only remap {target_col -> source_attr} via the SHARED builder the
+    # emitter uses (no drift).  NOTE (agent review 2026-06-05): this mirrors the
+    # emitter's two resolution steps ONLY (leading placeholder + tgt-src remap);
+    # the emitter's join-graph steps (alias rename etc.) are not applicable to the
+    # baseline.  Correct because `_leading_placeholder` matches only BARE tokens
+    # (no ALIAS.TOKEN), so ordering vs the emitter is immaterial.  Like the emitter
+    # (and unlike `_rewrite_prose_alias_to_staging`) these token replaces do NOT
+    # mask single-quoted literals -- consistent on both sides, so a target-col name
+    # equal to a CASE string literal stays equal on both sides (no false mismatch).
+    _tsr = _build_tgt_src_remap(analysis, _asa)
+    for a in analysis:
+        _saa = (a.get("source_attribute") or "").strip()
+        _de = a.get("drd_expression") or ""
+        # (i) leading placeholder "<ph> <target>, case ... THEN <ph> ..."
+        _ph = _leading_placeholder(a.get("transformation") or "", _tcs, _asa)
+        if _ph and _saa and _ph != _saa.upper():
+            _de = re.sub(r"\b" + re.escape(_ph) + r"\b", _saa, _de, flags=re.IGNORECASE)
+        # (ii) target-only column names used inside the CASE body
+        for _k, _v in _tsr.items():
+            _de = re.sub(r"\b" + re.escape(_k) + r"\b", _v, _de, flags=re.IGNORECASE)
+        a["drd_expression"] = _de
     return analysis
 
 
@@ -1598,12 +1692,7 @@ def build_control_insert_sql(
         (r.get("source_attribute") or "").strip().upper()
         for r in analysis_rows if (r.get("source_attribute") or "").strip()
     }
-    _tgt_src_remap: Dict[str, str] = {}
-    for _r in analysis_rows:
-        _tc = (_r.get("column") or "").strip().upper()
-        _sa = (_r.get("source_attribute") or "").strip().upper()
-        if _tc and _sa and _tc != _sa and _tc not in _all_source_attrs:
-            _tgt_src_remap[_tc] = _sa
+    _tgt_src_remap = _build_tgt_src_remap(analysis_rows, _all_source_attrs)
 
     # Set of all target column names (for the leading-placeholder detector below).
     _target_cols_set = {
@@ -1626,22 +1715,9 @@ def build_control_insert_sql(
         if len(_al) == 1 and _b != _al[0].upper()
     }
 
-    def _leading_placeholder(trans: str) -> str:
-        """A combined cost/factor rule often leads with a logical placeholder for
-        the row's base value: "ORIG_COST COST_AMT, case ... THEN ORIG_COST ...".
-        Return that placeholder (e.g. ORIG_COST / OPN_FCTR / FMV) when the rule
-        starts "<placeholder> <target_col>,"; it resolves to the row's own source
-        column.  (operator 2026-06-04)"""
-        m = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s+([A-Za-z][A-Za-z0-9_]*)\s*,", trans or "")
-        if not m:
-            return ""
-        ph, nxt = m.group(1).upper(), m.group(2).upper()
-        if nxt in _target_cols_set and ph not in _all_source_attrs and ph not in _target_cols_set:
-            return ph
-        return ""
-
-    # _extract_if_then_else_case is a module-level shared helper (see above) so
-    # the comparison baseline emits the SAME flag CASE.  (operator 2026-06-05)
+    # _leading_placeholder + _extract_if_then_else_case are module-level shared
+    # helpers (see above) so the comparison baseline resolves the same placeholder
+    # / emits the same flag CASE as this emitter.  (operator 2026-06-05)
 
     select_lines = []
     insert_cols = []
@@ -1814,7 +1890,7 @@ def build_control_insert_sql(
         # Resolve a leading logical placeholder (ORIG_COST / OPN_FCTR / FMV) to
         # the row's own source column, so the cost/factor CASE reads the real
         # source value.  (operator 2026-06-04)
-        _ph = _leading_placeholder(_trans_raw)
+        _ph = _leading_placeholder(_trans_raw, _target_cols_set, _all_source_attrs)
         if _ph and _src_attr_raw and _ph != _src_attr_raw.strip().upper():
             expr = re.sub(r'\b' + re.escape(_ph) + r'\b', _src_attr_raw.strip(), expr, flags=re.IGNORECASE)
 
@@ -3574,7 +3650,21 @@ def derive_transformation_expression(
         case_expr = _extract_case_expression(transformation)
         if not case_expr and re.search(r"\bCASE\b", transformation, flags=re.IGNORECASE):
             loose = re.search(r"\bCASE\b[\s\S]*?\bEND\b", transformation, flags=re.IGNORECASE)
-            case_expr = loose.group(0).strip() if loose else ""
+            if loose:
+                case_expr = loose.group(0).strip()
+            elif re.search(r"\bCASE\b[\s\S]*?\bWHEN\b[\s\S]*?\bTHEN\b", transformation, flags=re.IGNORECASE):
+                # B2b (operator 2026-06-05): a DRD-pasted "CASE WHEN ... THEN ...
+                # [ELSE ...]" that is MISSING the closing END (an incomplete paste)
+                # -- auto-close it so the comparison baseline + the emitter honor the
+                # same intent ODI does.  Only fires when WHEN/THEN are present and
+                # END is absent.  ASSUMES the CASE is the LAST expression in the
+                # cell (the body runs to end-of-cell); a top-level comma means a
+                # multi-expression cell, so we do NOT fold the trailing fragment
+                # into the CASE (skip -> fall back to bare).  Generic; no hardcoded
+                # names.  (agent-review-hardened 2026-06-05)
+                _open_case = re.search(r"\bCASE\b[\s\S]*$", transformation, flags=re.IGNORECASE)
+                _grabbed = _open_case.group(0).strip() if _open_case else ""
+                case_expr = (_grabbed + " END") if (_grabbed and not _has_top_level_comma(_grabbed)) else ""
         if case_expr:
             seed_alias_match = re.search(r"^\s*([A-Z0-9_]+)\s*,", transformation, flags=re.IGNORECASE)
             seed_alias = (seed_alias_match.group(1) if seed_alias_match else "").upper()

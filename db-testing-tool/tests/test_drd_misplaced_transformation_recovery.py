@@ -361,3 +361,89 @@ def test_close_baseline_constant_rule_matches_generated():
     assert row.get("status") == "match_all", \
         f"expected match_all (baseline 'Closed' == generated 'Closed'), got {row.get('status')!r}"
     assert row.get("is_real_difference") is False
+
+
+# ---------------------------------------------------------------------------
+# B2b (operator 2026-06-05): a DRD-pasted FX CASE that is MISSING the closing
+# END must be auto-closed (not dropped to a bare column) so the comparison +
+# emitter honor it the way ODI does.
+# B1 (operator 2026-06-05): a leading logical placeholder must resolve to the
+# row's source column in the BASELINE the same way the emitter resolves it.
+# ---------------------------------------------------------------------------
+
+
+def test_b2b_derive_autocloses_case_missing_end():
+    """CASE WHEN...THEN...ELSE... with NO closing END -> auto-closed to a full
+    CASE (was being dropped to a bare column -> false REAL_DIFF vs ODI)."""
+    from app.services.control_table_service import derive_transformation_expression
+    row = {
+        "transformation": (
+            "case when (S.NML_ISO_CCY_CODE ='USD' or (S.SBC_EXG_RATE is NULL OR "
+            "S.SBC_EXG_RATE = 0)) THEN S.NML_CCY_WASH_SALE_AMT else "
+            "S.NML_CCY_WASH_SALE_AMT * S.SBC_EXG_RATE"
+        ),
+        "source_attribute": "NML_CCY_WASH_SALE_AMT",
+        "source_table": "CLOSE_TGT",
+    }
+    out = derive_transformation_expression(row, "NML_CCY_WASH_SALE_AMT")
+    assert out, "auto-close should produce a non-empty CASE, not drop to bare"
+    u = re.sub(r"\s+", " ", out).upper()
+    assert u.startswith("CASE") and u.rstrip().endswith("END"), out
+    assert u.count(" END") == 1, f"must not double-close: {out}"
+    assert "NML_CCY_WASH_SALE_AMT" in u
+
+
+def test_b2b_case_with_end_not_double_closed():
+    """A CASE that already has END is honored as-is (no second END appended)."""
+    from app.services.control_table_service import derive_transformation_expression
+    row = {"transformation": "case when (S.X ='USD') THEN S.A ELSE S.B END",
+           "source_attribute": "A", "source_table": "T"}
+    out = derive_transformation_expression(row, "A")
+    assert re.sub(r"\s+", " ", out or "").upper().count(" END") == 1, out
+
+
+def test_b2b_non_case_prose_not_turned_into_case():
+    """Prose that merely mentions the word 'case' (no WHEN/THEN) is NOT auto-closed
+    into a CASE."""
+    from app.services.control_table_service import derive_transformation_expression
+    row = {"transformation": "handle this edge case carefully",
+           "source_attribute": "A", "source_table": "T"}
+    out = derive_transformation_expression(row, "A")
+    assert "END" not in (out or "").upper()
+
+
+def test_b1_leading_placeholder_detection():
+    """`_leading_placeholder` returns the placeholder only for a real
+    '<placeholder> <target_col>,' lead where placeholder is NOT itself a source
+    attribute and the second token IS a target column."""
+    from app.services.control_table_service import _leading_placeholder
+    tcs = {"COST_AMT", "SBC_COST_AMT", "FAIR_MKT_VAL_OF_GIFT_OR_INHTN"}
+    asa = {"NML_ASOF_CRN_COST_AMT", "SBC_OPN_COST_AMT"}
+    # "ORIG_COST COST_AMT, case ..." -> ORIG_COST is the placeholder
+    assert _leading_placeholder("ORIG_COST COST_AMT, case when x END", tcs, asa) == "ORIG_COST"
+    # no "<ph> <target>," lead -> empty
+    assert _leading_placeholder("case when x END", tcs, asa) == ""
+    # placeholder that IS a real source attribute -> not a placeholder
+    assert _leading_placeholder("NML_ASOF_CRN_COST_AMT COST_AMT, case", tcs, asa) == ""
+    # second token not a target column -> not a leading placeholder
+    assert _leading_placeholder("ORIG_COST NOT_A_TARGET, case", tcs, asa) == ""
+
+
+@pytestmark_drd
+def test_b1_baseline_resolves_leading_placeholder_to_source():
+    """CLOSE SBC_OPN_PRC_FCTR: the DRD CASE names the placeholder OPN_PRC_FCTR; the
+    emitter resolves it to the source column, so the BASELINE must too -> the
+    column compares match_all instead of a false GENERATED_MISMATCH."""
+    from app.services.control_table_service import analyze_control_table
+    res = analyze_control_table(
+        file_bytes=_CLOSE_DRD.read_bytes(), filename=_CLOSE_DRD.name,
+        target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+        source_datasource_id=2, target_datasource_id=2, control_schema="ikorostelev",
+    )
+    row = _comparison_row(res, "SBC_OPN_PRC_FCTR")
+    if row is None:
+        pytest.skip("SBC_OPN_PRC_FCTR not present (DRD changed)")
+    # baseline must no longer carry the un-resolved placeholder when generated resolved it
+    assert row.get("status") == "match_all", \
+        f"expected match_all after leading-placeholder baseline resolution, got {row.get('status')!r} " \
+        f"(drd={row.get('drd_expression')!r} gen={row.get('generated_expression')!r})"
