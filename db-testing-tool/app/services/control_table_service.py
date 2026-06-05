@@ -151,7 +151,17 @@ def _resolve_physical_target(
     candidates: List[Tuple[str, str]] = [(target_schema, target_table)]
     try:
         meta = extract_drd_metadata(file_bytes, filename, sheet_name)
-        for c in (meta.get("table_name_candidates") or []):
+        _cands = list(meta.get("table_name_candidates") or [])
+        # F3 (operator 2026-06-05): when the typed/auto-filled target is a logical
+        # name absent from the PDM, the real physical table is in
+        # meta["table_name"] / meta["view_name"] -- which `table_name_candidates`
+        # may NOT carry (it can be None).  Add them as fallback candidates so the
+        # flow resolves to the real DRD-declared table instead of raising a 422.
+        for _k in ("table_name", "view_name"):
+            _v = meta.get(_k)
+            if _v:
+                _cands.append(_v)
+        for c in _cands:
             cv = str(c).strip()
             if not cv:
                 continue

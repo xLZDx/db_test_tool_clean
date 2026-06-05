@@ -6,6 +6,7 @@ into the main /api/tests router.
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import difflib
 from itertools import combinations
@@ -49,6 +50,7 @@ from app.routers.tests_utils import (
 )
 
 _ct_router = APIRouter()
+_ct_log = logging.getLogger(__name__)
 
 # ── Pydantic models (control-table specific) ─────────────────────────────────
 
@@ -241,6 +243,24 @@ def _serialize_training_rule(rule: ControlTableCorrectionRule) -> dict:
     }
 
 
+def _finalize_doc_mappings(mappings: list) -> dict:
+    """Dedup by (target, expression) preserving first occurrence + build the
+    by_target index.  Shared by _extract_doc_mappings (regex) and
+    _mappings_from_doc (proper parsers)."""
+    seen = set()
+    out = []
+    for item in mappings:
+        key = (item.get('target'), (item.get('expression') or '').upper())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    by_target: dict[str, list[str]] = {}
+    for item in out:
+        by_target.setdefault(item['target'], []).append(item.get('expression') or '')
+    return {"mappings": out, "by_target": by_target}
+
+
 def _extract_doc_mappings(text: str) -> dict:
     """Extract target-source style mappings from SQL/XML text using tolerant regexes."""
     mappings: list[dict] = []
@@ -265,21 +285,73 @@ def _extract_doc_mappings(text: str) -> dict:
         if target:
             mappings.append({"target": target, "expression": source})
 
-    # Deduplicate by target/expression tuple preserving first occurrence.
-    seen = set()
-    out = []
-    for item in mappings:
-        key = (item.get('target'), (item.get('expression') or '').upper())
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(item)
+    return _finalize_doc_mappings(mappings)
 
-    by_target: dict[str, list[str]] = {}
-    for item in out:
-        by_target.setdefault(item['target'], []).append(item.get('expression') or '')
 
-    return {"mappings": out, "by_target": by_target}
+def _mappings_from_doc(content: bytes, filename: str) -> dict:
+    """Per-target-column mappings from an UPLOADED doc using the PROPER parsers
+    (operator 2026-06-05, F1+F2):
+      * ODI .xml  -> OdiXmlParser + emit_insert (the same path the grade harness
+                     uses) -> full per-column map (was ~3/66 via the regex);
+      * DRD .xlsx/.xls/.csv -> parse_drd_file (physical target col -> source attr;
+                     was 0 via the regex which can't read a binary spreadsheet);
+      * anything else (pasted SQL text) -> the tolerant _extract_doc_mappings regex.
+    Each branch degrades gracefully to the regex fallback on any parse error."""
+    fn = (filename or "").lower()
+    raw = content or b""
+    if fn.endswith(".xml"):
+        try:
+            from app.sql_model.odi_parser import OdiXmlParser
+            from app.sql_model.sql_emitter import emit_insert
+            from app.services.control_table_service import extract_sql_expression_map
+            odi_text = raw.decode("ISO-8859-1", errors="ignore")
+            sql = emit_insert(
+                OdiXmlParser(target_schema="", target_table="").parse_text(odi_text),
+                strict=False,
+            ).sql
+            em = extract_sql_expression_map(sql)
+            mappings = [
+                {"target": str(k).strip().upper(), "expression": str(v)}
+                for k, v in (em or {}).items() if str(k).strip()
+            ]
+            if mappings:
+                return _finalize_doc_mappings(mappings)
+            _ct_log.warning(
+                "_mappings_from_doc: ODI XML %r parsed to 0 mappings; using regex fallback", filename,
+            )
+        except Exception as exc:  # surface the degradation (not a silent 0-count)
+            _ct_log.warning(
+                "_mappings_from_doc: ODI XML parse failed for %r (%s); using regex fallback", filename, exc,
+            )
+    if fn.endswith((".xlsx", ".xls", ".csv")):
+        try:
+            from app.services.drd_import_service import parse_drd_file
+            from app.services.control_table_service import DEFAULT_DRD_FIELDS
+            pr = parse_drd_file(
+                file_bytes=raw, filename=filename,
+                selected_fields=list(DEFAULT_DRD_FIELDS),
+                target_schema="", target_table="",
+            )
+            mappings = []
+            for cm in (pr.get("column_mappings") or []):
+                tgt = (cm.get("physical_name") or cm.get("logical_name") or "").strip().upper()
+                expr = (cm.get("source_attribute") or cm.get("transformation") or "").strip()
+                if tgt:
+                    mappings.append({"target": tgt, "expression": expr})
+            if mappings:
+                return _finalize_doc_mappings(mappings)
+            _ct_log.warning(
+                "_mappings_from_doc: DRD %r parsed to 0 mappings; using regex fallback", filename,
+            )
+        except Exception as exc:
+            _ct_log.warning(
+                "_mappings_from_doc: DRD parse failed for %r (%s); using regex fallback", filename, exc,
+            )
+    # Fallback: tolerant regex on decoded text.  Use ISO-8859-1 for .xml (ODI
+    # exports are Latin-1/CP1252) so non-ASCII bytes are not silently dropped;
+    # UTF-8 for pasted SQL.  (agent review MINOR-2, 2026-06-05)
+    _fallback_enc = "ISO-8859-1" if fn.endswith(".xml") else "utf-8"
+    return _extract_doc_mappings(raw.decode(_fallback_enc, errors="ignore"))
 
 
 def _compare_doc_pair(left_name: str, left_map: dict, right_name: str, right_map: dict) -> dict:
@@ -758,8 +830,7 @@ async def compare_control_table_documents(
         if not upload:
             return
         content = await upload.read()
-        text = (content or b"").decode("utf-8", errors="ignore")
-        extracted = _extract_doc_mappings(text)
+        extracted = _mappings_from_doc(content, upload.filename or "")
         docs.append({"name": name, "mappings": extracted.get("mappings") or [], "by_target": extracted.get("by_target") or {}})
 
     await _add_doc("DRD", drd_file)
