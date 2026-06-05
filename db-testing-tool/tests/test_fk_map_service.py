@@ -6,6 +6,7 @@ storage + upsert(learning) + resolve API in isolation (no PDM/DRD/ODI dependency
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -104,3 +105,69 @@ def test_save_is_atomic_no_tmp_left_behind(tmp_path):
     fk.save_fk_map(1, m)
     leftovers = list(tmp_path.glob("*.tmp"))
     assert leftovers == []
+
+
+# ---- R5 step 2: priority + conflict-guard + WARNINGs ----------------------
+
+def test_priority_stamped_per_source():
+    for source, prio in (("pdm", 3), ("drd", 2), ("convention", 1)):
+        m = fk.new_fk_map(3)
+        fk.upsert_join(m, "S", "BASE", "FK", "S", "REF", "RID", source=source)
+        e = fk.resolve(m, "S.BASE", "FK")
+        assert e is not None and e["priority"] == prio, (source, e)
+
+
+def test_same_ref_reinforce_priority_is_max():
+    m = fk.new_fk_map(3)
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF", "RID", source="convention")
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF", "RID", source="drd")
+    e = fk.resolve(m, "S.BASE", "FK")
+    assert e["priority"] == 2 and set(e["sources"]) == {"convention", "drd"}
+
+
+def test_higher_priority_overrides_conflicting_ref(caplog):
+    m = fk.new_fk_map(3)
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_A", "AID", source="drd")
+    with caplog.at_level(logging.WARNING):
+        fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_B", "BID", source="pdm")
+    e = fk.resolve(m, "S.BASE", "FK")
+    assert e["ref_table"] == "REF_B" and e["ref_col"] == "BID"
+    assert e["sources"] == ["pdm"] and not e.get("conflict")
+    assert any("OVERRIDE" in r.message for r in caplog.records)
+
+
+def test_lower_priority_conflict_ignored():
+    m = fk.new_fk_map(3)
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_A", "AID", source="pdm")
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_B", "BID", source="convention")
+    e = fk.resolve(m, "S.BASE", "FK")
+    assert e["ref_table"] == "REF_A" and "convention" not in e["sources"]
+
+
+def test_equal_priority_conflict_is_ambiguous_resolve_none(caplog):
+    m = fk.new_fk_map(3)
+    fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_A", "AID", source="drd")
+    with caplog.at_level(logging.WARNING):
+        fk.upsert_join(m, "S", "BASE", "FK", "S", "REF_B", "BID", source="drd")
+    raw = m["joins"]["S.BASE"]["FK"]
+    assert raw.get("conflict") is True
+    assert {"ref_table": "REF_B", "ref_col": "BID", "source": "drd"} in raw["conflict_with"]
+    assert fk.resolve(m, "S.BASE", "FK") is None
+    assert any(("AMBIGUOUS" in r.message or "conflicted" in r.message) for r in caplog.records)
+
+
+def test_ambiguous_bare_resolve_emits_warning(caplog):
+    m = fk.new_fk_map(3)
+    fk.upsert_join(m, "S1", "BASE", "FK", "S1", "REF", "RID", source="pdm")
+    fk.upsert_join(m, "S2", "BASE", "FK", "S2", "REF", "RID", source="pdm")
+    with caplog.at_level(logging.WARNING):
+        assert fk.resolve(m, "BASE", "FK") is None
+    assert any("ambiguous bare-table" in r.message for r in caplog.records)
+
+
+def test_corrupt_load_emits_warning(tmp_path, caplog):
+    (tmp_path / "fk_map_ds_5.json").write_text("{ not json", encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        m = fk.load_fk_map(5)
+    assert m["joins"] == {}
+    assert any("corrupt" in r.message.lower() for r in caplog.records)
