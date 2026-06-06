@@ -56,6 +56,11 @@ REGRESSION_SQLITE_COLUMN_BACKFILL: Dict[str, Dict[str, str]] = {
         "include_archived": "BOOLEAN DEFAULT 0",
         "updated_at": "DATETIME",
     },
+    # Phase 2: scope correction rules per DRD/DB + audit who confirmed a learned fix.
+    "control_table_correction_rules": {
+        "datasource_id": "INTEGER",
+        "confirmed_by": "VARCHAR(255)",
+    },
 }
 
 
@@ -72,6 +77,25 @@ async def _backfill_sqlite_columns(conn) -> None:
             if column_name in existing_columns:
                 continue
             await conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}")
+
+    # Phase 2: after the datasource_id/confirmed_by columns exist, normalise legacy
+    # issue_type NULLs to '' and ensure the datasource-scoped unique index exists.
+    # (Legacy rows have datasource_id NULL -> SQLite treats NULLs as distinct, so
+    # index creation never fails on pre-existing duplicates; new datasource-scoped
+    # writes get real uniqueness.)
+    res = await conn.exec_driver_sql("PRAGMA table_info(control_table_correction_rules)")
+    ctcr_cols = {row[1] for row in res.fetchall()}
+    if ctcr_cols:
+        if "issue_type" in ctcr_cols:
+            await conn.exec_driver_sql(
+                "UPDATE control_table_correction_rules SET issue_type='' WHERE issue_type IS NULL"
+            )
+        if "datasource_id" in ctcr_cols:
+            await conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_correction_rule "
+                "ON control_table_correction_rules "
+                "(datasource_id, target_table, target_column, issue_type)"
+            )
 
 async def get_db() -> AsyncSession:
     async with async_session() as session:

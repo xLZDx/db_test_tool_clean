@@ -56,13 +56,15 @@ new_ddl = [
         "control_table_correction_rules",
         "CREATE TABLE IF NOT EXISTS control_table_correction_rules ("
         "  id INTEGER PRIMARY KEY, "
+        "  datasource_id INTEGER, "
         "  target_table TEXT NOT NULL, "
         "  target_column TEXT NOT NULL, "
-        "  issue_type TEXT, "
+        "  issue_type TEXT NOT NULL DEFAULT '', "
         "  source_attribute TEXT, "
         "  recommended_source TEXT, "
         "  replacement_expression TEXT, "
         "  notes TEXT, "
+        "  confirmed_by TEXT, "
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
         "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ")",
@@ -207,6 +209,25 @@ elif "target_table" not in ctfs_cols:
         ")"
     )
     print("  control_table_file_states: recreated with correct schema")
+
+# 3c. Phase 2: control_table_correction_rules -- add datasource_id + confirmed_by,
+#     normalise legacy issue_type NULLs, and add the datasource-scoped unique index.
+cur.execute("PRAGMA table_info(control_table_correction_rules)")
+ctcr_cols = {r[1] for r in cur.fetchall()}
+if ctcr_cols:
+    if "datasource_id" not in ctcr_cols:
+        cur.execute("ALTER TABLE control_table_correction_rules ADD COLUMN datasource_id INTEGER")
+        print("  + control_table_correction_rules.datasource_id")
+    if "confirmed_by" not in ctcr_cols:
+        cur.execute("ALTER TABLE control_table_correction_rules ADD COLUMN confirmed_by TEXT")
+        print("  + control_table_correction_rules.confirmed_by")
+    cur.execute("UPDATE control_table_correction_rules SET issue_type='' WHERE issue_type IS NULL")
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_correction_rule "
+        "ON control_table_correction_rules "
+        "(datasource_id, target_table, target_column, issue_type)"
+    )
+    print("  control_table_correction_rules: datasource scope + unique index ensured")
 
 # 4. Add agent_profiles table if not present (agent model stub used __tablename__ = "agent_profiles")
 if "agent_profiles" not in existing_tables:
