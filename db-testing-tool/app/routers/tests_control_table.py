@@ -11,7 +11,7 @@ import re
 import difflib
 from itertools import combinations
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
@@ -748,6 +748,119 @@ async def analyze_control_table_from_drd(
     result["join_alias_issues"] = validate_insert_join_aliases(result.get("generated_insert_sql", ""))
     result["drd_underspecified"] = scan_underspecified_joins(result.get("generated_insert_sql", ""))
     return result
+
+
+@_ct_router.post("/control-table/build-v54")
+async def build_control_table_v54(
+    drd_file: UploadFile = File(...),
+    odi_file: Optional[UploadFile] = File(None),
+    target_schema: str = Form(""),
+    target_table: str = Form(""),
+    profile: str = Form("auto"),
+):
+    """Gate G2 (2026-06-06): DRD-driven INSERT via the vendored v5.4 builder.
+
+    Builds the INSERT FROM the DRD (real source tables + joins); ODI XML is
+    OPTIONAL and used as EVIDENCE only (never copied into the SQL). Returns the
+    generated SQL + join inventory + validation errors + the DRD/ODI/generated
+    tri-compare + implementation map + summary. Offline; no Oracle DB.
+    """
+    import csv as _csv
+    import gc as _gc
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from app.services.universal_insert_builder_v54 import build_to_dir
+
+    drd_name = drd_file.filename or "drd.xlsx"
+    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else ""
+    if drd_ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(422, f"v5.4 builder needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}")
+
+    _MAX = 30 * 1024 * 1024  # 30 MB hard cap (security MINOR: bound openpyxl input)
+    drd_bytes = await drd_file.read(_MAX + 1)
+    if len(drd_bytes) > _MAX:
+        raise HTTPException(413, "DRD file exceeds 30 MB limit")
+    odi_bytes = None
+    if odi_file is not None and (odi_file.filename or "").strip():
+        odi_bytes = await odi_file.read(_MAX + 1)
+        if len(odi_bytes) > _MAX:
+            raise HTTPException(413, "ODI file exceeds 30 MB limit")
+
+    def _run() -> Dict[str, Any]:
+        # Server-controlled temp dir (security MINOR: never caller-supplied out_dir).
+        # openpyxl read_only keeps the xlsx handle open -> gc.collect() + rmtree
+        # ignore_errors to avoid WinError 32 on cleanup.
+        td = _tempfile.mkdtemp(prefix="uib54_")
+        tdp = Path(td)
+        try:
+            xlsx_p = tdp / f"drd.{drd_ext}"
+            xlsx_p.write_bytes(drd_bytes)
+            xml_p = None
+            if odi_bytes is not None:
+                xml_p = tdp / "odi.xml"
+                xml_p.write_bytes(odi_bytes)
+            out = tdp / "out"
+            build_to_dir(
+                xlsx_p, xml_p, out,
+                target_schema=target_schema, target_table=target_table,
+                profile=(profile or "auto"),
+            )
+
+            def _rows(name: str) -> List[Dict[str, str]]:
+                p = out / name
+                if not p.exists():
+                    return []
+                with p.open(encoding="utf-8-sig", newline="") as fh:
+                    return list(_csv.DictReader(fh))
+
+            def _text(name: str) -> str:
+                p = out / name
+                return p.read_text(encoding="utf-8") if p.exists() else ""
+
+            summary: Dict[str, Any] = {}
+            sj = out / "final_consistency_summary.json"
+            if sj.exists():
+                # narrow catch (T2 MAJOR): only swallow genuine parse errors; an OS
+                # read failure must propagate (-> 500), not masquerade as empty.
+                try:
+                    summary = json.loads(sj.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    summary = {}
+
+            # T2 BLOCKER: the builder writes a stub + does NOT raise when 0 mapping
+            # rows are extracted (misdetected layout / wrong profile). Never return
+            # 200 with an empty/garbage INSERT -- fail loud so the client knows.
+            gen_sql = _text("generated_insert_select_candidate.sql")
+            if "INSERT INTO" not in gen_sql.upper():
+                raise ValueError(
+                    "v5.4 builder produced no INSERT statement -- the DRD layout "
+                    "could not be detected (check sheet/header/columns or --profile)."
+                )
+
+            return {
+                "engine": "v54-drd-driven",
+                "generated_sql": gen_sql,
+                "join_inventory": _rows("join_inventory.csv"),
+                "validation_errors": _rows("validation_errors.csv"),
+                "tri_compare": _rows("tri_compare_report.csv"),
+                "implementation_map": _rows("implementation_map.csv"),
+                "drd_vs_odi_column_diff": _rows("drd_vs_odi_column_diff.csv"),
+                "summary": summary,
+                "odi_provided": odi_bytes is not None,
+            }
+        finally:
+            _gc.collect()
+            _shutil.rmtree(tdp, ignore_errors=True)
+
+    try:
+        return await asyncio.to_thread(_run)
+    except (FileNotFoundError, ValueError) as exc:
+        # T2 security MINOR: log the raw exc server-side; do NOT leak temp paths.
+        logging.getLogger(__name__).warning("build-v54 input/build error: %s", exc)
+        raise HTTPException(422, "v5.4 build error: could not build a valid INSERT from the DRD (check layout / profile).") from exc
+    except Exception as exc:
+        logging.getLogger(__name__).error("build-v54 unexpected error: %s", exc)
+        raise HTTPException(500, "v5.4 build failed unexpectedly.") from exc
 
 
 @_ct_router.post("/control-table/preview-drd")
