@@ -1,0 +1,8 @@
+gate,status,scope,review,verify
+G1,DONE,vendor universal_insert_builder_v54.py + build_to_dir wrapper + import repoint to odi_drd_compare_v15,T2 PASS (2 MINOR->G2),smoke AVY/CLOSE/OPEN: 0 O. / 0 forbidden / real joins; DRD-only generates
+G2,PENDING,POST /api/tests/control-table/build-v54 (DRD required + ODI optional) -> generated_sql/join_inventory/validation_errors/tri_compare/implementation_map/summary,T3,endpoint test AVY/CLOSE/OPEN; TemporaryDirectory + xlsx size/type guards
+G3,PENDING,wire Step-3 GUI (Build v5.4 button + ODI upload + populate Generated Insert/Comparison Grid/validation); old generator untouched,T3/T4,REAL-browser GUI test AVY+CLOSE+OPEN; 3-way diffs ODI-only
+G4,PENDING,golden acceptance test (pass-conditions + DRD-only + 3-way ODI-only-diff) + CSV twin,T2,pytest
+why_v54,note,DRD-driven (FROM CCAL_REPL_OWNER.TXN TXN + real joins + ETL-Notes APACSH + unique aliases + commented prose + CL_SCM_ID filters); ODI evidence-only,,rejected v4 CTE-wrap (copied ODI step6 as O.)
+passcond,locked,0 O./odi_final_source/AVY_FACT_STEP5_STG_RT; FROM TXN; 3-way DRD==generated diffs-only-vs-ODI; GUI on taxlots+AVY,,
+push,no,all gates commit LOCAL only; operator pushes separately,,
