@@ -10,10 +10,10 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 import xml.etree.ElementTree as ET
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from app.security import require_api_key
 
@@ -1201,6 +1201,74 @@ async def compare_odi_vs_drd_v15(
         raise HTTPException(422, f"v15 compare error: {exc}") from exc
     except Exception as exc:
         raise HTTPException(500, f"v15 compare unexpected error: {exc}") from exc
+
+
+@router.post("/scenario/compare-multi")
+async def compare_odi_multi_v16(
+    xml_file: UploadFile = File(...),
+    drd_file: UploadFile = File(...),
+    xml_file_2: Optional[UploadFile] = File(None),
+    profile: str = Form("auto"),
+    target_table: str = Form(""),
+    mapping_sheet: str = Form(""),
+    target_col: str = Form(""),
+    source_cols: str = Form(""),
+    rule_col: str = Form(""),
+    header_row: Optional[int] = Form(None),
+):
+    """Phase 1a: v16.6 generic delta + rule-proof (quick "what's the fix" view).
+
+    ODI #1 (+ optional ODI #2) vs DRD, fully in-memory + offline:
+      * one ODI  -> v15-only quick classification (engine='v15-only').
+      * two ODIs -> original(ODI#1)-vs-fixed(ODI#2) delta with the GENERIC
+        no-hardcode rule-proof (engine='v16-generic-rule-proof').
+
+    Read-only -- this surfaces differences/proof; it does NOT regenerate or
+    mutate anything (mark-correct -> regenerate is the control-table phase).
+    """
+    from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
+
+    xml_bytes = await _read_upload_checked_odi(xml_file)
+    drd_bytes = await _read_upload_checked_odi(drd_file)
+    xml2_bytes: Optional[bytes] = None
+    if xml_file_2 is not None and (xml_file_2.filename or "").strip():
+        xml2_bytes = await _read_upload_checked_odi(xml_file_2)
+
+    xml_name = xml_file.filename or "odi.xml"
+    if not xml_name.lower().endswith(".xml"):
+        raise HTTPException(422, f"v16 engine needs an ODI XML (.xml), got {xml_name!r}")
+    if xml2_bytes is not None:
+        x2_name = xml_file_2.filename or "odi2.xml"
+        if not x2_name.lower().endswith(".xml"):
+            raise HTTPException(422, f"ODI XML #2 must be a .xml, got {x2_name!r}")
+
+    drd_name = drd_file.filename or "drd.xlsx"
+    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
+    if drd_ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(
+            422, f"v16 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
+        )
+
+    def _run() -> Dict[str, Any]:
+        return compare_two_odi_against_drd(
+            drd_bytes,
+            xml_bytes,
+            xml2_bytes,
+            profile=profile or "auto",
+            target_table=target_table or "",
+            mapping_sheet=mapping_sheet or "",
+            target_col=target_col or "",
+            source_cols=source_cols or "",
+            rule_col=rule_col or "",
+            header_row=header_row,
+        )
+
+    try:
+        return await asyncio.to_thread(_run)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(422, f"v16 compare error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(500, f"v16 compare unexpected error: {exc}") from exc
 
 
 @router.post("/scenario/emit-sql")

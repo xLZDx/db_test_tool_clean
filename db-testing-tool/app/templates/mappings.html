@@ -7632,6 +7632,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label>DRD Mapping File <span class="text-muted" style="font-size:11px">(XLSX = all sheets parsed · CSV = mapping sheet only)</span></label>
                 <input type="file" id="odi-drd-file" accept=".csv,.xlsx,.xls,.xlsm" class="form-control">
             </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>ODI Scenario XML #2 <span class="text-muted" style="font-size:11px">(optional &middot; for &Delta; Compare: ODI #1 vs #2 vs DRD)</span></label>
+                <input type="file" id="odi-xml-file-2" accept=".xml" class="form-control">
+            </div>
         </div>
 
         <!-- Config + filter row -->
@@ -7658,6 +7662,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <button class="btn btn-primary" style="flex:0 0 130px;height:38px" onclick="odiRunAnalysis()" id="odi-analyze-btn">&#128269; Analyze</button>
             <button class="btn btn-outline" style="flex:0 0 150px;height:38px;border-color:#a855f7;color:#a855f7" onclick="odiRunV15()" id="odi-v15-btn" title="v15 generic engine: honest DRD-vs-ODI column lineage diff (no AVY/TaxLot heuristics, auto-detects layout)">&#129516; v15 Compare</button>
+            <button class="btn btn-outline" style="flex:0 0 170px;height:38px;border-color:#22c55e;color:#22c55e" onclick="odiRunV16()" id="odi-v16-btn" title="v16.6 generic delta + rule-proof: ODI #1 vs ODI #2 vs DRD -- shows what got FIXED / STILL_OPEN / REGRESSION without running tests. Needs ODI #2.">&#916; Compare v16.6</button>
         </div>
 
         <!-- Loading -->
@@ -7719,6 +7724,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         </tr>
                     </thead>
                     <tbody id="odi-v15-diffbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- v16.6 delta + rule-proof result (read-only) -->
+        <div id="odi-v16-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-weight:700;color:#22c55e">&#916; v16.6 delta + rule-proof</span>
+                <span id="odi-v16-engine" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
+            </div>
+            <div id="odi-v16-tiles" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Per-column delta (ODI #1 &rarr; ODI #2, vs DRD)</span>
+                <span id="odi-v16-shown" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="odi-v16-wrap" style="overflow-x:auto;max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 8px;text-align:left">Target Column</th>
+                            <th style="padding:6px 8px;text-align:left">Delta Status</th>
+                            <th style="padding:6px 8px;text-align:left">XML Delta</th>
+                            <th style="padding:6px 8px;text-align:left">Proof</th>
+                            <th style="padding:6px 8px;text-align:left">Fixed Reason / Conclusion</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-v16-body"></tbody>
                 </table>
             </div>
         </div>
@@ -7906,7 +7938,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // (odi-val-card) or its body, or the file inputs + Analyze button
         // vanish with it.
         ['odi-summary','odi-sql-section','odi-grid-section','odi-static-section',
-         'odi-multisheet-panel','odi-fix-panel','odi-xe-result','odi-v15-result'
+         'odi-multisheet-panel','odi-fix-panel','odi-xe-result','odi-v15-result','odi-v16-result'
         ].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         ['odi-target-schema','odi-target-table'].forEach(id => {
             const el = document.getElementById(id); if (el) el.value = '';
@@ -7921,10 +7953,15 @@ document.addEventListener('DOMContentLoaded', function() {
             const el = document.getElementById(id); if (el) el.textContent = '0';
         });
         const v15l = document.getElementById('odi-v15-layout'); if (v15l) v15l.textContent = '';
+        // clear v16 result body + tiles so stale delta never lingers on a new file.
+        const v16b = document.getElementById('odi-v16-body'); if (v16b) v16b.innerHTML = '';
+        const v16t = document.getElementById('odi-v16-tiles'); if (v16t) v16t.innerHTML = '';
+        const v16e = document.getElementById('odi-v16-engine'); if (v16e) v16e.textContent = '';
+        const v16s = document.getElementById('odi-v16-shown'); if (v16s) v16s.textContent = '';
         _odiAnnotations = {};
         try { localStorage.removeItem('odi_annotations'); } catch(_) {}
     };
-    ['odi-xml-file','odi-drd-file'].forEach(id => {
+    ['odi-xml-file','odi-xml-file-2','odi-drd-file'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', window._odiResetPanel);
     });
@@ -8009,6 +8046,119 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('odi-loading').style.display = 'none';
             btn.disabled = false;
         }
+    };
+
+    // Phase 1a: v16.6 generic delta + rule-proof (ODI #1 vs ODI #2 vs DRD).
+    // Read-only quick "what's the fix" view -- shows FIXED / STILL_OPEN /
+    // REGRESSION per column without running tests. Needs ODI #2.
+    window.odiRunV16 = async () => {
+        const xmlFile = document.getElementById('odi-xml-file').files[0];
+        const xmlFile2 = document.getElementById('odi-xml-file-2').files[0];
+        const drdFile = document.getElementById('odi-drd-file').files[0];
+        if (!xmlFile) { showToast('Upload ODI Scenario XML #1 first', 'error'); return; }
+        if (!xmlFile2) { showToast('Δ Compare needs ODI XML #2 (use "v15 Compare" for a single ODI)', 'error'); return; }
+        if (!drdFile) { showToast('v16 engine needs an Excel DRD file', 'error'); return; }
+        if (!/\.(xlsx|xls|xlsm)$/i.test(drdFile.name)) { showToast('v16 engine needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
+        const btn = document.getElementById('odi-v16-btn');
+        btn.disabled = true;
+        document.getElementById('odi-loading').style.display = 'block';
+        document.getElementById('odi-v16-result').style.display = 'none';
+        try {
+            const fd = new FormData();
+            fd.append('xml_file', xmlFile);
+            fd.append('xml_file_2', xmlFile2);
+            fd.append('drd_file', drdFile);
+            const tt = (document.getElementById('odi-target-table')?.value || '').trim();
+            if (tt) fd.append('target_table', tt);
+            const resp = await fetch('/api/odi/scenario/compare-multi', { method: 'POST', body: fd });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+                throw new Error(err.detail || 'HTTP ' + resp.status);
+            }
+            _odiRenderV16(await resp.json());
+        } catch(e) {
+            showToast('v16 compare failed: ' + e.message, 'error');
+        } finally {
+            document.getElementById('odi-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    };
+
+    // Status -> color. Actionable subset is shown in the table; UNCHANGED +
+    // UPSTREAM_CHANGED_NO_FINAL_MISMATCH are summarized in tiles only (noise).
+    const _V16_COLOR = {
+        FIXED_BY_RESOLVED_RULE_PROOF: '#22c55e',
+        FIXED_BY_FINAL_COMPARE: '#22c55e',
+        FIX_CANDIDATE_UPSTREAM_CHANGED: '#eab308',
+        STILL_OPEN: '#fb923c',
+        NEW_REGRESSION_BY_FINAL_COMPARE: '#ef4444',
+    };
+    const _V16_ACTIONABLE = new Set(Object.keys(_V16_COLOR));
+
+    window._odiRenderV16 = function(data) {
+        const result = document.getElementById('odi-v16-result');
+        document.getElementById('odi-v16-engine').textContent =
+            (data.engine || '') + (data.profile_resolved ? ' | profile ' + data.profile_resolved : '');
+
+        // v15-only fallback (single ODI): no delta -- guide the operator.
+        if (data.engine === 'v15-only' || !Array.isArray(data.delta)) {
+            document.getElementById('odi-v16-tiles').innerHTML = '';
+            document.getElementById('odi-v16-shown').textContent = '';
+            document.getElementById('odi-v16-body').innerHTML =
+                '<tr><td colspan="5" style="padding:10px;color:var(--text-muted)">Single ODI uploaded — v15 classification only. Add ODI #2 for the &Delta; delta + rule-proof view.</td></tr>';
+            result.style.display = 'block';
+            return;
+        }
+
+        const counts = (data.summary && data.summary.delta_status_counts) || {};
+        const fixedCount = (counts.FIXED_BY_RESOLVED_RULE_PROOF || 0) + (counts.FIXED_BY_FINAL_COMPARE || 0);
+        const tiles = [
+            { label: 'Fixed (proof)', val: fixedCount, fg: '#22c55e', bg: 'rgba(34,197,94,.10)', bd: 'rgba(34,197,94,.30)' },
+            { label: 'Fix candidate', val: counts.FIX_CANDIDATE_UPSTREAM_CHANGED || 0, fg: '#eab308', bg: 'rgba(234,179,8,.12)', bd: 'rgba(234,179,8,.40)' },
+            { label: 'Still open', val: counts.STILL_OPEN || 0, fg: '#fb923c', bg: 'rgba(251,146,60,.12)', bd: 'rgba(251,146,60,.40)' },
+            { label: 'Regression', val: counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0, fg: '#ef4444', bg: 'rgba(239,68,68,.10)', bd: 'rgba(239,68,68,.35)' },
+            { label: 'Upstream chg', val: counts.UPSTREAM_CHANGED_NO_FINAL_MISMATCH || 0, fg: '#94a3b8', bg: 'rgba(148,163,184,.10)', bd: 'rgba(148,163,184,.30)' },
+        ];
+        document.getElementById('odi-v16-tiles').innerHTML = tiles.map(t =>
+            '<div style="padding:10px 12px;border-radius:8px;text-align:center;background:' + t.bg + ';border:1px solid ' + t.bd + '">'
+            + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
+            + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>'
+        ).join('');
+
+        const proofMap = {};
+        (data.proof || []).forEach(p => { proofMap[(p.target_column || '').toUpperCase()] = p; });
+
+        const rows = data.delta.filter(r => _V16_ACTIONABLE.has(r.delta_status));
+        // Sort: fixed first, then candidate, still-open, regression.
+        const order = { FIXED_BY_RESOLVED_RULE_PROOF: 0, FIXED_BY_FINAL_COMPARE: 1, FIX_CANDIDATE_UPSTREAM_CHANGED: 2, STILL_OPEN: 3, NEW_REGRESSION_BY_FINAL_COMPARE: 4 };
+        rows.sort((a, b) => (order[a.delta_status] - order[b.delta_status]) || a.target_column.localeCompare(b.target_column));
+
+        document.getElementById('odi-v16-shown').textContent =
+            'showing ' + rows.length + ' actionable of ' + data.delta.length + ' columns';
+        document.getElementById('odi-v16-body').innerHTML = rows.length
+            ? rows.map(r => {
+                const col = (r.target_column || '').toUpperCase();
+                const c = _V16_COLOR[r.delta_status] || '#94a3b8';
+                const p = proofMap[col];
+                const proofCell = p
+                    ? (p.fixed_proof_passed === 'Y'
+                        ? '<span style="color:#22c55e">fixed&#10003; orig' + escapeHtml(p.original_proof_passed === 'Y' ? '✓' : '✗') + '</span>'
+                        : '<span style="color:var(--text-muted)">fixed' + escapeHtml(p.fixed_proof_passed) + '</span>')
+                    : '';
+                const reason = r.fixed_reason || r.original_reason || r.fixed_difference_type || '';
+                return '<tr>'
+                    + '<td style="padding:6px 8px;font-family:monospace">' + escapeHtml(r.target_column || '') + '</td>'
+                    + '<td style="padding:6px 8px"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:' + c + ';border:1px solid ' + c + '">' + escapeHtml(r.delta_status || '') + '</span></td>'
+                    + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(r.xml_delta_status || '') + '</td>'
+                    + '<td style="padding:6px 8px">' + proofCell + '</td>'
+                    + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(reason) + '</td>'
+                    + '</tr>';
+            }).join('')
+            : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No actionable delta — nothing FIXED / STILL_OPEN / REGRESSION between these two ODIs.</td></tr>';
+
+        result.style.display = 'block';
+        const nFixed = fixedCount;
+        showToast('v16.6: ' + nFixed + ' proven-fixed, ' + (counts.STILL_OPEN || 0) + ' still open, ' + (counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0) + ' regression', 'info');
     };
 
     // #3 NOTE: "move SQL below results" reverted -- it pushed the insert below the
