@@ -268,6 +268,10 @@ def analyze_control_table(
         _fk_map = _load_fk_map(source_datasource_id)
     except Exception:
         _fk_map = None
+    # R5 step 6: learning write-back is OPT-IN (env FK_MAP_LEARN). Off by default
+    # so the shared map -- and the grade -- stay deterministic (no poisoning).
+    import os as _os
+    _learned: Optional[List[Dict[str, Any]]] = [] if _os.environ.get("FK_MAP_LEARN") else None
     analysis_rows = build_analysis_rows(
         rows=rows,
         baseline_tests=baseline_tests,
@@ -277,6 +281,7 @@ def analyze_control_table(
         source_schema_index=source_index,
         etl_block_index=etl_block_index,
         fk_map=_fk_map,
+        learned_joins=_learned,
     )
     # Operator-locked (2026-05-29 Phase 7.4, reverts Phase 7.3 Issue 1):
     # DDL comes from PDM / real DB ONLY.  We do NOT silently default
@@ -309,6 +314,28 @@ def analyze_control_table(
         source_schema_index=source_index,
         fk_map=_fk_map,
     )
+    # R5 step 6: persist learned CLEAR DRD joins (opt-in only). Dedup by
+    # resolution identity (upsert_join keys on (base, fk_col)); priority-gated +
+    # conflict-guarded by fk_map_service. Best-effort -- never breaks generation.
+    if _learned:
+        try:
+            from app.services.fk_map_service import (
+                load_fk_map as _lfm, upsert_join as _uj, save_fk_map as _sfm,
+            )
+            _disk_map = _lfm(source_datasource_id)
+            _seen: set = set()
+            for _e in _learned:
+                _key = (_e["base_table"].upper(), _e["fk_col"].upper(), _e["ref_table"].upper(), _e["ref_col"].upper())
+                if _key in _seen:
+                    continue
+                _seen.add(_key)
+                _uj(_disk_map, _e["base_schema"], _e["base_table"], _e["fk_col"],
+                    _e["ref_schema"], _e["ref_table"], _e["ref_col"], source="drd")
+            _sfm(source_datasource_id, _disk_map)
+            logger.info("FK-map learning: persisted %d clear DRD join(s) for ds=%s", len(_seen), source_datasource_id)
+        except Exception as _exc:
+            logger.warning("FK-map learning write-back failed (non-fatal): %s", _exc)
+
     comparison = compare_insert_variants(analysis_rows, insert_sql, manual_sql)
     suite_tests = build_control_table_test_defs(
         target_schema=target_schema,
@@ -748,6 +775,7 @@ def build_analysis_rows(
     source_schema_index: Dict[Tuple[str, str], Dict[str, Any]],
     etl_block_index: Optional[Any] = None,
     fk_map: Optional[Dict[str, Any]] = None,
+    learned_joins: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     baseline_by_target = {
         (t.get("target_field") or "").upper(): t
@@ -841,6 +869,7 @@ def build_analysis_rows(
                 source_schema_index=source_schema_index,
                 source_block=expr_info.get("source_block") or fallback_source_block(row),
                 fk_map=fk_map,
+                learned_joins=learned_joins,
             )
             _plain_ref_forms = {normalize_sql_expr(f"S.{source_attr}")}
             if _src_table_for_check:
@@ -4084,6 +4113,7 @@ def derive_lookup_from_transformation(
     source_schema_index: Dict[Tuple[str, str], Dict[str, Any]],
     source_block: str = "",
     fk_map: Optional[Dict[str, Any]] = None,
+    learned_joins: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[str, str]:
     transformation = (row.get("transformation") or "").strip()
     src_schema = (row.get("source_schema") or "").strip()
@@ -4194,6 +4224,7 @@ def derive_lookup_from_transformation(
     else:
         _effective_src = src_table if src_table else "S"
 
+    _via_fk_map = False  # R5 step 6: don't re-learn what the FK map already resolved
     if src_lookup_literal:
         source_expr = src_lookup_literal if re.fullmatch(r"-?\d+(?:\.\d+)?", src_lookup_literal) else f"'{src_lookup_literal}'"
         on_sql = f"LK.{join_col} = {source_expr}"
@@ -4205,6 +4236,7 @@ def derive_lookup_from_transformation(
         _fb_col = _fk_map_lookup_fallback(fk_map, lookup_table, join_col, src_table, source_entry)
         if _fb_col:
             src_lookup_col = _fb_col
+            _via_fk_map = True
             _src_ref = f"{_effective_src}.{src_lookup_col}"
             on_sql = f"NVL(TO_CHAR(LK.{join_col}), '{NVL_NULL_SENTINEL}') = NVL(TO_CHAR({_src_ref}), '{NVL_NULL_SENTINEL}')"
             logger.info(
@@ -4238,6 +4270,30 @@ def derive_lookup_from_transformation(
     if extra_filter:
         extra_filter = re.sub(r"\bLK\.", f"{_lk_bare}.", extra_filter, flags=re.IGNORECASE)
         join_sql += f"\n{extra_filter}"
+
+    # R5 step 6: learning write-back (CLEAR-only). Record a join the generator
+    # resolved cleanly from the DRD -- explicit ON clause OR a normally-resolved
+    # source key -- so future runs can use it as a fallback. NOT learned: give-ups
+    # (ON 1=0) and joins the FK map itself resolved (already in the map). The
+    # caller persists only when FK_MAP_LEARN is enabled, so the default path +
+    # grade stay deterministic (no map poisoning).
+    if (
+        learned_joins is not None
+        and src_lookup_col
+        and not _via_fk_map
+        and "1 = 0" not in on_sql
+        and src_table
+        and lookup_name
+        and join_col
+    ):
+        learned_joins.append({
+            "base_schema": src_schema,
+            "base_table": src_table,
+            "fk_col": src_lookup_col,
+            "ref_schema": lookup_schema,
+            "ref_table": lookup_name,
+            "ref_col": join_col,
+        })
 
     return join_sql, f"{_lk_bare}.{val_col}"
 
