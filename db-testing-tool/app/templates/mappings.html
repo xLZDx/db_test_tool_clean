@@ -1067,8 +1067,14 @@
                                         <button class="btn btn-success btn-sm" onclick="saveControlTableInsertSqlAndLearn()">Save Insert SQL + Learn</button>
                                         <button class="btn btn-outline btn-sm" onclick="runControlTableInsertCheck(false)">Check SQL</button>
                                         <button class="btn btn-primary btn-sm" onclick="runControlTableInsertCheck(true)">Run Query Manually</button>
+                                        <button class="btn btn-sm" id="ct-v54-btn" style="border:1px solid #a855f7;color:#a855f7;background:transparent" onclick="buildV54Insert()" title="Build a clean DRD-driven INSERT via v5.4 (real joins from DRD; ODI optional, used as evidence only)">&#129521; Build v5.4 (DRD-driven)</button>
                                     </div>
                                 </div>
+                                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+                                    <label style="font-size:11px;color:var(--text-muted);white-space:nowrap">v5.4 ODI XML (optional, for 3-way DRD/ODI/generated):</label>
+                                    <input type="file" id="ct-v54-odi-file" accept=".xml" class="form-control" style="height:30px;font-size:11px;max-width:300px;padding:2px 6px">
+                                </div>
+                                <div id="ct-v54-result" style="display:none;margin-bottom:8px;border:1px solid #a855f7;border-radius:6px;background:rgba(168,85,247,.06);padding:8px;font-size:12px"></div>
                                 <div class="sql-lined-wrap ct-sql-resize-wrap" id="ct-insert-sql-wrap">
                                     <div class="sql-line-gutter" id="ct-insert-sql-gutter"></div>
                                     <textarea class="form-control ct-resizable-sql sql-lined-ta" id="ct-insert-sql" rows="25" style="font-family:monospace;font-size:12px;line-height:18px;min-height:360px"></textarea>
@@ -6134,6 +6140,76 @@ function _renderControlTableValidation(result) {
 function _targetTableForTraining() {
     const parts = _controlTableTargetParts();
     return (parts.targetTable || '').trim().toUpperCase();
+}
+
+// Gate G3 (2026-06-06): build a clean DRD-driven INSERT via the v5.4 endpoint.
+// Additive -- does NOT touch the existing generator / Comparison Grid / buttons.
+window.buildV54Insert = async () => {
+    const drd = document.getElementById('ct-drd-file').files[0];
+    if (!drd) { showToast('Upload a DRD file first (Step 1)', 'error'); return; }
+    if (!/\.(xlsx|xls|xlsm)$/i.test(drd.name)) { showToast('v5.4 builder needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
+    const odi = (document.getElementById('ct-v54-odi-file').files || [])[0] || null;
+    const tgt = (document.getElementById('ct-target').value || '').trim();
+    let tsch = '', ttbl = tgt;
+    if (tgt.includes('.')) { const p = tgt.split('.'); ttbl = p.pop(); tsch = p.join('.'); }
+    const up = (ttbl || '').toUpperCase();
+    let profile = 'auto';
+    if (up.includes('AVY')) profile = 'avy'; else if (up.includes('TAX_LOT') || up.includes('TAXLOT')) profile = 'taxlot';
+    const btn = document.getElementById('ct-v54-btn'); btn.disabled = true;
+    const res = document.getElementById('ct-v54-result'); res.style.display = 'block';
+    res.innerHTML = '<span style="color:var(--text-muted)">Building DRD-driven INSERT via v5.4...</span>';
+    try {
+        const fd = new FormData();
+        fd.append('drd_file', drd);
+        if (odi) fd.append('odi_file', odi);
+        fd.append('target_schema', tsch);
+        fd.append('target_table', ttbl);
+        fd.append('profile', profile);
+        const r = await fetch('/api/tests/control-table/build-v54', { method: 'POST', body: fd });
+        if (!r.ok) { const e = await r.json().catch(() => ({ detail: 'HTTP ' + r.status })); throw new Error(e.detail || ('HTTP ' + r.status)); }
+        const d = await r.json();
+        if (!d.generated_sql) { throw new Error('Server returned 200 but no INSERT was generated'); }
+        const ta = document.getElementById('ct-insert-sql');
+        ta.value = d.generated_sql;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        if (typeof setCtSqlPaneView === 'function') { try { setCtSqlPaneView('ct-insert-sql', 'all'); } catch (e) { console.warn('setCtSqlPaneView failed:', e); } }
+        _renderV54Result(d);
+        showToast('v5.4 build OK (' + ((d.tri_compare || []).length) + ' columns, DRD-driven)', 'info');
+    } catch (e) {
+        res.innerHTML = '<span style="color:var(--danger)">v5.4 build failed: ' + escapeHtml(e.message) + '</span>';
+        showToast('v5.4 build failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+};
+
+function _renderV54Result(d) {
+    const tri = d.tri_compare || [];
+    const total = tri.length;
+    const fromDrd = tri.filter(r => r.generated_vs_drd === 'DRD_SOURCE').length;
+    const odiDiffs = tri.filter(r => /MISMATCH|REVIEW/i.test(r.generated_vs_odi || '')).map(r => r.target_column);
+    const newMismatch = tri.filter(r => r.same_mismatch_as_drd_odi && r.same_mismatch_as_drd_odi !== 'Y').map(r => r.target_column);
+    const valErrs = d.validation_errors || [];
+    const odiNote = d.odi_provided ? '' : ' <span style="color:var(--text-muted)">(no ODI uploaded; add ODI XML above for the 3-way compare)</span>';
+    let html = '<div style="font-weight:700;color:#a855f7;margin-bottom:4px">v5.4 DRD-driven INSERT' + odiNote + '</div>';
+    html += '<div>Columns: <b>' + total + '</b> | built from DRD: <b style="color:var(--success)">' + fromDrd + '</b> | joins: <b>' + ((d.join_inventory || []).length) + '</b></div>';
+    if (d.odi_provided) {
+        html += '<div style="margin-top:4px">Differences vs ODI (DRD is the reference): <b style="color:var(--warning)">' + odiDiffs.length + '</b>'
+            + (odiDiffs.length ? ' <span style="font-family:monospace;font-size:11px">' + escapeHtml(odiDiffs.slice(0, 20).join(', ')) + (odiDiffs.length > 20 ? ' ...' : '') + '</span>' : '') + '</div>';
+        const ok = (total > 0 && newMismatch.length === 0 && fromDrd === total);
+        html += '<div style="margin-top:4px;color:' + (ok ? 'var(--success)' : 'var(--danger)') + '">'
+            + (ok ? '3-way OK: generated == DRD; differences ONLY vs ODI (0 new mismatches).'
+                  : ('WARNING: ' + newMismatch.length + ' new mismatch(es) vs ODI absent from DRD/ODI: ' + escapeHtml(newMismatch.slice(0, 10).join(', ')))) + '</div>';
+    }
+    if (valErrs.length) {
+        html += '<div style="margin-top:4px;color:var(--warning)">Validation blockers: <b>' + valErrs.length + '</b> <span style="font-family:monospace;font-size:11px">'
+            + escapeHtml(valErrs.slice(0, 8).map(e => (e.type || '') + ':' + (e.target_column || '')).join(', ')) + '</span></div>';
+    } else {
+        html += '<div style="margin-top:4px;color:var(--success)">No validation blockers.</div>';
+    }
+    const res = document.getElementById('ct-v54-result');
+    res.style.display = 'block';
+    res.innerHTML = html;
 }
 
 async function saveControlTableInsertSqlAndLearn() {
