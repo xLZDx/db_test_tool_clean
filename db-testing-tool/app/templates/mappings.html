@@ -45,6 +45,11 @@
    collapsed) and add a clean fullscreen toggle instead. */
 #odi-val-card { resize: none !important; height: auto !important; }
 #odi-val-card.odi-fs { position: fixed; inset: 0; z-index: 9999; margin: 0; border-radius: 0; max-height: 100vh; overflow: auto; }
+/* Bug 1b: the card stays non-drag (above), but let the SQL preview itself be
+   resized taller via the corner grip; in fullscreen lift its height cap so the
+   full INSERT SQL is reachable. */
+#odi-sql-pre { resize: vertical; min-height: 60px; }
+#odi-val-card.odi-fs #odi-sql-pre { max-height: none; }
 .tm-tfs-container { display:grid; grid-template-columns:1.15fr .95fr; gap:16px; }
 .tm-tfs-tree { border:1px solid var(--border); border-radius:8px; overflow:hidden; max-height:440px; overflow-y:auto; }
 .tm-tfs-tree-item { padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
@@ -8121,6 +8126,16 @@ document.addEventListener('DOMContentLoaded', function() {
         _v15RenderBigTiles();
         _v15RenderTable();
         document.getElementById('odi-v15-result').style.display = 'block';
+        // Bug 1a: surface the emitted Oracle INSERT SQL for the v15 Compare path too
+        // (mirrors _odiRender()). The endpoint now returns data.sql (odi_sql_blocks.sql).
+        if (data.sql) {
+            document.getElementById('odi-sql-pre').textContent = data.sql;
+            document.getElementById('odi-sql-section').style.display = 'block';
+            _odiSqlVisible = true;
+            const _tb = document.getElementById('odi-sql-toggle-btn'); if (_tb) _tb.textContent = 'Hide';
+            const _w = document.getElementById('odi-sql-wrap'); if (_w) _w.style.display = 'block';
+            const _xe = document.getElementById('odi-xe-result'); if (_xe) _xe.style.display = 'none';
+        }
         showToast('v15: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + ((data.differences||[]).length) + ' review rows', 'info');
     }
 

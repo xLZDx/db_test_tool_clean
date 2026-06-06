@@ -1096,6 +1096,22 @@ async def compare_odi_vs_drd_v15(
             col_rows = _read_rows("column_diff.csv")
             diff_rows = _read_rows("full_drd_vs_odi_xml_rules_diff.csv")
 
+            # Bug 1a: surface the emitted Oracle INSERT SQL (odi_sql_blocks.sql) so the
+            # v15 Compare path can show it in the "Emitted Oracle INSERT SQL" section,
+            # the same way the Analyze path does. MUST read BEFORE the finally-block
+            # rmtree deletes the output dir. Cap at 500KB to keep the response bounded.
+            sql_text = ""
+            _sqlp = out / "odi_sql_blocks.sql"
+            if _sqlp.exists():
+                try:
+                    _raw = _sqlp.read_text(encoding="utf-8", errors="replace")
+                    sql_text = (
+                        _raw if len(_raw) <= 500_000
+                        else (_raw[:500_000] + "\n-- ...truncated (over 500KB)...")
+                    )
+                except Exception:
+                    sql_text = ""
+
             # #2: tag each diff row with a severity bucket (from the v15 Conclusion
             # marker) and build per-Difference-Type counts so the GUI can render
             # dynamic v15-status tiles (one per type present), colored by severity.
@@ -1173,6 +1189,7 @@ async def compare_odi_vs_drd_v15(
                 "drd_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "MAPPING_ONLY"],
                 "odi_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "XML_ONLY"],
                 "column_diff_count": len(col_rows),
+                "sql": sql_text,
             }
         finally:
             _gc.collect()  # release any lingering openpyxl read_only file handles
