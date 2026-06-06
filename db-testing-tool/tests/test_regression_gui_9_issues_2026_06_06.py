@@ -119,10 +119,11 @@ def test_issue1_v15_returns_curated_review_rows():
 
 
 @_AVY
-def test_issue2_v15_dynamic_status_tiles_filter_sort():
-    # FIXED step 2 (operator-revised #2): v15 keeps its OWN table style but gains dynamic
-    # per-Difference-Type tiles (colored by severity bucket), click-to-filter, and sortable
-    # headers -- NOT the v9 6-verdict screen. Backend exposes type_counts + per-row severity.
+def test_issue2_v15_big_buckets_filter_sort():
+    # FIXED step 2 (operator-revised): v15 keeps its OWN table style + shows BIG Analyze-style
+    # tiles (v15 severity buckets incl Matched); click a tile to filter the table by severity;
+    # sortable headers -- NOT the v9 6-verdict screen. Backend exposes bucket_counts + per-row
+    # severity. (No small per-type tiles; no purple frame.)
     with AVY_DRD.open("rb") as fd, AVY_ODI.open("rb") as fo:
         r = client.post(
             "/api/odi/scenario/compare-v15",
@@ -131,14 +132,18 @@ def test_issue2_v15_dynamic_status_tiles_filter_sort():
         )
     assert r.status_code == 200, r.text
     d = r.json()
-    tc = d.get("type_counts")
-    assert isinstance(tc, list) and tc, "endpoint must return non-empty type_counts"
-    assert all({"type", "count", "severity"} <= set(t) for t in tc), "type_count needs type/count/severity"
-    assert sum(t["count"] for t in tc) == len(d.get("differences", [])), "type_counts must cover every diff row"
-    assert all(row.get("severity") for row in d.get("differences", [])), "every diff row needs a severity bucket"
-    # frontend wiring: dynamic tiles container + click-filter + sort handlers
-    assert "odi-v15-typetiles" in HTML, "missing dynamic type-tiles container"
-    assert "v15FilterType" in HTML and "v15SortBy" in HTML, "missing v15 filter/sort wiring"
+    bc = d.get("bucket_counts")
+    assert isinstance(bc, dict), "endpoint must return bucket_counts"
+    for key in ("matched", "real_gap", "logic_drift", "structural", "missing", "odi_extra"):
+        assert key in bc, f"bucket_counts missing '{key}'"
+    diffs = d.get("differences", [])
+    assert all(row.get("severity") for row in diffs), "every diff row needs a severity bucket"
+    odi_only_rows = sum(1 for row in diffs if row.get("severity") == "odi_only")
+    assert bc["real_gap"] + bc["logic_drift"] + bc["structural"] + odi_only_rows == len(diffs), \
+        "the four difference buckets must partition the diff rows"
+    # frontend wiring: big-tile container + severity filter + sort
+    assert "odi-v15-bigtiles" in HTML, "missing big-tiles container"
+    assert "v15FilterSeverity" in HTML and "v15SortBy" in HTML, "missing v15 filter/sort wiring"
 
 
 def test_issue3_reset_clears_v15_result():  # FIXED step 1 (de-xfailed)

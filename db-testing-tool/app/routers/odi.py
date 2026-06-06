@@ -1140,9 +1140,23 @@ async def compare_odi_vs_drd_v15(
                 "mapping_only": statuses.count("MAPPING_ONLY"),
                 "xml_only": statuses.count("XML_ONLY"),
             }
+            _diff_sev = [r.get("severity", "") for r in diff_rows]
+            bucket_counts = {
+                "real_gap": _diff_sev.count("real_gap"),
+                "logic_drift": _diff_sev.count("logic_drift"),
+                "structural": _diff_sev.count("structural"),
+                "odi_extra": summary["xml_only"] + _diff_sev.count("odi_only"),
+                "missing": summary["mapping_only"],
+            }
+            bucket_counts["matched"] = max(
+                summary["in_both"]
+                - (bucket_counts["real_gap"] + bucket_counts["logic_drift"] + bucket_counts["structural"]),
+                0,
+            )
             return {
                 "engine": "v15-generic",
                 "summary": summary,
+                "bucket_counts": bucket_counts,
                 "detection": detection,
                 "differences": diff_rows,
                 "type_counts": type_counts,
