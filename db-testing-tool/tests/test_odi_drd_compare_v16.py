@@ -96,13 +96,88 @@ def test_profile_resolved_surfaced():
 
 
 def test_empty_drd_raises():
+    # No DRD + 2 (dummy) ODIs -> Mode 2; the dummy XML yields no lineage -> raise.
     with pytest.raises(ValueError):
         v16.compare_two_odi_against_drd(b"", b"<x/>", b"<x/>")
+
+
+def test_no_drd_no_odi2_raises():
+    # Neither a DRD nor a 2nd ODI -> nothing to compare against -> raise.
+    with pytest.raises(ValueError):
+        v16.compare_two_odi_against_drd(None, b"<x/>", None)
 
 
 def test_empty_odi1_raises():
     with pytest.raises(ValueError):
         v16.compare_two_odi_against_drd(b"PK\x03\x04fake", b"", None)
+
+
+# ---------------------------------------------------------------------------
+# Multi-mode (2026-06-07): Mode 1 ODI-vs-DRD, Mode 2 ODI-vs-ODI (DRD optional),
+# both-mode per-ODI-vs-DRD enrichment.
+# ---------------------------------------------------------------------------
+
+_XML_DIFF_STATUSES = {"LOGIC_CHANGED", "RESTRUCTURED", "STRUCTURE", "ONLY_IN_ODI1", "ONLY_IN_ODI2"}
+
+
+@_avy
+def test_mode1_odi_vs_drd_differences():
+    res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), None, **_OVERRIDES)
+    assert res["engine"] == v16.ENGINE_V15_ONLY
+    assert res["mode"] == v16.MODE_ODI_VS_DRD
+    assert "v15_by_target" in res and res["v15_by_target"]
+    diffs = res["differences"]
+    assert isinstance(diffs, list) and diffs, "Mode 1 must surface ODI-vs-DRD discrepancies"
+    d = diffs[0]
+    assert d["mapping_logic_label"] == "DRD"
+    assert d["odi_logic_label"] == "ODI"
+    assert "delta" not in res and "proof" not in res
+
+
+@_avy
+def test_mode2_odi_vs_odi_no_drd_full_blocks():
+    """ODI #1 vs ODI #2 with NO DRD: pure code-vs-code, honest classification,
+    and FULL (untruncated) blocks where they differ."""
+    res = v16.compare_two_odi_against_drd(None, _b(_ODI1), _b(_ODI2))
+    assert res["engine"] == v16.ENGINE_ODI_VS_ODI
+    assert res["mode"] == v16.MODE_ODI_VS_ODI
+    diffs = res["differences"]
+    assert isinstance(diffs, list) and diffs
+    assert all(d["status"] in _XML_DIFF_STATUSES for d in diffs), \
+        sorted({d["status"] for d in diffs})
+    assert diffs[0]["mapping_logic_label"] == "ODI #1"
+    assert diffs[0]["odi_logic_label"] == "ODI #2"
+    # full blocks where they differ -- untruncated (the inline-view block is large)
+    blocks = res["sql_block_diff"]
+    assert isinstance(blocks, list) and blocks
+    assert all(b["sql_delta_status"] != "UNCHANGED" for b in blocks)
+    longest = max(len(b["original_sql_excerpt"]) + len(b["fixed_sql_excerpt"]) for b in blocks)
+    assert longest > 2000, "blocks must be FULL (untruncated), not 2000-char excerpts"
+
+
+@_avy
+def test_mode2_drd_is_optional():
+    # No raise when DRD is omitted but a 2nd ODI is supplied.
+    res = v16.compare_two_odi_against_drd(None, _b(_ODI1), _b(_ODI2))
+    assert res["mapping_rows"] == 0
+    assert res["summary"]["changed_blocks"] >= 1
+
+
+@_avy
+def test_both_mode_per_odi_vs_drd_carry_each_odi_logic():
+    res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), _b(_ODI2), **_OVERRIDES)
+    assert res["engine"] == v16.ENGINE_DELTA
+    assert res["mode"] == v16.MODE_ODI_VS_ODI_WITH_DRD
+    o1 = res["odi1_vs_drd"]
+    o2 = res["odi2_vs_drd"]
+    assert isinstance(o1, list) and isinstance(o2, list) and o1 and o2
+    # Each list carries that ODI's OWN resolved logic -> the two versions differ
+    # even when their v15-final mismatch classes coincide (upstream-only change).
+    sig1 = [(d["target_column"], d.get("odi_resolved_logic", "")) for d in o1]
+    sig2 = [(d["target_column"], d.get("odi_resolved_logic", "")) for d in o2]
+    assert sig1 != sig2, "two ODI versions must surface different logic vs the same DRD"
+    # delta/proof path preserved (parity with the standalone counts).
+    assert "delta" in res and "proof" in res
 
 
 def test_no_fixture_hardcodes_in_proof_layer():

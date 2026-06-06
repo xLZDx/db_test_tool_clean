@@ -1206,7 +1206,7 @@ async def compare_odi_vs_drd_v15(
 @router.post("/scenario/compare-multi")
 async def compare_odi_multi_v16(
     xml_file: UploadFile = File(...),
-    drd_file: UploadFile = File(...),
+    drd_file: Optional[UploadFile] = File(None),
     xml_file_2: Optional[UploadFile] = File(None),
     profile: str = Form("auto"),
     target_table: str = Form(""),
@@ -1216,23 +1216,35 @@ async def compare_odi_multi_v16(
     rule_col: str = Form(""),
     header_row: Optional[int] = Form(None),
 ):
-    """Phase 1a: v16.6 generic delta + rule-proof (quick "what's the fix" view).
+    """v16.6 multi-mode comparator (quick "what's the discrepancy / fix" view).
 
-    ODI #1 (+ optional ODI #2) vs DRD, fully in-memory + offline:
-      * one ODI  -> v15-only quick classification (engine='v15-only').
-      * two ODIs -> original(ODI#1)-vs-fixed(ODI#2) delta with the GENERIC
-        no-hardcode rule-proof (engine='v16-generic-rule-proof').
+    Three modes, auto-selected from which files are attached (offline, in-memory):
+      * ODI #1 + DRD (no ODI #2)  -> ODI-vs-DRD discrepancies (mode='odi1_vs_drd').
+      * ODI #1 + ODI #2 (DRD opt) -> pure XML-vs-XML on resolved per-column SQL,
+        full blocks where they differ (mode='odi1_vs_odi2'). DRD is OPTIONAL here.
+      * ODI #1 + ODI #2 + DRD     -> delta + rule-proof + each ODI's own mismatch
+        set vs the DRD (mode='odi1_vs_odi2_with_drd').
 
-    Read-only -- this surfaces differences/proof; it does NOT regenerate or
-    mutate anything (mark-correct -> regenerate is the control-table phase).
+    At least one of {DRD, ODI #2} is required. Read-only -- surfaces differences;
+    mark-correct -> regenerate is the control-table phase.
     """
     from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
 
     xml_bytes = await _read_upload_checked_odi(xml_file)
-    drd_bytes = await _read_upload_checked_odi(drd_file)
+
+    drd_bytes: Optional[bytes] = None
+    if drd_file is not None and (drd_file.filename or "").strip():
+        drd_bytes = await _read_upload_checked_odi(drd_file)
     xml2_bytes: Optional[bytes] = None
     if xml_file_2 is not None and (xml_file_2.filename or "").strip():
         xml2_bytes = await _read_upload_checked_odi(xml_file_2)
+
+    if drd_bytes is None and xml2_bytes is None:
+        raise HTTPException(
+            422,
+            "Attach a DRD (ODI vs DRD) or a second ODI XML (ODI vs ODI) -- "
+            "ODI #1 alone has nothing to compare against.",
+        )
 
     xml_name = xml_file.filename or "odi.xml"
     if not xml_name.lower().endswith(".xml"):
@@ -1242,12 +1254,13 @@ async def compare_odi_multi_v16(
         if not x2_name.lower().endswith(".xml"):
             raise HTTPException(422, f"ODI XML #2 must be a .xml, got {x2_name!r}")
 
-    drd_name = drd_file.filename or "drd.xlsx"
-    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
-    if drd_ext not in ("xlsx", "xls", "xlsm"):
-        raise HTTPException(
-            422, f"v16 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
-        )
+    if drd_bytes is not None:
+        drd_name = drd_file.filename or "drd.xlsx"
+        drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
+        if drd_ext not in ("xlsx", "xls", "xlsm"):
+            raise HTTPException(
+                422, f"v16 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
+            )
 
     def _run() -> Dict[str, Any]:
         return compare_two_odi_against_drd(

@@ -46,6 +46,23 @@ __VERSION__ = "16.6-generic-rule-proof"
 
 ENGINE_DELTA = "v16-generic-rule-proof"
 ENGINE_V15_ONLY = "v15-only"
+ENGINE_ODI_VS_ODI = "odi-vs-odi"
+
+# Comparison modes surfaced to the panel (operator-locked, 2026-06-07):
+#   MODE_ODI_VS_DRD   -- ODI #1 vs DRD (no ODI #2).  Mapping Logic = DRD,
+#                        ODI Logic = ODI #1.  differences = v15 mismatch rows.
+#   MODE_ODI_VS_ODI   -- ODI #1 vs ODI #2 (DRD optional / ignored).  Pure
+#                        XML-vs-XML on RESOLVED per-column SQL; full blocks
+#                        where they differ.  Mapping Logic = ODI #1, ODI Logic
+#                        = ODI #2.  Handles structurally-different XMLs via the
+#                        multi-step lineage resolver (_resolve_final).
+#   MODE_ODI_VS_ODI_WITH_DRD -- both supplied: delta + proof (control-table
+#                        panel) PLUS the XML-vs-XML differences PLUS each ODI's
+#                        own mismatch set vs the DRD (acceptance: two ODI
+#                        versions yield DIFFERENT mismatches vs the same DRD).
+MODE_ODI_VS_DRD = "odi1_vs_drd"
+MODE_ODI_VS_ODI = "odi1_vs_odi2"
+MODE_ODI_VS_ODI_WITH_DRD = "odi1_vs_odi2_with_drd"
 
 
 # ======================================================================================
@@ -327,9 +344,18 @@ def _delta_report(orig_v15, fixed_v15, xdelta) -> List[Dict[str, str]]:
     return rows
 
 
-def _sql_block_diff(orig_blocks, fixed_blocks) -> List[Dict[str, str]]:
+def _block_name(b: Dict[str, str]) -> str:
+    """Best human label for a SQL block (the parser exposes task_name_1..3)."""
+    for k in ("task_name", "task_name_1", "task_name_2", "task_name_3"):
+        v = (b.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _sql_block_diff(orig_blocks, fixed_blocks, excerpt_len: int = 2000) -> List[Dict[str, str]]:
     def key(b):
-        return (b.get("step_no", ""), b.get("task_no", ""), b.get("task_name", ""))
+        return (b.get("step_no", ""), b.get("task_no", ""), _block_name(b))
 
     ob = {key(b): b for b in orig_blocks}
     fb = {key(b): b for b in fixed_blocks}
@@ -349,8 +375,8 @@ def _sql_block_diff(orig_blocks, fixed_blocks) -> List[Dict[str, str]]:
                 "task_no": k[1],
                 "task_name": k[2],
                 "sql_delta_status": st,
-                "original_sql_excerpt": _short(o.get("sql", ""), 2000),
-                "fixed_sql_excerpt": _short(f.get("sql", ""), 2000),
+                "original_sql_excerpt": _short(o.get("sql", ""), excerpt_len),
+                "fixed_sql_excerpt": _short(f.get("sql", ""), excerpt_len),
             }
         )
     return rows
@@ -676,6 +702,139 @@ def _summary_counts(by: Dict[str, Dict[str, str]]) -> Dict[str, int]:
     return dict(Counter(r.get("v15_class", "") for r in by.values()))
 
 
+def _drd_logic(col: str, mapping_by_target: Dict[str, Dict[str, str]]) -> str:
+    """Best-effort DRD-side rule/expr text for a column (generic, no hardcode)."""
+    r = mapping_by_target.get(_ident(col)) or mapping_by_target.get(col) or {}
+    rule = (r.get("drd_rule") or "").strip()
+    if rule:
+        return rule
+    srcs = [r.get("source_1", ""), r.get("source_2", ""), r.get("source_3", "")]
+    return " | ".join(s for s in (x.strip() for x in srcs) if s)
+
+
+def _diffs_from_v15_mismatches(
+    mismatches: List[Dict[str, str]],
+    mapping_by_target: Dict[str, Dict[str, str]],
+    resolved_by_target: Optional[Dict[str, Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    """Unified difference rows for ODI-vs-DRD (Mode 1).
+
+    Mapping Logic column = DRD; ODI Logic column = the ODI under test (the
+    RESOLVED per-column expression when available, else the v15 logic field).
+    ``resolved_by_target`` carries that ODI's resolved lineage, so the same DRD
+    compared against two different ODIs surfaces each ODI's own logic.  Keeps
+    the raw v15 fields too so the legacy review table still renders.
+    """
+    resolved_by_target = resolved_by_target or {}
+    out: List[Dict[str, str]] = []
+    for r in mismatches:
+        area = r.get("Area / Columns", "")
+        cols = _area_cols(area)
+        col = cols[0] if cols else _ident(area)
+        rres = resolved_by_target.get(_ident(col)) or resolved_by_target.get(col) or {}
+        resolved_logic = rres.get("resolved_expression", "")
+        odi_logic = resolved_logic or r.get("ODI XML Logic", "")
+        out.append(
+            {
+                "target_column": col,
+                "status": r.get("Difference Type", "") or "DIFFERENCE",
+                "mapping_logic_label": "DRD",
+                "mapping_logic": r.get("Mapping Logic", "") or _drd_logic(col, mapping_by_target),
+                "odi_logic_label": "ODI",
+                "odi_logic": odi_logic,
+                "odi_resolved_logic": resolved_logic,
+                "odi_lineage": rres.get("lineage_path", ""),
+                "conclusion": r.get("Conclusion", ""),
+                "recommended_action": r.get("Recommended Action", ""),
+                # raw v15 fields preserved for the legacy review table:
+                "Area / Columns": area,
+                "Difference Type": r.get("Difference Type", ""),
+                "Mapping Logic": r.get("Mapping Logic", ""),
+                "ODI XML Logic": r.get("ODI XML Logic", ""),
+                "Conclusion": r.get("Conclusion", ""),
+                "Recommended Action": r.get("Recommended Action", ""),
+            }
+        )
+    return out
+
+
+_XML_STATUS_HUMAN = {
+    "LOGIC_CHANGED": "Both ODIs resolve this column to a concrete transform and they differ.",
+    "RESTRUCTURED": "One ODI routes this column through an inline view / staging, so the per-column logic is not directly resolvable -- review the full SQL block below.",
+    "STRUCTURE": "Resolved source reference differs (alias / staging) -- review the full SQL block below.",
+    "ONLY_IN_ODI1": "Column produced by ODI #1 only (absent in ODI #2).",
+    "ONLY_IN_ODI2": "Column produced by ODI #2 only (absent in ODI #1).",
+}
+
+# Action priority (lower = more actionable, surfaced first).
+_XML_STATUS_ORDER = {
+    "LOGIC_CHANGED": 0,
+    "ONLY_IN_ODI1": 1,
+    "ONLY_IN_ODI2": 2,
+    "RESTRUCTURED": 3,
+    "STRUCTURE": 4,
+}
+
+
+def _classify_xml_change(orig_expr: str, fixed_expr: str) -> str:
+    """Honest classification of a per-column resolved-SQL difference.
+
+    LOGIC_CHANGED is only claimed when BOTH ODIs resolve the column to a
+    concrete (non-passthrough) transform that differ -- those are the
+    confirmable logic changes.  When one side stays an inline-view / staging
+    passthrough (the resolver cannot reach the leaf), it is RESTRUCTURED, not a
+    confirmed logic change (the full SQL block carries the real code)."""
+    o_leaf = bool(orig_expr) and not _is_passthrough(orig_expr)
+    f_leaf = bool(fixed_expr) and not _is_passthrough(fixed_expr)
+    if o_leaf and f_leaf:
+        return "LOGIC_CHANGED"
+    if o_leaf != f_leaf:
+        return "RESTRUCTURED"
+    return "STRUCTURE"
+
+
+def _diffs_from_xml_delta(xdelta: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Unified difference rows for pure ODI-vs-ODI (Mode 2).
+
+    Mapping Logic column = ODI #1 (resolved, FULL block); ODI Logic column =
+    ODI #2 (resolved, FULL block).  UNCHANGED columns are dropped.  CHANGED
+    columns are classified honestly (LOGIC_CHANGED vs RESTRUCTURED vs
+    STRUCTURE) so the operator is not told 280 columns "changed" when most were
+    merely re-routed through an inline view.
+    """
+    out: List[Dict[str, str]] = []
+    for r in xdelta:
+        raw = r.get("xml_delta_status", "")
+        if raw == "UNCHANGED":
+            continue
+        o = r.get("original_resolved_expression", "")
+        f = r.get("fixed_resolved_expression", "")
+        if raw == "ADDED_IN_FIXED":
+            st = "ONLY_IN_ODI2"
+        elif raw == "REMOVED_IN_FIXED":
+            st = "ONLY_IN_ODI1"
+        else:  # CHANGED
+            st = _classify_xml_change(o, f)
+        out.append(
+            {
+                "target_column": r.get("target_column", ""),
+                "status": st,
+                "mapping_logic_label": "ODI #1",
+                # FULL per-column resolved SQL block (untruncated):
+                "mapping_logic": o,
+                "odi_logic_label": "ODI #2",
+                "odi_logic": f,
+                "conclusion": _XML_STATUS_HUMAN.get(st, ""),
+                "mapping_final": r.get("original_final_expression", ""),
+                "odi_final": r.get("fixed_final_expression", ""),
+                "mapping_lineage": r.get("original_lineage_path", ""),
+                "odi_lineage": r.get("fixed_lineage_path", ""),
+            }
+        )
+    out.sort(key=lambda d: (_XML_STATUS_ORDER.get(d["status"], 9), d["target_column"]))
+    return out
+
+
 def compare_two_odi_against_drd(
     drd_bytes: bytes,
     odi1_bytes: bytes,
@@ -689,20 +848,34 @@ def compare_two_odi_against_drd(
     rule_col: str = "",
     header_row: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Compare ODI(s) against a DRD, fully in memory.
+    """Compare ODI(s) against a DRD and/or each other, fully in memory.
 
-    * odi2_bytes is None -> v15-only quick classification of odi1 vs DRD
-      (engine="v15-only"; NO delta/proof fields).
-    * odi2_bytes present -> full v16.6 original(odi1)-vs-fixed(odi2) delta +
-      generic rule-proof (engine="v16-generic-rule-proof").
+    Three modes, auto-selected from which inputs are present:
 
-    Raises ValueError on empty DRD mapping or empty ODI final lineage (never a
-    silent "no differences").
+    * DRD + ODI #1, no ODI #2  -> MODE_ODI_VS_DRD (engine="v15-only").
+      Quick ODI-vs-DRD classification; ``differences`` = v15 mismatch rows
+      (Mapping Logic = DRD, ODI Logic = ODI #1).  Keeps ``v15_by_target``.
+    * ODI #1 + ODI #2, no DRD  -> MODE_ODI_VS_ODI (engine="odi-vs-odi").
+      Pure XML-vs-XML on RESOLVED per-column SQL; ``differences`` carries the
+      FULL per-column blocks where ODI #1 and ODI #2 differ (Mapping Logic =
+      ODI #1, ODI Logic = ODI #2).  Structurally-different XMLs (extra inline
+      view / aggregation) are normalised by the lineage resolver.
+    * DRD + ODI #1 + ODI #2    -> MODE_ODI_VS_ODI_WITH_DRD
+      (engine="v16-generic-rule-proof").  The control-table delta + rule-proof,
+      PLUS the XML-vs-XML ``differences``, PLUS ``odi1_vs_drd`` / ``odi2_vs_drd``
+      (each ODI's own mismatch set vs the same DRD -- they differ).
+
+    Raises ValueError if neither a DRD nor an ODI #2 is supplied, on empty DRD
+    mapping, or on empty ODI final lineage (never a silent "no differences").
     """
-    if not drd_bytes:
-        raise ValueError("DRD file is empty.")
     if not odi1_bytes:
         raise ValueError("ODI XML #1 is empty.")
+    has_drd = bool(drd_bytes)
+    has_odi2 = bool(odi2_bytes)
+    if not has_drd and not has_odi2:
+        raise ValueError(
+            "Provide a DRD (ODI vs DRD) or a second ODI (ODI vs ODI) to compare against."
+        )
 
     args = _args_shim(
         profile=profile,
@@ -717,62 +890,102 @@ def compare_two_odi_against_drd(
     td = _tempfile.mkdtemp(prefix="v16_")
     tdp = Path(td)
     try:
-        drd_path = tdp / "drd.xlsx"
         odi1_path = tdp / "odi1.xml"
-        drd_path.write_bytes(drd_bytes)
         odi1_path.write_bytes(odi1_bytes)
-
         o1_targets, o1_blocks, o1_lineage, o1_final = _load_odi(odi1_path)
-
-        odi2_path = None
-        if odi2_bytes:
-            odi2_path = tdp / "odi2.xml"
-            odi2_path.write_bytes(odi2_bytes)
-            o2_targets, o2_blocks, o2_lineage, o2_final = _load_odi(odi2_path)
-            xml_targets = list(dict.fromkeys(o1_targets + o2_targets))
-        else:
-            xml_targets = list(o1_targets)
-
-        detection, mapping_rows, _notes = _load_drd(drd_path, xml_targets, args)
-
-        # Guard: no false-green on mis-detected DRD / empty ODI lineage.
-        if not mapping_rows:
-            raise ValueError(
-                "DRD extraction produced 0 mapping rows -- check the mapping sheet / header detection."
-            )
         if not o1_final:
             raise ValueError(
                 "ODI XML #1 produced 0 final-target lineage rows -- the XML may be missing a target-load step."
             )
 
-        resolved_profile = _infer_profile(detection, profile)
-        detection_human = detection.as_human()
+        if has_odi2:
+            odi2_path = tdp / "odi2.xml"
+            odi2_path.write_bytes(odi2_bytes)
+            o2_targets, o2_blocks, o2_lineage, o2_final = _load_odi(odi2_path)
+            if not o2_final:
+                raise ValueError(
+                    "ODI XML #2 produced 0 final-target lineage rows -- the XML may be missing a target-load step."
+                )
+            xml_targets = list(dict.fromkeys(o1_targets + o2_targets))
+        else:
+            xml_targets = list(o1_targets)
 
-        # ---- Single-ODI: v15-only quick classification (no delta/proof) ----
-        if not odi2_bytes:
-            by1, _cd1, _m1, _e1 = _v15_compare(
+        # ---- Load DRD only when supplied (Mode 2 is pure XML-vs-XML) ----
+        detection = None
+        mapping_rows: List[Dict[str, str]] = []
+        if has_drd:
+            drd_path = tdp / "drd.xlsx"
+            drd_path.write_bytes(drd_bytes)
+            detection, mapping_rows, _notes = _load_drd(drd_path, xml_targets, args)
+            if not mapping_rows:
+                raise ValueError(
+                    "DRD extraction produced 0 mapping rows -- check the mapping sheet / header detection."
+                )
+            resolved_profile = _infer_profile(detection, profile)
+            detection_human = detection.as_human()
+            mapping_by_target = {r["target_column"]: r for r in mapping_rows}
+        else:
+            resolved_profile = profile if profile != "auto" else "generic"
+            detection_human = {}
+            mapping_by_target = {}
+
+        # ================= MODE 2: pure ODI #1 vs ODI #2 (no DRD) =================
+        if has_odi2 and not has_drd:
+            orig_res = _resolve_final(o1_final, o1_lineage)
+            fixed_res = _resolve_final(o2_final, o2_lineage)
+            xdelta = _xml_delta(orig_res, fixed_res)
+            differences = _diffs_from_xml_delta(xdelta)
+            # FULL blocks where the two ODIs differ (authoritative "полные блоки
+            # где несовпадение"): keep only non-UNCHANGED, untruncated.
+            sdiff = [
+                r for r in _sql_block_diff(o1_blocks, o2_blocks, excerpt_len=60000)
+                if r["sql_delta_status"] != "UNCHANGED"
+            ]
+            return {
+                "engine": ENGINE_ODI_VS_ODI,
+                "version": __VERSION__,
+                "mode": MODE_ODI_VS_ODI,
+                "profile_resolved": resolved_profile,
+                "detection": detection_human,
+                "mapping_rows": 0,
+                "differences": differences,
+                "xml_delta": xdelta,
+                "sql_block_diff": sdiff,
+                "summary": {
+                    "difference_counts": dict(Counter(d["status"] for d in differences)),
+                    "columns_compared": len(set(orig_res) | set(fixed_res)),
+                    "differences_total": len(differences),
+                    "changed_blocks": len(sdiff),
+                },
+            }
+
+        # ================= MODE 1: ODI #1 vs DRD (no ODI #2) =================
+        if has_drd and not has_odi2:
+            by1, _cd1, m1, _e1 = _v15_compare(
                 mapping_rows, o1_final, o1_lineage, o1_blocks, detection, resolved_profile
             )
+            o1_res = _resolve_final(o1_final, o1_lineage)
+            differences = _diffs_from_v15_mismatches(m1, mapping_by_target, o1_res)
             return {
                 "engine": ENGINE_V15_ONLY,
                 "version": __VERSION__,
+                "mode": MODE_ODI_VS_DRD,
                 "profile_resolved": resolved_profile,
                 "detection": detection_human,
                 "mapping_rows": len(mapping_rows),
+                "differences": differences,
                 "v15_by_target": by1,
-                "summary": {"v15_class_counts": _summary_counts(by1)},
+                "summary": {
+                    "v15_class_counts": _summary_counts(by1),
+                    "difference_count": len(differences),
+                },
             }
 
-        # ---- Two-ODI: full v16.6 delta + generic rule-proof ----
-        if not o2_final:
-            raise ValueError(
-                "ODI XML #2 produced 0 final-target lineage rows -- the XML may be missing a target-load step."
-            )
-
-        orig_v15, _ocd, _om, _oe = _v15_compare(
+        # ============ BOTH: ODI #1 + ODI #2 + DRD -> delta + proof ============
+        orig_v15, _ocd, om, _oe = _v15_compare(
             mapping_rows, o1_final, o1_lineage, o1_blocks, detection, resolved_profile
         )
-        fixed_v15, _fcd, _fm, _fe = _v15_compare(
+        fixed_v15, _fcd, fm, _fe = _v15_compare(
             mapping_rows, o2_final, o2_lineage, o2_blocks, detection, resolved_profile
         )
         orig_res = _resolve_final(o1_final, o1_lineage)
@@ -786,16 +999,27 @@ def compare_two_odi_against_drd(
         fixed_xml = odi2_bytes.decode("utf-8", errors="replace")
         delta, proof = reclassify_delta(delta, drd_by_target, original_xml, fixed_xml)
 
+        # Acceptance: each ODI's OWN mismatch set vs the same DRD -- enriched
+        # with that ODI's resolved per-column logic, so two versions surface
+        # their own logic against the same DRD even when the v15-final classes
+        # coincide (upstream-only changes).
+        odi1_vs_drd = _diffs_from_v15_mismatches(om, drd_by_target, orig_res)
+        odi2_vs_drd = _diffs_from_v15_mismatches(fm, drd_by_target, fixed_res)
+
         delta_counts = dict(Counter(r.get("delta_status", "") for r in delta))
         return {
             "engine": ENGINE_DELTA,
             "version": __VERSION__,
+            "mode": MODE_ODI_VS_ODI_WITH_DRD,
             "profile_resolved": resolved_profile,
             "detection": detection_human,
             "mapping_rows": len(mapping_rows),
             "delta": delta,
             "proof": proof,
             "sql_block_diff": sdiff,
+            "differences": _diffs_from_xml_delta(xdelta),
+            "odi1_vs_drd": odi1_vs_drd,
+            "odi2_vs_drd": odi2_vs_drd,
             "v15_original": orig_v15,
             "v15_fixed": fixed_v15,
             "summary": {
@@ -812,6 +1036,8 @@ def compare_two_odi_against_drd(
                 ],
                 "original_v15_class_counts": _summary_counts(orig_v15),
                 "fixed_v15_class_counts": _summary_counts(fixed_v15),
+                "odi1_vs_drd_count": len(odi1_vs_drd),
+                "odi2_vs_drd_count": len(odi2_vs_drd),
             },
         }
     finally:

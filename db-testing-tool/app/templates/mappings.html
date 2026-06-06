@@ -7717,7 +7717,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <input type="file" id="odi-drd-file" accept=".csv,.xlsx,.xls,.xlsm" class="form-control">
             </div>
             <div class="form-group" style="margin:0;flex:1;min-width:220px">
-                <label>ODI Scenario XML #2 <span class="text-muted" style="font-size:11px">(optional &middot; for &Delta; Compare: ODI #1 vs #2 vs DRD)</span></label>
+                <label>ODI Scenario XML #2 <span class="text-muted" style="font-size:11px">(optional &middot; &Delta; Compare: ODI #1 vs ODI #2 code-vs-code; DRD then optional)</span></label>
                 <input type="file" id="odi-xml-file-2" accept=".xml" class="form-control">
             </div>
         </div>
@@ -7745,8 +7745,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </select>
             </div>
             <button class="btn btn-primary" style="flex:0 0 130px;height:38px" onclick="odiRunAnalysis()" id="odi-analyze-btn">&#128269; Analyze</button>
-            <button class="btn btn-outline" style="flex:0 0 150px;height:38px;border-color:#a855f7;color:#a855f7" onclick="odiRunV15()" id="odi-v15-btn" title="v15 generic engine: honest DRD-vs-ODI column lineage diff (no AVY/TaxLot heuristics, auto-detects layout)">&#129516; v15 Compare</button>
-            <button class="btn btn-outline" style="flex:0 0 170px;height:38px;border-color:#22c55e;color:#22c55e" onclick="odiRunV16()" id="odi-v16-btn" title="v16.6 generic delta + rule-proof: ODI #1 vs ODI #2 vs DRD -- shows what got FIXED / STILL_OPEN / REGRESSION without running tests. Needs ODI #2.">&#916; Compare v16.6</button>
+            <button class="btn btn-outline" style="flex:0 0 190px;height:38px;border-color:#22c55e;color:#22c55e" onclick="odiRunV16()" id="odi-v16-btn" title="v16.6 generic compare. Attach a DRD (ODI vs DRD) and/or a second ODI XML (ODI #1 vs ODI #2, pure code-vs-code). Shows discrepancies + full blocks where they differ -- no tests run.">&#916; Compare v16.6</button>
         </div>
 
         <!-- Loading -->
@@ -7782,36 +7781,6 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
 
-        <!-- v15 generic engine result (R3, opt-in; v9 path above is untouched) -->
-        <div id="odi-v15-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-                <span style="font-weight:700;color:#a855f7">v15 generic engine</span>
-                <span id="odi-v15-layout" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
-            </div>
-            <!-- #2 (revised): big Analyze-style tiles, v15 severity buckets incl Matched; click a tile to filter the table -->
-            <div id="odi-v15-bigtiles" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Differences (DRD vs final ODI load)</span>
-                <span id="odi-v15-shown" style="font-size:11px;color:var(--text-muted)"></span>
-            </div>
-            <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-                <table style="width:100%;border-collapse:collapse;font-size:11px">
-                    <thead style="position:sticky;top:0;background:var(--surface)">
-                        <tr style="border-bottom:2px solid var(--border)">
-                            <th style="padding:6px 8px;text-align:left">#</th>
-                            <th style="padding:6px 8px;text-align:left">Area / Columns</th>
-                            <th style="padding:6px 8px;text-align:left">Difference Type</th>
-                            <th style="padding:6px 8px;text-align:left">Mapping Logic</th>
-                            <th style="padding:6px 8px;text-align:left">ODI XML Logic</th>
-                            <th style="padding:6px 8px;text-align:left">Conclusion</th>
-                            <th style="padding:6px 8px;text-align:left">Recommended Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="odi-v15-diffbody"></tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- v16.6 delta + rule-proof result (read-only) -->
         <div id="odi-v16-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -7820,7 +7789,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div id="odi-v16-tiles" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Per-column delta (ODI #1 &rarr; ODI #2, vs DRD)</span>
+                <span id="odi-v16-title" style="font-size:12px;font-weight:600;color:var(--text-muted)">Comparison result</span>
                 <span id="odi-v16-shown" style="font-size:11px;color:var(--text-muted)"></span>
             </div>
             <div id="odi-v16-wrap" style="overflow-x:auto;max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
@@ -8102,47 +8071,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // R3 (2026-06-06): v15 generic engine -- separate, opt-in path. Does NOT
-    // touch odiRunAnalysis / _odiRender / the v9 tiles above.
-    window.odiRunV15 = async () => {
-        const xmlFile = document.getElementById('odi-xml-file').files[0];
-        const drdFile = document.getElementById('odi-drd-file').files[0];
-        if (!xmlFile) { showToast('Upload an ODI Scenario XML first', 'error'); return; }
-        if (!drdFile) { showToast('v15 engine needs an Excel DRD file', 'error'); return; }
-        if (!/\.(xlsx|xls|xlsm)$/i.test(drdFile.name)) { showToast('v15 engine needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
-        const btn = document.getElementById('odi-v15-btn');
-        btn.disabled = true;
-        document.getElementById('odi-loading').style.display = 'block';
-        document.getElementById('odi-v15-result').style.display = 'none';
-        try {
-            const fd = new FormData();
-            fd.append('xml_file', xmlFile);
-            fd.append('drd_file', drdFile);
-            const resp = await fetch('/api/odi/scenario/compare-v15', { method: 'POST', body: fd });
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
-                throw new Error(err.detail || 'HTTP ' + resp.status);
-            }
-            _odiRenderV15(await resp.json());
-        } catch(e) {
-            showToast('v15 compare failed: ' + e.message, 'error');
-        } finally {
-            document.getElementById('odi-loading').style.display = 'none';
-            btn.disabled = false;
-        }
-    };
-
-    // Phase 1a: v16.6 generic delta + rule-proof (ODI #1 vs ODI #2 vs DRD).
-    // Read-only quick "what's the fix" view -- shows FIXED / STILL_OPEN /
-    // REGRESSION per column without running tests. Needs ODI #2.
+    // v16.6 multi-mode compare. Auto-selects the mode from attached files:
+    //   ODI #1 + DRD            -> ODI vs DRD discrepancies
+    //   ODI #1 + ODI #2         -> pure code-vs-code, full blocks where differ
+    //   ODI #1 + ODI #2 + DRD   -> delta + rule-proof + per-ODI-vs-DRD
+    // Read-only: surfaces differences; it does not run tests or regenerate.
     window.odiRunV16 = async () => {
         const xmlFile = document.getElementById('odi-xml-file').files[0];
         const xmlFile2 = document.getElementById('odi-xml-file-2').files[0];
         const drdFile = document.getElementById('odi-drd-file').files[0];
         if (!xmlFile) { showToast('Upload ODI Scenario XML #1 first', 'error'); return; }
-        if (!xmlFile2) { showToast('Δ Compare needs ODI XML #2 (use "v15 Compare" for a single ODI)', 'error'); return; }
-        if (!drdFile) { showToast('v16 engine needs an Excel DRD file', 'error'); return; }
-        if (!/\.(xlsx|xls|xlsm)$/i.test(drdFile.name)) { showToast('v16 engine needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
+        if (!drdFile && !xmlFile2) {
+            showToast('Attach a DRD (ODI vs DRD) or a 2nd ODI XML (ODI #1 vs ODI #2)', 'error');
+            return;
+        }
+        if (drdFile && !/\.(xlsx|xls|xlsm)$/i.test(drdFile.name)) {
+            showToast('DRD must be an Excel file (.xlsx/.xls/.xlsm)', 'error'); return;
+        }
         const btn = document.getElementById('odi-v16-btn');
         btn.disabled = true;
         document.getElementById('odi-loading').style.display = 'block';
@@ -8150,8 +8095,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const fd = new FormData();
             fd.append('xml_file', xmlFile);
-            fd.append('xml_file_2', xmlFile2);
-            fd.append('drd_file', drdFile);
+            if (xmlFile2) fd.append('xml_file_2', xmlFile2);
+            if (drdFile) fd.append('drd_file', drdFile);
             const tt = (document.getElementById('odi-target-table')?.value || '').trim();
             if (tt) fd.append('target_table', tt);
             const resp = await fetch('/api/odi/scenario/compare-multi', { method: 'POST', body: fd });
@@ -8179,21 +8124,16 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     const _V16_ACTIONABLE = new Set(Object.keys(_V16_COLOR));
 
-    window._odiRenderV16 = function(data) {
-        const result = document.getElementById('odi-v16-result');
-        document.getElementById('odi-v16-engine').textContent =
-            (data.engine || '') + (data.profile_resolved ? ' | profile ' + data.profile_resolved : '');
+    // full-block cell: scrollable monospace pre (for code-vs-code blocks)
+    function _v16Cell(txt) {
+        const t = (txt == null) ? '' : String(txt);
+        if (!t) return '<td style="padding:6px 8px;color:var(--text-muted)">&mdash;</td>';
+        return '<td style="padding:6px 8px;vertical-align:top"><pre style="margin:0;max-height:240px;overflow:auto;'
+            + 'white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:11px">' + escapeHtml(t) + '</pre></td>';
+    }
 
-        // v15-only fallback (single ODI): no delta -- guide the operator.
-        if (data.engine === 'v15-only' || !Array.isArray(data.delta)) {
-            document.getElementById('odi-v16-tiles').innerHTML = '';
-            document.getElementById('odi-v16-shown').textContent = '';
-            document.getElementById('odi-v16-body').innerHTML =
-                '<tr><td colspan="5" style="padding:10px;color:var(--text-muted)">Single ODI uploaded — v15 classification only. Add ODI #2 for the &Delta; delta + rule-proof view.</td></tr>';
-            result.style.display = 'block';
-            return;
-        }
-
+    // Mode: ODI #1 + ODI #2 + DRD -> delta + rule-proof (control-table view).
+    function _v16RenderDeltaTable(data, tilesEl, shownEl, wrapEl) {
         const counts = (data.summary && data.summary.delta_status_counts) || {};
         const fixedCount = (counts.FIXED_BY_RESOLVED_RULE_PROOF || 0) + (counts.FIXED_BY_FINAL_COMPARE || 0);
         const tiles = [
@@ -8203,7 +8143,8 @@ document.addEventListener('DOMContentLoaded', function() {
             { label: 'Regression', val: counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0, fg: '#ef4444', bg: 'rgba(239,68,68,.10)', bd: 'rgba(239,68,68,.35)' },
             { label: 'Upstream chg', val: counts.UPSTREAM_CHANGED_NO_FINAL_MISMATCH || 0, fg: '#94a3b8', bg: 'rgba(148,163,184,.10)', bd: 'rgba(148,163,184,.30)' },
         ];
-        document.getElementById('odi-v16-tiles').innerHTML = tiles.map(t =>
+        tilesEl.style.gridTemplateColumns = 'repeat(5,1fr)';
+        tilesEl.innerHTML = tiles.map(t =>
             '<div style="padding:10px 12px;border-radius:8px;text-align:center;background:' + t.bg + ';border:1px solid ' + t.bd + '">'
             + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
             + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>'
@@ -8211,15 +8152,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const proofMap = {};
         (data.proof || []).forEach(p => { proofMap[(p.target_column || '').toUpperCase()] = p; });
-
-        const rows = data.delta.filter(r => _V16_ACTIONABLE.has(r.delta_status));
-        // Sort: fixed first, then candidate, still-open, regression.
+        const rows = (data.delta || []).filter(r => _V16_ACTIONABLE.has(r.delta_status));
         const order = { FIXED_BY_RESOLVED_RULE_PROOF: 0, FIXED_BY_FINAL_COMPARE: 1, FIX_CANDIDATE_UPSTREAM_CHANGED: 2, STILL_OPEN: 3, NEW_REGRESSION_BY_FINAL_COMPARE: 4 };
         rows.sort((a, b) => (order[a.delta_status] - order[b.delta_status]) || a.target_column.localeCompare(b.target_column));
+        shownEl.textContent = 'showing ' + rows.length + ' actionable of ' + (data.delta || []).length + ' columns';
 
-        document.getElementById('odi-v16-shown').textContent =
-            'showing ' + rows.length + ' actionable of ' + data.delta.length + ' columns';
-        document.getElementById('odi-v16-body').innerHTML = rows.length
+        const head = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+            + '<thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">'
+            + '<th style="padding:6px 8px;text-align:left">Target Column</th>'
+            + '<th style="padding:6px 8px;text-align:left">Delta Status</th>'
+            + '<th style="padding:6px 8px;text-align:left">XML Delta</th>'
+            + '<th style="padding:6px 8px;text-align:left">Proof</th>'
+            + '<th style="padding:6px 8px;text-align:left">Fixed Reason / Conclusion</th>'
+            + '</tr></thead><tbody>';
+        const body = rows.length
             ? rows.map(r => {
                 const col = (r.target_column || '').toUpperCase();
                 const c = _V16_COLOR[r.delta_status] || '#94a3b8';
@@ -8230,7 +8176,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         : '<span style="color:var(--text-muted)">fixed' + escapeHtml(p.fixed_proof_passed) + '</span>')
                     : '';
                 const reason = r.fixed_reason || r.original_reason || r.fixed_difference_type || '';
-                return '<tr>'
+                return '<tr style="border-bottom:1px solid var(--border)">'
                     + '<td style="padding:6px 8px;font-family:monospace">' + escapeHtml(r.target_column || '') + '</td>'
                     + '<td style="padding:6px 8px"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:' + c + ';border:1px solid ' + c + '">' + escapeHtml(r.delta_status || '') + '</span></td>'
                     + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(r.xml_delta_status || '') + '</td>'
@@ -8238,11 +8184,103 @@ document.addEventListener('DOMContentLoaded', function() {
                     + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(reason) + '</td>'
                     + '</tr>';
             }).join('')
-            : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No actionable delta — nothing FIXED / STILL_OPEN / REGRESSION between these two ODIs.</td></tr>';
+            : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No actionable delta &mdash; nothing FIXED / STILL_OPEN / REGRESSION between these two ODIs.</td></tr>';
+        wrapEl.innerHTML = head + body + '</tbody></table>';
+        showToast('v16.6: ' + fixedCount + ' proven-fixed, ' + (counts.STILL_OPEN || 0) + ' still open, ' + (counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0) + ' regression', 'info');
+    }
 
+    // Mode 1 (ODI vs DRD) / Mode 2 (ODI vs ODI) -> differences table (full blocks).
+    function _v16RenderDiffTable(data, mode, tilesEl, shownEl, wrapEl) {
+        const diffs = Array.isArray(data.differences) ? data.differences : [];
+        const isXml = (mode === 'odi1_vs_odi2');
+        const counts = {};
+        diffs.forEach(d => { const s = d.status || '?'; counts[s] = (counts[s] || 0) + 1; });
+        const palette = ['#ef4444', '#fb923c', '#eab308', '#06b6d4', '#a855f7', '#22c55e'];
+        const tileDefs = [{ label: (isXml ? 'Differences' : 'Discrepancies'), val: diffs.length, fg: '#ef4444' }];
+        let ti = 0;
+        Object.keys(counts).sort().forEach(s => { tileDefs.push({ label: s, val: counts[s], fg: palette[(ti++) % palette.length] }); });
+        const shownTiles = tileDefs.slice(0, 6);
+        tilesEl.style.gridTemplateColumns = 'repeat(' + Math.max(shownTiles.length, 1) + ',1fr)';
+        tilesEl.innerHTML = shownTiles.map(t =>
+            '<div style="padding:10px 12px;border-radius:8px;text-align:center;background:rgba(148,163,184,.08);border:1px solid ' + t.fg + '">'
+            + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
+            + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>'
+        ).join('');
+
+        const mapLabel = diffs.length ? (diffs[0].mapping_logic_label || 'Mapping Logic') : (isXml ? 'ODI #1' : 'DRD');
+        const odiLabel = diffs.length ? (diffs[0].odi_logic_label || 'ODI Logic') : (isXml ? 'ODI #2' : 'ODI');
+        shownEl.textContent = diffs.length + ' ' + (isXml ? 'differing columns' : 'discrepancies')
+            + (data.mapping_rows ? ' / ' + data.mapping_rows + ' DRD rows' : '');
+
+        const head = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+            + '<thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">'
+            + '<th style="padding:6px 8px;text-align:left">Target Column</th>'
+            + '<th style="padding:6px 8px;text-align:left">Status</th>'
+            + '<th style="padding:6px 8px;text-align:left">' + escapeHtml(mapLabel) + '</th>'
+            + '<th style="padding:6px 8px;text-align:left">' + escapeHtml(odiLabel) + '</th>'
+            + '<th style="padding:6px 8px;text-align:left">' + (isXml ? 'Note' : 'Conclusion / Action') + '</th>'
+            + '</tr></thead><tbody>';
+        const body = diffs.length
+            ? diffs.map(d => {
+                const concl = isXml ? (d.conclusion || '') : [d.conclusion, d.recommended_action].filter(Boolean).join(' — ');
+                return '<tr style="border-bottom:1px solid var(--border)">'
+                    + '<td style="padding:6px 8px;font-family:monospace;white-space:nowrap;vertical-align:top">' + escapeHtml(d.target_column || '') + '</td>'
+                    + '<td style="padding:6px 8px;vertical-align:top"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid var(--border)">' + escapeHtml(d.status || '') + '</span></td>'
+                    + _v16Cell(d.mapping_logic)
+                    + _v16Cell(d.odi_logic)
+                    + '<td style="padding:6px 8px;color:var(--text-muted);vertical-align:top">' + escapeHtml(concl) + '</td>'
+                    + '</tr>';
+            }).join('')
+            : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No ' + (isXml ? 'code differences' : 'discrepancies') + ' found between these inputs.</td></tr>';
+
+        // Mode 2: append the FULL SQL blocks where the two ODIs differ -- the
+        // authoritative "full blocks where they differ" view (per-column logic
+        // can be hidden inside an inline view, but the full block is complete).
+        let blockHtml = '';
+        const blocks = (isXml && Array.isArray(data.sql_block_diff)) ? data.sql_block_diff : [];
+        if (blocks.length) {
+            blockHtml = '<div style="margin-top:14px;font-size:12px;font-weight:600;color:var(--text-muted)">'
+                + 'Full SQL blocks that differ (' + blocks.length + ')</div>'
+                + blocks.map(bk => {
+                    const lbl = 'step ' + escapeHtml(bk.step_no || '') + ' / task ' + escapeHtml(bk.task_no || '')
+                        + (bk.task_name ? ' — ' + escapeHtml(bk.task_name) : '');
+                    const st = bk.sql_delta_status || '';
+                    const pre = (txt, who) => '<div style="flex:1;min-width:0"><div style="font-size:10px;color:var(--text-muted);margin-bottom:2px">' + who + '</div>'
+                        + '<pre style="margin:0;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:10px;background:rgba(148,163,184,.06);border:1px solid var(--border);border-radius:6px;padding:8px">'
+                        + escapeHtml(txt || '—') + '</pre></div>';
+                    return '<div style="margin:8px 0;border:1px solid var(--border);border-radius:8px;padding:8px 10px">'
+                        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+                        + '<span style="font-family:monospace;font-size:11px;font-weight:600">' + lbl + '</span>'
+                        + '<span style="padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;border:1px solid var(--border)">' + escapeHtml(st) + '</span></div>'
+                        + '<div style="display:flex;gap:10px">' + pre(bk.original_sql_excerpt, 'ODI #1') + pre(bk.fixed_sql_excerpt, 'ODI #2') + '</div></div>';
+                }).join('');
+        }
+
+        wrapEl.innerHTML = head + body + '</tbody></table>' + blockHtml;
+        showToast('v16.6: ' + diffs.length + (isXml ? ' differing columns, ' + blocks.length + ' full blocks' : ' discrepancies'), 'info');
+    }
+
+    window._odiRenderV16 = function(data) {
+        const result = document.getElementById('odi-v16-result');
+        const mode = data.mode || '';
+        document.getElementById('odi-v16-engine').textContent =
+            (data.engine || '') + (data.profile_resolved ? ' | profile ' + data.profile_resolved : '') + (mode ? ' | ' + mode : '');
+        const titleEl = document.getElementById('odi-v16-title');
+        const tilesEl = document.getElementById('odi-v16-tiles');
+        const shownEl = document.getElementById('odi-v16-shown');
+        const wrapEl = document.getElementById('odi-v16-wrap');
+
+        if (mode === 'odi1_vs_odi2_with_drd' && Array.isArray(data.delta)) {
+            titleEl.textContent = 'Per-column delta (ODI #1 → ODI #2, vs DRD)';
+            _v16RenderDeltaTable(data, tilesEl, shownEl, wrapEl);
+        } else if (mode === 'odi1_vs_odi2') {
+            titleEl.textContent = 'Code-vs-code differences (ODI #1 vs ODI #2) — full blocks';
+            _v16RenderDiffTable(data, mode, tilesEl, shownEl, wrapEl);
+        } else {
+            titleEl.textContent = 'ODI vs DRD discrepancies';
+            _v16RenderDiffTable(data, mode || 'odi1_vs_drd', tilesEl, shownEl, wrapEl);
+        }
         result.style.display = 'block';
-        const nFixed = fixedCount;
-        showToast('v16.6: ' + nFixed + ' proven-fixed, ' + (counts.STILL_OPEN || 0) + ' still open, ' + (counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0) + ' regression', 'info');
     };
 
     // #3 NOTE: "move SQL below results" reverted -- it pushed the insert below the
