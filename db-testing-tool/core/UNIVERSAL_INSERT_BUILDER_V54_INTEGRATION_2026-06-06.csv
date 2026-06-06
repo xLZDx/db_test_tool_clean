@@ -1,8 +1,7 @@
 gate,status,scope,review,verify
-G1,DONE,vendor universal_insert_builder_v54.py + build_to_dir wrapper + import repoint to odi_drd_compare_v15,T2 PASS (2 MINOR->G2),smoke AVY/CLOSE/OPEN: 0 O. / 0 forbidden / real joins; DRD-only generates
-G2,PENDING,POST /api/tests/control-table/build-v54 (DRD required + ODI optional) -> generated_sql/join_inventory/validation_errors/tri_compare/implementation_map/summary,T3,endpoint test AVY/CLOSE/OPEN; TemporaryDirectory + xlsx size/type guards
-G3,PENDING,wire Step-3 GUI (Build v5.4 button + ODI upload + populate Generated Insert/Comparison Grid/validation); old generator untouched,T3/T4,REAL-browser GUI test AVY+CLOSE+OPEN; 3-way diffs ODI-only
-G4,PENDING,golden acceptance test (pass-conditions + DRD-only + 3-way ODI-only-diff) + CSV twin,T2,pytest
-why_v54,note,DRD-driven (FROM CCAL_REPL_OWNER.TXN TXN + real joins + ETL-Notes APACSH + unique aliases + commented prose + CL_SCM_ID filters); ODI evidence-only,,rejected v4 CTE-wrap (copied ODI step6 as O.)
-passcond,locked,0 O./odi_final_source/AVY_FACT_STEP5_STG_RT; FROM TXN; 3-way DRD==generated diffs-only-vs-ODI; GUI on taxlots+AVY,,
-push,no,all gates commit LOCAL only; operator pushes separately,,
+G1,DONE,vendor universal_insert_builder_v54.py + build_to_dir wrapper + import repoint to odi_drd_compare_v15,T2 PASS,smoke AVY/CLOSE/OPEN: 0 O. / 0 forbidden / real joins; DRD-only generates (5 tests)
+G2,DONE,POST /api/tests/control-table/build-v54 (DRD required + ODI optional) -> generated_sql/join_inventory/validation_errors/tri_compare/implementation_map/summary,T2 (BLOCKER empty-200 + MAJOR narrow-except + MINOR path-leak FIXED),endpoint AVY/CLOSE 200 3-way diffs-only-vs-ODI; malformed never-200-empty (4 tests)
+G3,DONE,Step-3 GUI: Build v5.4 button + ODI upload + result panel (additive; old generator untouched),T3 (security 0 XSS; 2 BLOCKER vacuous-OK + 1 MAJOR silent-catch FIXED),REAL-browser GUI AVY+CLOSE+OPEN ALL PASS: clean insert + 3-way ODI-only diffs
+G4,DONE,golden acceptance test: clean insert + AVY FROM TXN + CL_SCM_ID + 3-way exact ODI-only sets + ODI-optional,T2 APPROVE (1 MINOR vacuous-guard FIXED),8 tests pass; pins AVY 373/13 CLOSE 84/5 OPEN 66/4
+result,SUCCESS,clean DRD-driven INSERT (0 O./odi_final/Step5; FROM CCAL_REPL_OWNER.TXN TXN) + 3-way where generated==DRD and diffs land ONLY on ODI,verified taxlots+AVY via GUI,operator success criterion met
+push,NO,all 4 gates committed LOCAL only (G1 7d4d4d5 / G2 f1eaed6 / G3 16aa1e1 / G4 pending); operator pushes separately,,
