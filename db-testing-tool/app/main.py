@@ -127,7 +127,13 @@ async def page_schema_browser(request: Request):
 
 @app.get("/mappings", response_class=HTMLResponse)
 async def page_mappings(request: Request):
-    return templates.TemplateResponse("mappings.html", {"request": request, "page": "qa-manager"})
+    resp = templates.TemplateResponse("mappings.html", {"request": request, "page": "qa-manager"})
+    # No-cache so deployed GUI changes (JS/HTML) always reach the browser -- prevents
+    # the stale-page bug where API data refreshes but the page script stays old.
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.get("/tests", response_class=HTMLResponse)
 async def page_tests(request: Request):
