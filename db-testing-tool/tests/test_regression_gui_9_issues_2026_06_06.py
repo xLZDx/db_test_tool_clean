@@ -96,11 +96,9 @@ def _pyfunc(src: str, name: str) -> str:
 # -- Group A -- ODI vs DRD Validation: v15 must equal Analyze ------------------
 
 @_AVY
-@pytest.mark.xfail(strict=True, reason="Issue #1: /scenario/compare-v15 hardcodes "
-                   "profile='generic' (odi.py:1079) -> 262 raw rows; with auto/avy "
-                   "profile v15 returns the curated 14 review rows (operator final_v15 "
-                   "regression). Fix = pass auto, not generic.")
 def test_issue1_v15_returns_curated_review_rows():
+    # FIXED 2026-06-06 (step 1): /scenario/compare-v15 now passes profile="auto"
+    # (was hardcoded "generic" -> 262). De-xfailed -> permanent regression test.
     with AVY_DRD.open("rb") as fd, AVY_ODI.open("rb") as fo:
         r = client.post(
             "/api/odi/scenario/compare-v15",
@@ -135,9 +133,7 @@ def test_issue2_v15_reuses_legacy_verdict_grid():
     )
 
 
-@pytest.mark.xfail(strict=True, reason="Issue #3: _odiResetPanel does not clear "
-                   "odi-v15-result -> stale v15 output lingers when a new file is attached")
-def test_issue3_reset_clears_v15_result():
+def test_issue3_reset_clears_v15_result():  # FIXED step 1 (de-xfailed)
     body = _window(HTML, "_odiResetPanel =", 1200)
     assert "odi-v15-result" in body, (
         "_odiResetPanel must hide odi-v15-result (and its tiles/diffbody) on new file"
@@ -146,10 +142,7 @@ def test_issue3_reset_clears_v15_result():
 
 # -- Group B -- v5.4 builder GUI breakage -------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="Issue #5: buildV54Insert forces "
-                   "setCtSqlPaneView('ct-insert-sql','all') -> SQL terminal "
-                   "stretches to the full ~1565-line query height")
-def test_issue5_v54_does_not_force_show_all():
+def test_issue5_v54_does_not_force_show_all():  # FIXED step 1 (de-xfailed)
     body = _window(HTML, "window.buildV54Insert")
     forces_all = (
         "setCtSqlPaneView('ct-insert-sql', 'all')" in body
@@ -191,9 +184,7 @@ def test_issue7_comparison_grid_has_inline_odi_upload():
 
 # -- Group D -- ODI -> clean SQL into a renamed compare pane -------------------
 
-@pytest.mark.xfail(strict=True, reason="Issue #9: the second SQL pane is still "
-                   "labelled 'Manual Insert Statement'; it should be 'ODI XML Compare'")
-def test_issue9a_manual_pane_renamed_to_odi_xml_compare():
+def test_issue9a_manual_pane_renamed_to_odi_xml_compare():  # FIXED step 1 (de-xfailed)
     assert "ODI XML Compare" in HTML, (
         "the second SQL pane was not renamed to 'ODI XML Compare'"
     )
@@ -242,3 +233,18 @@ def test_issue10_doc_compare_card_reachable_standalone():
     assert "ct-sect-doc-compare" not in tab_insert, (
         "doc-compare card must not be buried inside the Insert-SQL sub-tab either"
     )
+
+
+# -- Security (SEC-1, fixed step 1): /compare-v15 must reject a non-.xml xml_file ------
+
+@pytest.mark.skipif(not AVY_DRD.exists(), reason="AVY DRD absent")
+def test_sec1_compare_v15_rejects_non_xml():
+    with AVY_DRD.open("rb") as fd:
+        r = client.post(
+            "/api/odi/scenario/compare-v15",
+            files={
+                "xml_file": ("not_xml.txt", b"<not really xml>", "text/plain"),
+                "drd_file": ("avy.xlsx", fd, MIME_XLSX),
+            },
+        )
+    assert r.status_code == 422, r.text

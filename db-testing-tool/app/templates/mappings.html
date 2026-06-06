@@ -1083,7 +1083,7 @@
                             </div>
                             <div class="ct-sql-pane">
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                                    <strong style="font-size:13px">Manual Insert Statement</strong>
+                                    <strong style="font-size:13px">ODI XML Compare</strong>
                                     <div class="flex gap-8">
                                         <button class="btn btn-outline btn-sm" onclick="setCtSqlPaneView('ct-manual-sql','preview25')">First 25</button>
                                         <button class="btn btn-outline btn-sm" onclick="setCtSqlPaneView('ct-manual-sql','all')">Show All</button>
@@ -6172,7 +6172,7 @@ window.buildV54Insert = async () => {
         const ta = document.getElementById('ct-insert-sql');
         ta.value = d.generated_sql;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
-        if (typeof setCtSqlPaneView === 'function') { try { setCtSqlPaneView('ct-insert-sql', 'all'); } catch (e) { console.warn('setCtSqlPaneView failed:', e); } }
+        if (typeof setCtSqlPaneView === 'function') { try { setCtSqlPaneView('ct-insert-sql', 'preview25'); } catch (e) { console.warn('setCtSqlPaneView failed:', e); } }
         _renderV54Result(d);
         showToast('v5.4 build OK (' + ((d.tri_compare || []).length) + ' columns, DRD-driven)', 'info');
     } catch (e) {
@@ -7907,7 +7907,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // (odi-val-card) or its body, or the file inputs + Analyze button
         // vanish with it.
         ['odi-summary','odi-sql-section','odi-grid-section','odi-static-section',
-         'odi-multisheet-panel','odi-fix-panel','odi-xe-result'
+         'odi-multisheet-panel','odi-fix-panel','odi-xe-result','odi-v15-result'
         ].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         ['odi-target-schema','odi-target-table'].forEach(id => {
             const el = document.getElementById(id); if (el) el.value = '';
@@ -7916,6 +7916,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const tb = document.getElementById('odi-grid-tbody'); if (tb) tb.innerHTML = '';
         const stb = document.getElementById('odi-static-tbody'); if (stb) stb.innerHTML = '';
         const pre = document.getElementById('odi-sql-pre'); if (pre) pre.textContent = '';
+        // #3: clear v15 result body + tiles so stale v15 output never lingers on a new file.
+        const v15b = document.getElementById('odi-v15-diffbody'); if (v15b) v15b.innerHTML = '';
+        ['odi-v15-mapping','odi-v15-inboth','odi-v15-drdonly','odi-v15-odionly'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.textContent = '0';
+        });
+        const v15l = document.getElementById('odi-v15-layout'); if (v15l) v15l.textContent = '';
         _odiAnnotations = {};
         try { localStorage.removeItem('odi_annotations'); } catch(_) {}
     };

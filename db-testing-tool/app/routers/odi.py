@@ -1055,6 +1055,11 @@ async def compare_odi_vs_drd_v15(
     xml_bytes = await _read_upload_checked_odi(xml_file)
     drd_bytes = await _read_upload_checked_odi(drd_file)
 
+    # SEC-1: ext allow-list on the XML slot (the drd slot is checked below).
+    xml_name = xml_file.filename or "odi.xml"
+    if not xml_name.lower().endswith(".xml"):
+        raise HTTPException(422, f"v15 engine needs an ODI XML (.xml), got {xml_name!r}")
+
     drd_name = drd_file.filename or "drd.xlsx"
     drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
     if drd_ext not in ("xlsx", "xls", "xlsm"):
@@ -1076,7 +1081,10 @@ async def compare_odi_vs_drd_v15(
             xlsx_p.write_bytes(drd_bytes)
             xml_p.write_bytes(xml_bytes)
 
-            compare_to_dir(xlsx_p, xml_p, out, profile="generic")
+            # #1 (2026-06-06): was hardcoded "generic" (keeps all 262 raw rows);
+            # "auto" resolves AVY->curated review + taxlot->filtered, matching the
+            # standalone final_v15 (AVY 14 / CLOSE 5 / OPEN 4).
+            compare_to_dir(xlsx_p, xml_p, out, profile="auto")
 
             def _read_rows(name: str) -> List[Dict[str, str]]:
                 p = out / name
