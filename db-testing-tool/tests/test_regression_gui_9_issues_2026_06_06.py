@@ -118,19 +118,27 @@ def test_issue1_v15_returns_curated_review_rows():
     )
 
 
-@pytest.mark.xfail(strict=True, reason="Issue #2: v15 renders into a separate "
-                   "odi-v15-* panel; both buttons must produce the SAME screen "
-                   "(legacy 6 verdict tiles + sortable grid), only the script differs")
-def test_issue2_v15_reuses_legacy_verdict_grid():
-    # Slice EXACTLY the v15 path (odiRunV15 + _odiRenderV15), stopping before the
-    # legacy "function _odiRender(" so the window cannot bleed into Analyze's code.
-    body = _between(HTML, "window.odiRunV15", "function _odiRender(")
-    assert body, "could not locate the v15 handler block"
-    # The shared screen Analyze drives is the verdict tiles (e.g. odi-s-mismatch)
-    # and/or the shared renderer _odiRender(. v15 must reuse it, not a parallel panel.
-    assert ("odi-s-mismatch" in body) or ("_odiRender(" in body), (
-        "v15 path does not populate the legacy verdict tiles / shared sortable grid"
-    )
+@_AVY
+def test_issue2_v15_dynamic_status_tiles_filter_sort():
+    # FIXED step 2 (operator-revised #2): v15 keeps its OWN table style but gains dynamic
+    # per-Difference-Type tiles (colored by severity bucket), click-to-filter, and sortable
+    # headers -- NOT the v9 6-verdict screen. Backend exposes type_counts + per-row severity.
+    with AVY_DRD.open("rb") as fd, AVY_ODI.open("rb") as fo:
+        r = client.post(
+            "/api/odi/scenario/compare-v15",
+            files={"xml_file": ("avy.xml", fo, "text/xml"),
+                   "drd_file": ("avy.xlsx", fd, MIME_XLSX)},
+        )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    tc = d.get("type_counts")
+    assert isinstance(tc, list) and tc, "endpoint must return non-empty type_counts"
+    assert all({"type", "count", "severity"} <= set(t) for t in tc), "type_count needs type/count/severity"
+    assert sum(t["count"] for t in tc) == len(d.get("differences", [])), "type_counts must cover every diff row"
+    assert all(row.get("severity") for row in d.get("differences", [])), "every diff row needs a severity bucket"
+    # frontend wiring: dynamic tiles container + click-filter + sort handlers
+    assert "odi-v15-typetiles" in HTML, "missing dynamic type-tiles container"
+    assert "v15FilterType" in HTML and "v15SortBy" in HTML, "missing v15 filter/sort wiring"
 
 
 def test_issue3_reset_clears_v15_result():  # FIXED step 1 (de-xfailed)

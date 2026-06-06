@@ -7705,7 +7705,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="odi-v15-odionly" style="font-size:22px;font-weight:700;color:#a855f7">0</div>
                 </div>
             </div>
-            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Differences (DRD vs final ODI load)</div>
+            <!-- #2: dynamic v15-status tiles (one per Difference Type present), colored by severity bucket, click to filter -->
+            <div id="odi-v15-typetiles" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Differences (DRD vs final ODI load)</span>
+                <span id="odi-v15-shown" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
             <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
                 <table style="width:100%;border-collapse:collapse;font-size:11px">
                     <thead style="position:sticky;top:0;background:var(--surface)">
@@ -8012,7 +8017,91 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    // #2 (2026-06-06): v15 keeps its own table style, but gains dynamic per-Difference-Type
+    // tiles (colored by severity bucket), click-to-filter, and sortable headers.
+    let _v15Data = null, _v15Filter = null, _v15Sort = { key: null, dir: 1 };
+    const _V15_SEV = {
+        real_gap:    { bg:'rgba(239,68,68,.12)',  bd:'rgba(239,68,68,.45)',  fg:'#ef4444' },
+        logic_drift: { bg:'rgba(245,158,11,.12)', bd:'rgba(245,158,11,.45)', fg:'#f59e0b' },
+        structural:  { bg:'rgba(148,163,184,.12)',bd:'rgba(148,163,184,.4)', fg:'#94a3b8' },
+        odi_only:    { bg:'rgba(168,85,247,.12)', bd:'rgba(168,85,247,.45)', fg:'#a855f7' },
+    };
+    const _V15_COLS = ['#','Area / Columns','Difference Type','Mapping Logic','ODI XML Logic','Conclusion','Recommended Action'];
+
+    function _v15RenderTiles() {
+        const wrap = document.getElementById('odi-v15-typetiles');
+        if (!wrap) return;
+        const tc = (_v15Data && _v15Data.type_counts) || [];
+        const total = ((_v15Data && _v15Data.differences) || []).length;
+        function tileHtml(active, color, label, count, typeAttr) {
+            return '<div class="v15-tile" data-v15type="' + escapeHtml(typeAttr) + '" '
+                + 'style="cursor:pointer;user-select:none;padding:6px 10px;border-radius:8px;'
+                + 'background:' + color.bg + ';border:1px solid ' + (active ? color.fg : color.bd) + ';'
+                + (active ? 'box-shadow:0 0 0 1px ' + color.fg + ' inset;' : '')
+                + 'font-size:11px;white-space:nowrap">'
+                + '<span style="color:' + color.fg + ';font-weight:700">' + escapeHtml(label) + '</span>'
+                + ' <span style="font-weight:700">' + count + '</span></div>';
+        }
+        const allColor = { bg:'rgba(148,163,184,.10)', bd:'var(--border)', fg:'var(--text)' };
+        let html = tileHtml(_v15Filter === null, allColor, 'All', total, '__ALL__');
+        html += tc.map(function(t) {
+            const c = _V15_SEV[t.severity] || _V15_SEV.logic_drift;
+            return tileHtml(_v15Filter === t.type, c, t.type, t.count, t.type);
+        }).join('');
+        wrap.innerHTML = html;
+        wrap.querySelectorAll('.v15-tile').forEach(function(el) {
+            el.addEventListener('click', function() {
+                const ty = el.getAttribute('data-v15type');
+                window.v15FilterType(ty === '__ALL__' ? null : ty);
+            });
+        });
+    }
+
+    function _v15RenderTable() {
+        const body = document.getElementById('odi-v15-diffbody');
+        if (!body) return;
+        const all = (_v15Data && _v15Data.differences) || [];
+        let rows = all.slice();
+        if (_v15Filter !== null) rows = rows.filter(function(r){ return (r['Difference Type'] || '') === _v15Filter; });
+        if (_v15Sort.key) {
+            const k = _v15Sort.key, d = _v15Sort.dir;
+            rows.sort(function(a, b) {
+                const av = (a[k] || ''), bv = (b[k] || '');
+                if (k === '#') return (parseInt(av, 10) - parseInt(bv, 10)) * d;
+                return String(av).localeCompare(String(bv)) * d;
+            });
+        }
+        const shown = document.getElementById('odi-v15-shown');
+        if (shown) shown.textContent = 'showing ' + rows.length + ' of ' + all.length + (_v15Filter ? ' (filtered)' : '');
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="7" style="padding:10px;text-align:center;color:var(--success)">No differences -- DRD and final ODI load agree</td></tr>';
+            return;
+        }
+        body.innerHTML = rows.map(function(r) {
+            return '<tr style="border-bottom:1px solid var(--border)">'
+                + '<td style="padding:5px 8px;white-space:nowrap">' + escapeHtml(r['#'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-family:monospace;font-size:11px">' + escapeHtml(r['Area / Columns'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-size:11px;white-space:nowrap">' + escapeHtml(r['Difference Type'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Mapping Logic'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['ODI XML Logic'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Conclusion'] || '') + '</td>'
+                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Recommended Action'] || '') + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    window.v15FilterType = function(t) {
+        _v15Filter = (_v15Filter === t) ? null : t;
+        _v15RenderTiles();
+        _v15RenderTable();
+    };
+    window.v15SortBy = function(key) {
+        if (_v15Sort.key === key) { _v15Sort.dir = -_v15Sort.dir; } else { _v15Sort.key = key; _v15Sort.dir = 1; }
+        _v15RenderTable();
+    };
+
     function _odiRenderV15(data) {
+        _v15Data = data; _v15Filter = null; _v15Sort = { key: null, dir: 1 };
         const s = data.summary || {};
         document.getElementById('odi-v15-mapping').textContent = s.mapping_columns || 0;
         document.getElementById('odi-v15-inboth').textContent  = s.in_both || 0;
@@ -8022,25 +8111,23 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('odi-v15-layout').textContent = det.mapping_sheet
             ? ('sheet ' + det.mapping_sheet + ' | header ' + det.header_row + ' | target ' + det.target_col + ' | conf ' + det.confidence)
             : '';
-        const diffs = data.differences || [];
-        const body = document.getElementById('odi-v15-diffbody');
-        if (!diffs.length) {
-            body.innerHTML = '<tr><td colspan="7" style="padding:10px;text-align:center;color:var(--success)">No differences -- DRD and final ODI load agree</td></tr>';
-        } else {
-            body.innerHTML = diffs.map(function(r) {
-                return '<tr style="border-bottom:1px solid var(--border)">'
-                    + '<td style="padding:5px 8px;white-space:nowrap">' + escapeHtml(r['#'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-family:monospace;font-size:11px">' + escapeHtml(r['Area / Columns'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-size:11px;white-space:nowrap">' + escapeHtml(r['Difference Type'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Mapping Logic'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['ODI XML Logic'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Conclusion'] || '') + '</td>'
-                    + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Recommended Action'] || '') + '</td>'
-                    + '</tr>';
-            }).join('');
+        // sortable headers (wire once)
+        const thead = document.querySelector('#odi-v15-diffwrap thead tr');
+        if (thead && !thead.dataset.sortWired) {
+            const ths = thead.querySelectorAll('th');
+            _V15_COLS.forEach(function(key, i) {
+                if (ths[i]) {
+                    ths[i].style.cursor = 'pointer';
+                    ths[i].title = 'Sort by ' + key;
+                    ths[i].addEventListener('click', function(){ window.v15SortBy(key); });
+                }
+            });
+            thead.dataset.sortWired = '1';
         }
+        _v15RenderTiles();
+        _v15RenderTable();
         document.getElementById('odi-v15-result').style.display = 'block';
-        showToast('v15: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + (s.mapping_only||0) + ' DRD-only, ' + (s.xml_only||0) + ' ODI-only', 'info');
+        showToast('v15: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + ((data.differences||[]).length) + ' review rows', 'info');
     }
 
     function _odiRender() {

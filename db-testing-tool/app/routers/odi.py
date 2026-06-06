@@ -1096,6 +1096,35 @@ async def compare_odi_vs_drd_v15(
             col_rows = _read_rows("column_diff.csv")
             diff_rows = _read_rows("full_drd_vs_odi_xml_rules_diff.csv")
 
+            # #2: tag each diff row with a severity bucket (from the v15 Conclusion
+            # marker) and build per-Difference-Type counts so the GUI can render
+            # dynamic v15-status tiles (one per type present), colored by severity.
+            def _sev(conclusion: str) -> str:
+                c = (conclusion or "").lower()
+                if ("real gap" in c or "structural gap" in c or "structural mismatch" in c
+                        or "confirmed structural" in c):
+                    return "real_gap"
+                if "odi-only" in c or "environment" in c or "target risk" in c:
+                    return "odi_only"
+                if ("structural difference" in c or "structural lineage" in c
+                        or "operationally specific" in c or "more detailed" in c
+                        or "mapping omission" in c or "acceptable" in c):
+                    return "structural"
+                return "logic_drift"
+
+            _tc: Dict[str, Dict[str, Any]] = {}
+            for _r in diff_rows:
+                _sv = _sev(_r.get("Conclusion", ""))
+                _r["severity"] = _sv
+                _t = (_r.get("Difference Type", "") or "(unspecified)")
+                if _t not in _tc:
+                    _tc[_t] = {"type": _t, "count": 0, "severity": _sv}
+                _tc[_t]["count"] += 1
+            _sev_order = {"real_gap": 0, "logic_drift": 1, "structural": 2, "odi_only": 3}
+            type_counts = sorted(
+                _tc.values(), key=lambda x: (_sev_order.get(x["severity"], 9), -x["count"])
+            )
+
             detection: Dict[str, Any] = {}
             dlj = out / "detected_layout.json"
             if dlj.exists():
@@ -1116,6 +1145,7 @@ async def compare_odi_vs_drd_v15(
                 "summary": summary,
                 "detection": detection,
                 "differences": diff_rows,
+                "type_counts": type_counts,
                 "drd_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "MAPPING_ONLY"],
                 "odi_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "XML_ONLY"],
                 "column_diff_count": len(col_rows),
