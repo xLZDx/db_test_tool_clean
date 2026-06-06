@@ -32,6 +32,7 @@ from app.services.control_table_service import (
     compare_insert_variants,
     dedupe_insert_join_blocks,
     ensure_parallel_hints,
+    extract_sql_expression_map,
     load_target_table_definition,
     normalize_insert_source_target_aliases,
     validate_insert_join_aliases,
@@ -123,21 +124,46 @@ class ControlTableSaveInsertStateRequest(BaseModel):
     decisions: List[dict] = []
 
 
+class CorrectionItem(BaseModel):
+    """Phase 2: one operator-marked per-column correction. Shared shape for the
+    regenerate path AND the learn (training-rule) write."""
+    column: str
+    expression: str = ""
+    old_expression: str = ""          # enables JOIN-ON repair in apply_compare_decisions
+    chosen_source: str = ""           # provenance: drd / odi1 / odi2 / manual
+    issue_type: str = ""
+    source_attribute: str = ""
+    recommended_source: str = ""      # defaults to chosen_source or 'drd' at learn time
+    notes: str = ""
+
+
 # ── Private helpers (CT-only) ─────────────────────────────────────────────────
 
 
-async def _load_training_rules(db: AsyncSession, target_table: str) -> List[ControlTableCorrectionRule]:
+async def _load_training_rules(
+    db: AsyncSession, target_table: str, datasource_id: Optional[int] = None
+) -> List[ControlTableCorrectionRule]:
     target = (target_table or "").strip().upper()
     bare = target.rsplit(".", 1)[-1] if "." in target else target
     from sqlalchemy import or_
-    result = await db.execute(
-        select(ControlTableCorrectionRule)
-        .where(or_(
-            ControlTableCorrectionRule.target_table == target,
-            ControlTableCorrectionRule.target_table == bare,
+    q = select(ControlTableCorrectionRule).where(or_(
+        ControlTableCorrectionRule.target_table == target,
+        ControlTableCorrectionRule.target_table == bare,
+    ))
+    # Phase 2 datasource scope: default (no datasource_id) loads ONLY legacy global
+    # rules (datasource_id IS NULL), so datasource-scoped rules NEVER leak into
+    # callers that don't specify a datasource (e.g. an AVY rule must not auto-apply
+    # to CLOSE/OPEN). When a datasource_id IS given, load that datasource's rules
+    # PLUS legacy-global ones. Backward-compatible: every pre-Phase-2 row is NULL,
+    # so the default still returns exactly what it did before.
+    if datasource_id is None:
+        q = q.where(ControlTableCorrectionRule.datasource_id.is_(None))
+    else:
+        q = q.where(or_(
+            ControlTableCorrectionRule.datasource_id == datasource_id,
+            ControlTableCorrectionRule.datasource_id.is_(None),
         ))
-        .order_by(ControlTableCorrectionRule.updated_at.desc())
-    )
+    result = await db.execute(q.order_by(ControlTableCorrectionRule.updated_at.desc()))
     return result.scalars().all()
 
 
@@ -861,6 +887,204 @@ async def build_control_table_v54(
     except Exception as exc:
         logging.getLogger(__name__).error("build-v54 unexpected error: %s", exc)
         raise HTTPException(500, "v5.4 build failed unexpectedly.") from exc
+
+
+@_ct_router.post("/control-table/regenerate-with-corrections")
+async def regenerate_control_table_with_corrections(
+    drd_file: UploadFile = File(...),
+    odi_file: Optional[UploadFile] = File(None),
+    target_schema: str = Form(""),
+    target_table: str = Form(""),
+    profile: str = Form("auto"),
+    datasource_id: Optional[int] = Form(None),
+    corrections_json: str = Form("[]"),
+    learn: bool = Form(False),
+    confirmed_by: str = Form(""),
+    file_name: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Phase 2 chunk 2: regenerate the control-table INSERT via the v5.4 DRD-driven
+    builder, apply operator per-column corrections, and (opt-in) LEARN them as
+    datasource-scoped training rules.
+
+    Flow:
+      1. build_to_dir -> base DRD-driven INSERT (CPU-heavy, run off the loop).
+      2. apply_compare_decisions -> corrected INSERT. Corrections whose column is
+         NOT in the generated SQL are returned in skipped_columns -- NEVER silently
+         dropped (the apply helper skips them at control_table_service.py:2504).
+      3. learn=True: upsert one ControlTableCorrectionRule per APPLIED correction,
+         scoped by datasource_id, in ONE transaction; returns created/updated +
+         previous_expression; on failure the whole learn rolls back and is reported
+         in failed_learn. Skipped corrections are NEVER learned.
+      4. Persist corrected SQL + decisions to file-state (reload restores it).
+
+    Read-only on the DRD/ODI inputs; offline; no Oracle DB.
+    """
+    import gc as _gc
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from app.services.universal_insert_builder_v54 import build_to_dir
+
+    try:
+        raw_corr = json.loads(corrections_json or "[]")
+        if not isinstance(raw_corr, list):
+            raise ValueError("corrections must be a JSON array")
+        corrections = [CorrectionItem(**c) for c in raw_corr]
+    except Exception as exc:
+        raise HTTPException(422, f"invalid corrections payload: {exc}") from exc
+
+    drd_name = drd_file.filename or "drd.xlsx"
+    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else ""
+    if drd_ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(422, f"v5.4 builder needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}")
+
+    _MAX = 30 * 1024 * 1024
+    drd_bytes = await drd_file.read(_MAX + 1)
+    if len(drd_bytes) > _MAX:
+        raise HTTPException(413, "DRD file exceeds 30 MB limit")
+    odi_bytes = None
+    if odi_file is not None and (odi_file.filename or "").strip():
+        odi_bytes = await odi_file.read(_MAX + 1)
+        if len(odi_bytes) > _MAX:
+            raise HTTPException(413, "ODI file exceeds 30 MB limit")
+
+    # 1) Build the base DRD-driven INSERT. CPU-heavy + openpyxl read_only file-lock
+    #    -> server-controlled tempdir + gc.collect() + rmtree(ignore_errors).
+    #    No DB access inside the thread.
+    def _build() -> str:
+        td = _tempfile.mkdtemp(prefix="uib54regen_")
+        tdp = Path(td)
+        try:
+            xlsx_p = tdp / f"drd.{drd_ext}"
+            xlsx_p.write_bytes(drd_bytes)
+            xml_p = None
+            if odi_bytes is not None:
+                xml_p = tdp / "odi.xml"
+                xml_p.write_bytes(odi_bytes)
+            out = tdp / "out"
+            build_to_dir(
+                xlsx_p, xml_p, out,
+                target_schema=target_schema, target_table=target_table,
+                profile=(profile or "auto"),
+            )
+            gen = out / "generated_insert_select_candidate.sql"
+            gen_sql = gen.read_text(encoding="utf-8") if gen.exists() else ""
+            if "INSERT INTO" not in gen_sql.upper():
+                raise ValueError("v5.4 builder produced no INSERT statement (check DRD layout / profile).")
+            return gen_sql
+        finally:
+            _gc.collect()
+            _shutil.rmtree(tdp, ignore_errors=True)
+
+    try:
+        base_sql = await asyncio.to_thread(_build)
+    except (FileNotFoundError, ValueError) as exc:
+        _ct_log.warning("regenerate build error: %s", exc)
+        raise HTTPException(422, "v5.4 build error: could not build a valid INSERT from the DRD (check layout / profile).") from exc
+    except Exception as exc:
+        _ct_log.error("regenerate build unexpected: %s", exc)
+        raise HTTPException(500, "v5.4 build failed unexpectedly.") from exc
+
+    # 2) Split corrections into applicable vs skipped (column absent from the
+    #    generated SQL, or empty expression) -- surface, never silently drop.
+    parsed = extract_sql_expression_map(base_sql, include_meta=True)
+    alias_index = {str(k).upper() for k in (parsed.get("alias_index") or {})}
+    decisions: List[dict] = []
+    applied_cols: List[str] = []
+    skipped_columns: List[dict] = []
+    for c in corrections:
+        col = (c.column or "").strip().upper()
+        if not col:
+            continue
+        if col not in alias_index:
+            skipped_columns.append({"column": col, "reason": "not_in_generated_sql"})
+            continue
+        if not (c.expression or "").strip():
+            skipped_columns.append({"column": col, "reason": "empty_expression"})
+            continue
+        d = {"column": col, "expression": c.expression.strip()}
+        if (c.old_expression or "").strip():
+            d["old_expression"] = c.old_expression.strip()
+        decisions.append(d)
+        applied_cols.append(col)
+
+    # 3) Apply corrections (pure/sync) with the SAME normalization chain as /apply.
+    corrected_sql = normalize_insert_source_target_aliases(
+        dedupe_insert_join_blocks(apply_compare_decisions(base_sql, decisions))
+    )
+
+    # 4) Learn (opt-in): one transaction, datasource-scoped; never learn a skipped col.
+    learned: List[dict] = []
+    failed_learn: List[dict] = []
+    applied_set = set(applied_cols)
+    if learn and decisions:
+        ttable = (target_table or "").strip().upper()
+        try:
+            for c in corrections:
+                col = (c.column or "").strip().upper()
+                if col not in applied_set:
+                    continue
+                issue = (c.issue_type or "").strip().lower()
+                existing = await db.execute(
+                    select(ControlTableCorrectionRule).where(
+                        ControlTableCorrectionRule.datasource_id == datasource_id,
+                        ControlTableCorrectionRule.target_table == ttable,
+                        ControlTableCorrectionRule.target_column == col,
+                        ControlTableCorrectionRule.issue_type == issue,
+                    )
+                )
+                rule = existing.scalar_one_or_none()
+                created = rule is None
+                previous = None if created else rule.replacement_expression
+                if created:
+                    rule = ControlTableCorrectionRule(
+                        datasource_id=datasource_id, target_table=ttable,
+                        target_column=col, issue_type=issue,
+                    )
+                    db.add(rule)
+                rule.source_attribute = (c.source_attribute or "").strip().upper() or None
+                rule.recommended_source = (c.recommended_source or c.chosen_source or "drd").strip().lower()
+                rule.replacement_expression = (c.expression or "").strip() or None
+                rule.notes = (c.notes or "").strip() or None
+                rule.confirmed_by = (confirmed_by or "").strip() or None
+                learned.append({
+                    "column": col, "created": created, "updated": not created,
+                    "previous_expression": previous,
+                })
+            await db.commit()
+        except Exception as exc:  # learn is all-or-nothing -- surface, never half-write
+            await db.rollback()
+            learned = []
+            failed_learn.append({"reason": str(exc)})
+            _ct_log.error("regenerate learn failed (rolled back): %s", exc)
+
+    # 5) Persist corrected SQL + decisions to file-state (separate from learn, so a
+    #    persist failure never rolls back the learned rules). Fingerprint computed
+    #    server-side from the DRD bytes (no client-supplied fingerprint needed).
+    fingerprint = hashlib.sha256(drd_bytes).hexdigest()
+    try:
+        await _upsert_file_state(
+            db, target_table=target_table, file_name=(file_name or drd_name),
+            file_fingerprint=fingerprint, final_insert_sql=corrected_sql, decisions=decisions,
+        )
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        _ct_log.warning("regenerate file-state persist failed: %s", exc)
+
+    return {
+        "engine": "v54-regenerate-with-corrections",
+        "base_sql": base_sql,
+        "corrected_sql": corrected_sql,
+        "applied": applied_cols,
+        "skipped_columns": skipped_columns,
+        "learned": learned,
+        "failed_learn": failed_learn,
+        "learn_requested": bool(learn),
+        "datasource_id": datasource_id,
+        "file_fingerprint": fingerprint,
+        "odi_provided": odi_bytes is not None,
+    }
 
 
 @_ct_router.post("/control-table/preview-drd")
