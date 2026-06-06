@@ -7263,6 +7263,15 @@ async function runControlTableDocCompare() {
             ? `<div style="margin-top:8px"><strong>Multi-compare conflicts:</strong><br>${escapeHtml(conflicts.slice(0, 25).map(c => c.target).join(', '))}${conflicts.length > 25 ? ' ...' : ''}</div>`
             : '<div style="margin-top:8px;color:var(--success)">No multi-way expression conflicts in shared targets.</div>';
 
+        // Phase 1b: v16.6 generic delta + rule-proof (when DRD Excel + 2 ODI XMLs).
+        const v16 = res.v16_delta || null;
+        let v16Html = '';
+        if (v16 && v16.error) {
+            v16Html = `<div style="margin-top:12px;color:var(--danger)">&Delta; v16.6 delta error: ${escapeHtml(v16.error)}</div>`;
+        } else if (v16 && Array.isArray(v16.delta)) {
+            v16Html = _ctRenderV16Delta(v16);
+        }
+
         out.innerHTML = `
             ${docsHtml}
             <div style="margin-bottom:8px">
@@ -7271,6 +7280,7 @@ async function runControlTableDocCompare() {
             </div>
             ${pairHtml}
             ${conflictHtml}
+            ${v16Html}
         `;
         showToast('Document comparison completed', 'success');
     } catch (e) {
@@ -7278,6 +7288,80 @@ async function runControlTableDocCompare() {
         showToast('Document compare failed: ' + (e.message || String(e)), 'error');
     }
 }
+
+// Phase 1b: render the v16.6 delta + rule-proof inside the control-table compare
+// panel, with a "Confirm fix" action on proven/candidate columns. Confirm is a
+// client-side acceptance that Phase 2 (mark-correct -> regenerate via v5.4 ->
+// learn) will consume; nothing is mutated server-side here.
+window._ctV16Confirmed = window._ctV16Confirmed || {};
+const _CT_V16_COLOR = {
+    FIXED_BY_RESOLVED_RULE_PROOF: '#22c55e',
+    FIXED_BY_FINAL_COMPARE: '#22c55e',
+    FIX_CANDIDATE_UPSTREAM_CHANGED: '#eab308',
+    STILL_OPEN: '#fb923c',
+    NEW_REGRESSION_BY_FINAL_COMPARE: '#ef4444',
+};
+const _CT_V16_ACTIONABLE = new Set(Object.keys(_CT_V16_COLOR));
+const _CT_V16_CONFIRMABLE = new Set(['FIXED_BY_RESOLVED_RULE_PROOF', 'FIX_CANDIDATE_UPSTREAM_CHANGED']);
+
+function _ctRenderV16Delta(v16) {
+    const counts = (v16.summary && v16.summary.delta_status_counts) || {};
+    const fixedCount = (counts.FIXED_BY_RESOLVED_RULE_PROOF || 0) + (counts.FIXED_BY_FINAL_COMPARE || 0);
+    const proofMap = {};
+    (v16.proof || []).forEach(p => { proofMap[(p.target_column || '').toUpperCase()] = p; });
+    const order = { FIXED_BY_RESOLVED_RULE_PROOF: 0, FIXED_BY_FINAL_COMPARE: 1, FIX_CANDIDATE_UPSTREAM_CHANGED: 2, STILL_OPEN: 3, NEW_REGRESSION_BY_FINAL_COMPARE: 4 };
+    const rows = (v16.delta || []).filter(r => _CT_V16_ACTIONABLE.has(r.delta_status));
+    rows.sort((a, b) => (order[a.delta_status] - order[b.delta_status]) || a.target_column.localeCompare(b.target_column));
+
+    const tiles = [
+        ['Fixed (proof)', fixedCount, '#22c55e'],
+        ['Fix candidate', counts.FIX_CANDIDATE_UPSTREAM_CHANGED || 0, '#eab308'],
+        ['Still open', counts.STILL_OPEN || 0, '#fb923c'],
+        ['Regression', counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0, '#ef4444'],
+        ['Upstream chg', counts.UPSTREAM_CHANGED_NO_FINAL_MISMATCH || 0, '#94a3b8'],
+    ].map(t => `<div style="padding:8px 10px;border-radius:8px;text-align:center;border:1px solid ${t[2]}55;background:${t[2]}15"><div style="font-size:11px;color:${t[2]}">${escapeHtml(t[0])}</div><div style="font-size:20px;font-weight:700;color:${t[2]}">${t[1]}</div></div>`).join('');
+
+    const body = rows.length ? rows.map(r => {
+        const col = (r.target_column || '').toUpperCase();
+        const c = _CT_V16_COLOR[r.delta_status] || '#94a3b8';
+        const p = proofMap[col];
+        const proofCell = p ? `fixed ${escapeHtml(p.fixed_proof_passed)} / orig ${escapeHtml(p.original_proof_passed)}` : '';
+        const confirmed = !!window._ctV16Confirmed[col];
+        const btn = _CT_V16_CONFIRMABLE.has(r.delta_status)
+            ? `<button class="btn btn-sm" style="padding:1px 8px;font-size:10px;border:1px solid ${confirmed ? '#22c55e' : '#a855f7'};color:${confirmed ? '#22c55e' : '#a855f7'};background:transparent" ${confirmed ? 'disabled' : ''} onclick="ctConfirmFix('${col}', this)">${confirmed ? 'Confirmed &#10003;' : 'Confirm fix'}</button>`
+            : '';
+        return `<tr>
+            <td style="padding:6px 8px;font-family:monospace">${escapeHtml(r.target_column || '')}</td>
+            <td style="padding:6px 8px"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:${c};border:1px solid ${c}">${escapeHtml(r.delta_status || '')}</span></td>
+            <td style="padding:6px 8px;color:var(--text-muted)">${escapeHtml(proofCell)}</td>
+            <td style="padding:6px 8px">${btn}</td>
+        </tr>`;
+    }).join('') : `<tr><td colspan="4" style="padding:10px;color:var(--success)">No actionable delta between these two ODIs.</td></tr>`;
+
+    return `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <strong style="color:#22c55e">&Delta; v16.6 delta + rule-proof</strong>
+            <span style="font-size:11px;color:var(--text-muted);font-family:monospace">${escapeHtml(v16.engine || '')}${v16.profile_resolved ? ' | profile ' + escapeHtml(v16.profile_resolved) : ''}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">${tiles}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:6px">Target Column</th>
+                <th style="text-align:left;padding:6px">Delta Status</th>
+                <th style="text-align:left;padding:6px">Proof</th>
+                <th style="text-align:left;padding:6px">Action</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+        </table>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Confirm marks the fix for the next phase (mark-correct &rarr; regenerate via v5.4 &rarr; learn). Nothing is regenerated yet.</div>
+    </div>`;
+}
+
+window.ctConfirmFix = function(col, btn) {
+    window._ctV16Confirmed[(col || '').toUpperCase()] = true;
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Confirmed &#10003;'; btn.style.borderColor = '#22c55e'; btn.style.color = '#22c55e'; }
+    showToast('Fix confirmed for ' + col + ' (queued for regenerate/learn -- Phase 2)', 'success');
+};
 
 async function applyControlTableChoices() {
     const comparison = _ctState.analysis?.comparison;

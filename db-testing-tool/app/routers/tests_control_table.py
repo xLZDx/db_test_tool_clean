@@ -940,11 +940,15 @@ async def compare_control_table_documents(
     manual_sql: Optional[str] = Form(None),
 ):
     docs: list[dict] = []
+    # Phase 1b: keep raw bytes so we can additionally run the v16.6 delta engine
+    # (DRD Excel + both ODI XMLs) on top of the pairwise/multi expression compare.
+    raw_inputs: dict[str, tuple[bytes, str]] = {}
 
     async def _add_doc(name: str, upload: Optional[UploadFile]):
         if not upload:
             return
         content = await upload.read()
+        raw_inputs[name] = (content, upload.filename or "")
         extracted = _mappings_from_doc(content, upload.filename or "")
         docs.append({"name": name, "mappings": extracted.get("mappings") or [], "by_target": extracted.get("by_target") or {}})
 
@@ -986,6 +990,29 @@ async def compare_control_table_documents(
             if any(s != baseline for s in normalized_sets.values()):
                 multi_conflicts.append({"target": target, "variants": variants})
 
+    # Phase 1b: v16.6 generic delta + rule-proof overlay, ADDITIVE on top of the
+    # pairwise/multi expression compare. Runs only when DRD is Excel AND both ODI
+    # XMLs are present. Failure here must NEVER break the core pairwise/multi
+    # result -- the error is surfaced in v16_delta.error, not swallowed.
+    v16_delta = None
+    drd_raw = raw_inputs.get("DRD")
+    odi1_raw = raw_inputs.get("ODI XML 1")
+    odi2_raw = raw_inputs.get("ODI XML 2")
+    if drd_raw and odi1_raw and odi2_raw:
+        drd_nm = (drd_raw[1] or "").lower()
+        odi1_nm = (odi1_raw[1] or "").lower()
+        odi2_nm = (odi2_raw[1] or "").lower()
+        if drd_nm.endswith((".xlsx", ".xls", ".xlsm")) and odi1_nm.endswith(".xml") and odi2_nm.endswith(".xml"):
+            from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
+
+            def _run_v16():
+                return compare_two_odi_against_drd(drd_raw[0], odi1_raw[0], odi2_raw[0], profile="auto")
+
+            try:
+                v16_delta = await asyncio.to_thread(_run_v16)
+            except Exception as exc:  # additive overlay -- surface, never break core compare
+                v16_delta = {"error": str(exc)}
+
     return {
         "documents": [{"name": d["name"], "mapping_count": len(d["mappings"])} for d in docs],
         # F4 (operator 2026-06-05): expose the already-computed per-doc per-target
@@ -1000,6 +1027,7 @@ async def compare_control_table_documents(
             "all_shared_targets": sorted(all_targets),
             "conflicts": multi_conflicts,
         },
+        "v16_delta": v16_delta,
     }
 
 
