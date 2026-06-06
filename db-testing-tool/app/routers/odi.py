@@ -1099,28 +1099,36 @@ async def compare_odi_vs_drd_v15(
             # #2: tag each diff row with a severity bucket (from the v15 Conclusion
             # marker) and build per-Difference-Type counts so the GUI can render
             # dynamic v15-status tiles (one per type present), colored by severity.
-            def _sev(conclusion: str) -> str:
-                c = (conclusion or "").lower()
-                if ("real gap" in c or "structural gap" in c or "structural mismatch" in c
-                        or "confirmed structural" in c):
+            def _sev(row: Dict[str, str]) -> str:
+                # NON-overlapping buckets: each diff row -> exactly one severity, so the
+                # GUI tiles partition the rows (Missing is distinct from Real gap, and a
+                # tile shows only its own rows -- never "all 14").
+                dt = (row.get("Difference Type", "") or "").lower()
+                c = (row.get("Conclusion", "") or "").lower()
+                if "missing implementation" in dt or "missing target column" in dt:
+                    return "missing"
+                if "structural mismatch" in dt or "confirmed structural" in c or "structural gap" in c:
                     return "real_gap"
-                if "odi-only" in c or "environment" in c or "target risk" in c:
+                if ("odi-only" in c or "environment" in c or "target risk" in c
+                        or "xml-only column" in dt):
                     return "odi_only"
                 if ("structural difference" in c or "structural lineage" in c
-                        or "operationally specific" in c or "more detailed" in c
-                        or "mapping omission" in c or "acceptable" in c):
+                        or "operationally specific" in c or "more detailed" in dt
+                        or "xml-only exception" in dt or "journal source" in dt
+                        or "where-vs-case" in dt or "join filter moved" in dt
+                        or "acceptable" in c):
                     return "structural"
                 return "logic_drift"
 
             _tc: Dict[str, Dict[str, Any]] = {}
             for _r in diff_rows:
-                _sv = _sev(_r.get("Conclusion", ""))
+                _sv = _sev(_r)
                 _r["severity"] = _sv
                 _t = (_r.get("Difference Type", "") or "(unspecified)")
                 if _t not in _tc:
                     _tc[_t] = {"type": _t, "count": 0, "severity": _sv}
                 _tc[_t]["count"] += 1
-            _sev_order = {"real_gap": 0, "logic_drift": 1, "structural": 2, "odi_only": 3}
+            _sev_order = {"missing": 0, "real_gap": 1, "logic_drift": 2, "structural": 3, "odi_only": 4}
             type_counts = sorted(
                 _tc.values(), key=lambda x: (_sev_order.get(x["severity"], 9), -x["count"])
             )
@@ -1142,15 +1150,17 @@ async def compare_odi_vs_drd_v15(
             }
             _diff_sev = [r.get("severity", "") for r in diff_rows]
             bucket_counts = {
+                "missing": _diff_sev.count("missing"),
                 "real_gap": _diff_sev.count("real_gap"),
                 "logic_drift": _diff_sev.count("logic_drift"),
                 "structural": _diff_sev.count("structural"),
                 "odi_extra": summary["xml_only"] + _diff_sev.count("odi_only"),
-                "missing": summary["mapping_only"],
             }
+            # matched = in_both columns not flagged with an in_both-level difference
+            # (missing/real_gap rows are DRD-only / meta, not in_both subtractions).
             bucket_counts["matched"] = max(
                 summary["in_both"]
-                - (bucket_counts["real_gap"] + bucket_counts["logic_drift"] + bucket_counts["structural"]),
+                - (_diff_sev.count("logic_drift") + _diff_sev.count("structural") + _diff_sev.count("odi_only")),
                 0,
             )
             return {

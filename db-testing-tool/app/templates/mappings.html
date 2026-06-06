@@ -41,6 +41,10 @@
     line-height:1;
 }
 .tm-sect-body.tm-sect-collapsed { display:none !important; }
+/* #3 (operator): ODI card -- disable free-form drag-resize (left empty boxes when
+   collapsed) and add a clean fullscreen toggle instead. */
+#odi-val-card { resize: none !important; height: auto !important; }
+#odi-val-card.odi-fs { position: fixed; inset: 0; z-index: 9999; margin: 0; border-radius: 0; max-height: 100vh; overflow: auto; }
 .tm-tfs-container { display:grid; grid-template-columns:1.15fr .95fr; gap:16px; }
 .tm-tfs-tree { border:1px solid var(--border); border-radius:8px; overflow:hidden; max-height:440px; overflow-y:auto; }
 .tm-tfs-tree-item { padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
@@ -7606,7 +7610,10 @@ document.addEventListener('DOMContentLoaded', function() {
             <h2 style="margin:0">ODI vs DRD Validation</h2>
             <span id="odi-status-badge" style="display:none;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600"></span>
         </div>
-        <button class="tm-sect-toggle" id="odi-val-toggle" type="button">▼</button>
+        <div style="display:flex;align-items:center;gap:6px">
+            <button class="tm-sect-toggle" id="odi-val-fs" type="button" title="Fullscreen / restore" onclick="event.stopPropagation();odiToggleFullscreen()">&#9974;</button>
+            <button class="tm-sect-toggle" id="odi-val-toggle" type="button">&#9660;</button>
+        </div>
     </div>
     <div class="tm-sect-body" id="odi-val-body" style="padding:14px 16px 18px 16px">
 
@@ -7999,17 +8006,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // #3 (operator): move the Emitted Oracle INSERT SQL block BELOW the comparison
-    // results (the grid), for both Analyze and v15. One-time DOM relocation on load.
-    (function _odiMoveSqlBelowResults() {
-        try {
-            const sqlSec = document.getElementById('odi-sql-section');
-            const gridSec = document.getElementById('odi-grid-section');
-            if (sqlSec && gridSec && gridSec.parentNode) {
-                gridSec.parentNode.insertBefore(sqlSec, gridSec.nextSibling);
-            }
-        } catch (e) { /* non-fatal */ }
-    })();
+    // #3 NOTE: "move SQL below results" reverted -- it pushed the insert below the
+    // 373-row grid (off-screen, looked "disappeared"). SQL stays at its visible spot.
 
     // #2 (2026-06-06, revised): v15 keeps its OWN table style but shows BIG Analyze-style
     // tiles on top (v15 severity buckets incl Matched). Click a difference tile to filter
@@ -8017,13 +8015,14 @@ document.addEventListener('DOMContentLoaded', function() {
     let _v15Data = null, _v15Filter = null, _v15Sort = { key: null, dir: 1 };
     const _V15_COLS = ['#','Area / Columns','Difference Type','Mapping Logic','ODI XML Logic','Conclusion','Recommended Action'];
     // big tiles: key in bucket_counts + label + colors + severity it filters to (null = clear)
+    // 6 distinct colors; every difference tile filters to its OWN rows (clean partition).
     const _V15_BIG = [
-        { k:'matched',     label:'Matched',            bg:'rgba(34,197,94,.10)',  bd:'rgba(34,197,94,.30)',  fg:'#22c55e', sev:null },
-        { k:'real_gap',    label:'Real gap',           bg:'rgba(239,68,68,.10)',  bd:'rgba(239,68,68,.30)',  fg:'#ef4444', sev:'real_gap' },
-        { k:'logic_drift', label:'Logic drift',        bg:'rgba(245,158,11,.10)', bd:'rgba(245,158,11,.30)', fg:'#f59e0b', sev:'logic_drift' },
-        { k:'structural',  label:'Structural',         bg:'rgba(148,163,184,.10)',bd:'var(--border)',        fg:'#94a3b8', sev:'structural' },
-        { k:'missing',     label:'Missing (DRD-only)', bg:'rgba(148,163,184,.10)',bd:'var(--border)',        fg:'var(--text-muted)', sev:null },
-        { k:'odi_extra',   label:'ODI Extra',          bg:'rgba(168,85,247,.10)', bd:'rgba(168,85,247,.30)', fg:'#a855f7', sev:'odi_only' },
+        { k:'matched',     label:'Matched',     bg:'rgba(34,197,94,.10)',  bd:'rgba(34,197,94,.30)',  fg:'#22c55e', sev:null },
+        { k:'missing',     label:'Missing',     bg:'rgba(239,68,68,.10)',  bd:'rgba(239,68,68,.35)',  fg:'#ef4444', sev:'missing' },
+        { k:'real_gap',    label:'Real gap',    bg:'rgba(251,146,60,.12)', bd:'rgba(251,146,60,.40)', fg:'#fb923c', sev:'real_gap' },
+        { k:'logic_drift', label:'Logic drift', bg:'rgba(234,179,8,.12)',  bd:'rgba(234,179,8,.40)',  fg:'#eab308', sev:'logic_drift' },
+        { k:'structural',  label:'Structural',  bg:'rgba(6,182,212,.12)',  bd:'rgba(6,182,212,.40)',  fg:'#06b6d4', sev:'structural' },
+        { k:'odi_extra',   label:'ODI Extra',   bg:'rgba(168,85,247,.10)', bd:'rgba(168,85,247,.35)', fg:'#a855f7', sev:'odi_only' },
     ];
 
     function _v15RenderBigTiles() {
@@ -8088,6 +8087,19 @@ document.addEventListener('DOMContentLoaded', function() {
     window.v15SortBy = function(key) {
         if (_v15Sort.key === key) { _v15Sort.dir = -_v15Sort.dir; } else { _v15Sort.key = key; _v15Sort.dir = 1; }
         _v15RenderTable();
+    };
+    window.odiToggleFullscreen = function() {
+        const c = document.getElementById('odi-val-card');
+        if (!c) return;
+        const on = c.classList.toggle('odi-fs');
+        const btn = document.getElementById('odi-val-fs');
+        if (btn) btn.title = on ? 'Restore' : 'Fullscreen';
+        if (on) {  // entering fullscreen: make sure the body is expanded
+            const body = document.getElementById('odi-val-body');
+            if (body) body.classList.remove('tm-sect-collapsed');
+            const t = document.getElementById('odi-val-toggle');
+            if (t) t.textContent = '▼';
+        }
     };
 
     function _odiRenderV15(data) {

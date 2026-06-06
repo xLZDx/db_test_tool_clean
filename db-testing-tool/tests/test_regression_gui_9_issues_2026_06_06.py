@@ -137,13 +137,17 @@ def test_issue2_v15_big_buckets_filter_sort():
     for key in ("matched", "real_gap", "logic_drift", "structural", "missing", "odi_extra"):
         assert key in bc, f"bucket_counts missing '{key}'"
     diffs = d.get("differences", [])
-    assert all(row.get("severity") for row in diffs), "every diff row needs a severity bucket"
-    odi_only_rows = sum(1 for row in diffs if row.get("severity") == "odi_only")
-    assert bc["real_gap"] + bc["logic_drift"] + bc["structural"] + odi_only_rows == len(diffs), \
-        "the four difference buckets must partition the diff rows"
-    # frontend wiring: big-tile container + severity filter + sort
+    sevs = [row.get("severity") for row in diffs]
+    assert all(sevs), "every diff row needs a severity bucket"
+    # buckets are a clean partition of the rows (Missing distinct from Real gap; no overlap)
+    assert (sevs.count("missing") + sevs.count("real_gap") + sevs.count("logic_drift")
+            + sevs.count("structural") + sevs.count("odi_only")) == len(diffs), \
+        "severity buckets must partition the diff rows"
+    assert bc["missing"] == sevs.count("missing"), "Missing tile must count only its own rows"
+    # frontend wiring: big-tile container + severity filter + sort + fullscreen toggle
     assert "odi-v15-bigtiles" in HTML, "missing big-tiles container"
     assert "v15FilterSeverity" in HTML and "v15SortBy" in HTML, "missing v15 filter/sort wiring"
+    assert "odiToggleFullscreen" in HTML and "odi-fs" in HTML, "missing fullscreen toggle"
 
 
 def test_issue3_reset_clears_v15_result():  # FIXED step 1 (de-xfailed)
