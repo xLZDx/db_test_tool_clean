@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $scriptPath = $MyInvocation.MyCommand.Path
 $appDir = Split-Path -Parent $scriptPath
@@ -53,23 +53,21 @@ function Test-AppUp([string]$url) {
 
 function Stop-ToolProcesses {
     try {
-        # Nuclear kill: stop ALL python processes to prevent zombie sockets
-        Get-Process -Name python, pythonw -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-
-        # --- Aggressive kill: find ALL python/uvicorn processes related to our app ---
+        # SURGICAL kill: only THIS tool's uvicorn servers (ports 8550/8551 and the
+        # `app.main:app` entrypoint on those ports). NEVER a blanket python kill --
+        # other projects' python (trading bot, Aider, etc.) must survive.
         $processIds = @()
 
-        # 1. Any process whose command line references our app
+        # 1. Only uvicorn processes running app.main:app on OUR ports (8550/8551).
+        #    Both conditions required so another project's `app.main:app` on a
+        #    different port is NOT killed.
         try {
             $processIds += Get-CimInstance Win32_Process | Where-Object {
                 $_.ProcessId -ne $currentProcessId -and
                 $_.ProcessId -ne $parentProcessId -and
-                $_.CommandLine -and (
-                    ($_.CommandLine -match 'app\.main:app') -or
-                    ($_.CommandLine -match 'db-testing-tool') -or
-                    ($_.CommandLine -match '--port\s+855[01]')
-                )
+                $_.CommandLine -and
+                ($_.CommandLine -match 'app\.main:app') -and
+                ($_.CommandLine -match '--port\s+855[01]')
             } | Select-Object -ExpandProperty ProcessId
         } catch {}
 
