@@ -411,6 +411,86 @@ def sql_block_comment(text: str, limit: int = 1200) -> str:
     return t
 
 
+def _balance_parens(s: str) -> str:
+    """Drop unbalanced parens so a prose-derived predicate is valid SQL.
+
+    Generic (no hardcode): DRD prose like ``... END_DT (+))`` leaves an orphan
+    ``)`` after the ``(+)`` outer-join marker is stripped.  Pass 1 drops any
+    ``)`` with no matching ``(``; pass 2 drops any unmatched ``(``.  Quoted
+    literals are respected so a paren inside a string is never touched.
+    """
+    res = []
+    depth = 0
+    in_str = False
+    quote = ""
+    for ch in s:
+        if in_str:
+            res.append(ch)
+            if ch == quote:
+                in_str = False
+            continue
+        if ch in ("'", '"'):
+            in_str = True
+            quote = ch
+            res.append(ch)
+        elif ch == "(":
+            depth += 1
+            res.append(ch)
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+                res.append(ch)
+            # else: orphan ')' -> drop
+        else:
+            res.append(ch)
+    out = "".join(res)
+    if depth > 0:  # unmatched '(' -> drop them from the right
+        res2 = []
+        need = depth
+        in_str = False
+        quote = ""
+        for ch in reversed(out):
+            if in_str:
+                res2.append(ch)
+                if ch == quote:
+                    in_str = False
+                continue
+            if ch in ("'", '"'):
+                in_str = True
+                quote = ch
+                res2.append(ch)
+            elif ch == "(" and need > 0:
+                need -= 1
+                continue
+            else:
+                res2.append(ch)
+        out = "".join(reversed(res2))
+    return out
+
+
+def _balance_case_end(expr: str) -> str:
+    """Append missing ``END`` keyword(s) so a CASE expression is valid SQL.
+
+    Generic (no hardcode): some DRD rules are written as prose ``case when ...
+    then A else B`` WITHOUT the trailing ``END`` and the builder passes the rule
+    through verbatim.  ``\\bEND\\b`` does NOT match ``END_DT`` / ``END_DATE``
+    (``_`` is a word char) so column names are never miscounted.  Only appends
+    when CASE > END; never removes a token.
+    """
+    if not expr:
+        return expr
+    # ignore tokens inside string literals + block comments for the count
+    scan = re.sub(r"'[^']*'", " ", expr)
+    scan = re.sub(r"/\*.*?\*/", " ", scan, flags=re.S)
+    n_case = len(re.findall(r"\bCASE\b", scan, re.I))
+    n_end = len(re.findall(r"\bEND\b", scan, re.I))
+    if n_case > n_end:
+        expr = expr.rstrip()
+        # keep trailing ')' alignment readable: just append the ENDs
+        expr = expr + (" END" * (n_case - n_end))
+    return expr
+
+
 def sanitize_on_clause(on: str) -> str:
     """Clean DRD prose fragments that are not valid SQL ON predicates.
 
@@ -434,6 +514,7 @@ def sanitize_on_clause(on: str) -> str:
     out = re.sub(r"\bTBC\b", "/* TBC */", out, flags=re.I)
     out = out.replace(" ND ", " AND ")
     out = re.sub(r"\s+", " ", out).strip()
+    out = _balance_parens(out).strip()
     return out
 
 
@@ -912,6 +993,7 @@ def build_sql(target: str, target_schema: str, mapping_rows: List[Dict[str, str]
         odi = odi_by_col.get(col, {})
         expr, status, notes = drd_expr(r, profile)
         expr = normalize_rule_aliases(expr, primary_alias, profile)
+        expr = _balance_case_end(expr)  # DRD prose CASE without END -> valid SQL
         schema, table, attr, ref, src_alias = source_ref(r)
         if src_alias.upper() == "CL_VAL" and "CL_VAL." in expr.upper():
             expr = re.sub(r"\bCL_VAL\.", f"{col}_CL_VAL.", expr, flags=re.I)
