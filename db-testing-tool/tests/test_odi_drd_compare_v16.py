@@ -117,7 +117,7 @@ def test_empty_odi1_raises():
 # both-mode per-ODI-vs-DRD enrichment.
 # ---------------------------------------------------------------------------
 
-_XML_DIFF_STATUSES = {"LOGIC_CHANGED", "RESTRUCTURED", "STRUCTURE", "ONLY_IN_ODI1", "ONLY_IN_ODI2"}
+_XML_DIFF_STATUSES = {"CHANGED", "NO_RESOLVED_LINEAGE", "ONLY_IN_ODI1", "ONLY_IN_ODI2"}
 
 
 @_avy
@@ -178,6 +178,26 @@ def test_both_mode_per_odi_vs_drd_carry_each_odi_logic():
     assert sig1 != sig2, "two ODI versions must surface different logic vs the same DRD"
     # delta/proof path preserved (parity with the standalone counts).
     assert "delta" in res and "proof" in res
+
+
+@_avy
+def test_mode3_odi_vs_odi_selected_set_matches_standalone():
+    """The DRD review set (selected) reproduces the standalone's 8 CHANGED
+    columns -- the original_vs_fixed_resolved_xml_delta.csv CHANGED rows."""
+    res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), _b(_ODI2), **_OVERRIDES)
+    assert res.get("has_selection") is True
+    diffs = res["differences"]
+    selected = [d for d in diffs if d.get("selected")]
+    cols = sorted(d["target_column"] for d in selected)
+    assert cols == [
+        "BKR_AR_ID", "DB_CARD_ORIG_CCY_CD", "DB_CARD_TXN_DT",
+        "LGCY_TRD_CPCTY_TP_DIM_ID", "MM_ALT_ID",
+        "SDIRA_TXN_TP", "SDIRA_TXN_TP_CD", "SDIRA_TXN_YR",
+    ], cols
+    # the resolvable side (ODI #1) reaches a real transform (CASE / lookup), not noise
+    assert any("CASE" in (d["mapping_logic"] or "").upper() for d in selected)
+    # "show all" is the full set, much larger than the selected review set
+    assert len(diffs) > len(selected)
 
 
 def test_no_fixture_hardcodes_in_proof_layer():

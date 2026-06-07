@@ -759,48 +759,47 @@ def _diffs_from_v15_mismatches(
 
 
 _XML_STATUS_HUMAN = {
-    "LOGIC_CHANGED": "Both ODIs resolve this column to a concrete transform and they differ.",
-    "RESTRUCTURED": "One ODI routes this column through an inline view / staging, so the per-column logic is not directly resolvable -- review the full SQL block below.",
-    "STRUCTURE": "Resolved source reference differs (alias / staging) -- review the full SQL block below.",
+    "CHANGED": "Both ODIs resolve this column to a concrete transform and they differ.",
+    "NO_RESOLVED_LINEAGE": "One ODI routes this column through an inline view / staging, so the per-column logic is not directly resolvable -- review the full SQL block.",
     "ONLY_IN_ODI1": "Column produced by ODI #1 only (absent in ODI #2).",
     "ONLY_IN_ODI2": "Column produced by ODI #2 only (absent in ODI #1).",
 }
 
 # Action priority (lower = more actionable, surfaced first).
 _XML_STATUS_ORDER = {
-    "LOGIC_CHANGED": 0,
+    "CHANGED": 0,
     "ONLY_IN_ODI1": 1,
     "ONLY_IN_ODI2": 2,
-    "RESTRUCTURED": 3,
-    "STRUCTURE": 4,
+    "NO_RESOLVED_LINEAGE": 3,
 }
 
 
 def _classify_xml_change(orig_expr: str, fixed_expr: str) -> str:
-    """Honest classification of a per-column resolved-SQL difference.
+    """Per-column resolved-SQL difference status (matches the standalone v16.6).
 
-    LOGIC_CHANGED is only claimed when BOTH ODIs resolve the column to a
-    concrete (non-passthrough) transform that differ -- those are the
-    confirmable logic changes.  When one side stays an inline-view / staging
-    passthrough (the resolver cannot reach the leaf), it is RESTRUCTURED, not a
-    confirmed logic change (the full SQL block carries the real code)."""
-    o_leaf = bool(orig_expr) and not _is_passthrough(orig_expr)
-    f_leaf = bool(fixed_expr) and not _is_passthrough(fixed_expr)
-    if o_leaf and f_leaf:
-        return "LOGIC_CHANGED"
-    if o_leaf != f_leaf:
-        return "RESTRUCTURED"
-    return "STRUCTURE"
+    CHANGED when both ODIs produced a resolved expression and they differ (even
+    if one side is still an inline-view pointer -- that IS a difference);
+    UNCHANGED when equal; NO_RESOLVED_LINEAGE when a side produced no resolved
+    expression at all.  The clean vs noisy output is controlled by column
+    SELECTION (the DRD review set), not by this classifier."""
+    o = (orig_expr or "").strip()
+    f = (fixed_expr or "").strip()
+    if not o or not f:
+        return "NO_RESOLVED_LINEAGE"
+    return "CHANGED" if _canonical(o) != _canonical(f) else "UNCHANGED"
 
 
-def _diffs_from_xml_delta(xdelta: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Unified difference rows for pure ODI-vs-ODI (Mode 2).
+def _diffs_from_xml_delta(
+    xdelta: List[Dict[str, str]], selected_set: Optional[set] = None
+) -> List[Dict[str, str]]:
+    """Unified difference rows for ODI-vs-ODI.
 
     Mapping Logic column = ODI #1 (resolved, FULL block); ODI Logic column =
-    ODI #2 (resolved, FULL block).  UNCHANGED columns are dropped.  CHANGED
-    columns are classified honestly (LOGIC_CHANGED vs RESTRUCTURED vs
-    STRUCTURE) so the operator is not told 280 columns "changed" when most were
-    merely re-routed through an inline view.
+    ODI #2 (resolved, FULL block).  UNCHANGED columns are dropped.  Each row is
+    tagged ``selected`` = the column is in the DRD review set (when a DRD is
+    present); the UI defaults to the selected set (the standalone's chosen
+    columns) and offers "show all".  When ``selected_set`` is None every row is
+    marked selected (no DRD -> show all).
     """
     out: List[Dict[str, str]] = []
     for r in xdelta:
@@ -815,10 +814,12 @@ def _diffs_from_xml_delta(xdelta: List[Dict[str, str]]) -> List[Dict[str, str]]:
             st = "ONLY_IN_ODI1"
         else:  # CHANGED
             st = _classify_xml_change(o, f)
+        col = r.get("target_column", "")
         out.append(
             {
-                "target_column": r.get("target_column", ""),
+                "target_column": col,
                 "status": st,
+                "selected": True if selected_set is None else (_ident(col) in selected_set),
                 "mapping_logic_label": "ODI #1",
                 # FULL per-column resolved SQL block (untruncated):
                 "mapping_logic": o,
@@ -833,6 +834,17 @@ def _diffs_from_xml_delta(xdelta: List[Dict[str, str]]) -> List[Dict[str, str]]:
         )
     out.sort(key=lambda d: (_XML_STATUS_ORDER.get(d["status"], 9), d["target_column"]))
     return out
+
+
+def _review_column_set(*by_targets: Dict[str, Dict[str, str]]) -> set:
+    """Columns flagged REVIEW_REQUIRED / MISSING_IN_ODI in any v15 classification
+    -- the DRD review set the standalone resolves (its `selected_resolved_columns`)."""
+    sel = set()
+    for by in by_targets:
+        for col, r in (by or {}).items():
+            if r.get("v15_class") in ("REVIEW_REQUIRED", "MISSING_IN_ODI"):
+                sel.add(_ident(col))
+    return sel
 
 
 def compare_two_odi_against_drd(
@@ -934,7 +946,9 @@ def compare_two_odi_against_drd(
             orig_res = _resolve_final(o1_final, o1_lineage)
             fixed_res = _resolve_final(o2_final, o2_lineage)
             xdelta = _xml_delta(orig_res, fixed_res)
-            differences = _diffs_from_xml_delta(xdelta)
+            # No DRD -> no review set to focus on -> every diff is "selected"
+            # (the UI shows them all; attach a DRD to focus on the review set).
+            differences = _diffs_from_xml_delta(xdelta, selected_set=None)
             # FULL blocks where the two ODIs differ (authoritative "полные блоки
             # где несовпадение"): keep only non-UNCHANGED, untruncated.
             sdiff = [
@@ -949,6 +963,7 @@ def compare_two_odi_against_drd(
                 "detection": detection_human,
                 "mapping_rows": 0,
                 "differences": differences,
+                "has_selection": False,
                 "xml_delta": xdelta,
                 "sql_block_diff": sdiff,
                 "summary": {
@@ -992,7 +1007,15 @@ def compare_two_odi_against_drd(
         fixed_res = _resolve_final(o2_final, o2_lineage)
         xdelta = _xml_delta(orig_res, fixed_res)
         delta = _delta_report(orig_v15, fixed_v15, xdelta)
-        sdiff = _sql_block_diff(o1_blocks, o2_blocks)
+        # FULL blocks where the two ODIs differ (non-UNCHANGED, untruncated).
+        sdiff = [
+            r for r in _sql_block_diff(o1_blocks, o2_blocks, excerpt_len=60000)
+            if r["sql_delta_status"] != "UNCHANGED"
+        ]
+        # DRD review set -> the standalone's selected_resolved_columns. The
+        # ODI-vs-ODI resolved delta defaults to these; "show all" reveals the rest.
+        review_set = _review_column_set(orig_v15, fixed_v15)
+        odi_vs_odi_diffs = _diffs_from_xml_delta(xdelta, review_set)
 
         drd_by_target = {r["target_column"]: r for r in mapping_rows}
         original_xml = odi1_bytes.decode("utf-8", errors="replace")
@@ -1017,7 +1040,9 @@ def compare_two_odi_against_drd(
             "delta": delta,
             "proof": proof,
             "sql_block_diff": sdiff,
-            "differences": _diffs_from_xml_delta(xdelta),
+            "differences": odi_vs_odi_diffs,
+            "has_selection": True,
+            "selected_count": sum(1 for d in odi_vs_odi_diffs if d.get("selected")),
             "odi1_vs_drd": odi1_vs_drd,
             "odi2_vs_drd": odi2_vs_drd,
             "v15_original": orig_v15,

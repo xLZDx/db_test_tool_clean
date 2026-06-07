@@ -7958,6 +7958,36 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
 
+        <!-- ODI-vs-DRD / ODI-vs-ODI result (v15-style: sortable severity tiles incl Matched,
+             resizable SQL pane, emitted INSERT). Used by Mode 1 (ODI+DRD) and Mode 2 (ODI+ODI). -->
+        <div id="odi-v15-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-weight:700;color:#22c55e">&#916; v16.6 comparison</span>
+                <span id="odi-v15-layout" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
+            </div>
+            <div id="odi-v15-bigtiles" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span id="odi-v15-caption" style="font-size:12px;font-weight:600;color:var(--text-muted)">Differences</span>
+                <span id="odi-v15-shown" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 8px;text-align:left">#</th>
+                            <th style="padding:6px 8px;text-align:left">Area / Columns</th>
+                            <th style="padding:6px 8px;text-align:left">Difference Type</th>
+                            <th style="padding:6px 8px;text-align:left">Mapping Logic</th>
+                            <th style="padding:6px 8px;text-align:left">ODI XML Logic</th>
+                            <th style="padding:6px 8px;text-align:left">Conclusion</th>
+                            <th style="padding:6px 8px;text-align:left">Recommended Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-v15-diffbody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- v16.6 delta + rule-proof result (read-only) -->
         <div id="odi-v16-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -8268,26 +8298,111 @@ document.addEventListener('DOMContentLoaded', function() {
         const btn = document.getElementById('odi-v16-btn');
         btn.disabled = true;
         document.getElementById('odi-loading').style.display = 'block';
+        document.getElementById('odi-v15-result').style.display = 'none';
         document.getElementById('odi-v16-result').style.display = 'none';
+        const tt = (document.getElementById('odi-target-table')?.value || '').trim();
         try {
-            const fd = new FormData();
-            fd.append('xml_file', xmlFile);
-            if (xmlFile2) fd.append('xml_file_2', xmlFile2);
-            if (drdFile) fd.append('drd_file', drdFile);
-            const tt = (document.getElementById('odi-target-table')?.value || '').trim();
-            if (tt) fd.append('target_table', tt);
-            const resp = await fetch('/api/odi/scenario/compare-multi', { method: 'POST', body: fd });
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
-                throw new Error(err.detail || 'HTTP ' + resp.status);
+            if (!xmlFile2) {
+                // ---- Mode 1: ODI #1 vs DRD -> the proven ODI-vs-DRD view
+                // (sortable severity tiles incl Matched, resizable SQL, emitted INSERT).
+                const fd = new FormData();
+                fd.append('xml_file', xmlFile);
+                fd.append('drd_file', drdFile);
+                const resp = await fetch('/api/odi/scenario/compare-v15', { method: 'POST', body: fd });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+                    throw new Error(err.detail || 'HTTP ' + resp.status);
+                }
+                _odiRenderV15(await resp.json());
+            } else {
+                // ---- Mode 2 (ODI #1 vs ODI #2, DRD optional) / Mode 3 (+ DRD) ----
+                const fd = new FormData();
+                fd.append('xml_file', xmlFile);
+                fd.append('xml_file_2', xmlFile2);
+                if (drdFile) fd.append('drd_file', drdFile);
+                if (tt) fd.append('target_table', tt);
+                const resp = await fetch('/api/odi/scenario/compare-multi', { method: 'POST', body: fd });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+                    throw new Error(err.detail || 'HTTP ' + resp.status);
+                }
+                const data = await resp.json();
+                if (data.mode === 'odi1_vs_odi2' || data.mode === 'odi1_vs_odi2_with_drd') {
+                    // ODI-vs-DRD layout (Mapping Logic = ODI #1, ODI XML Logic = ODI #2).
+                    // With a DRD the engine tags the review set -> default to it + "show all".
+                    _odiRenderModeTwoAsV15(data);
+                } else {
+                    _odiRenderV16(data);
+                }
             }
-            _odiRenderV16(await resp.json());
         } catch(e) {
             showToast('v16 compare failed: ' + e.message, 'error');
         } finally {
             document.getElementById('odi-loading').style.display = 'none';
             btn.disabled = false;
         }
+    };
+
+    // Map the ODI #1 vs ODI #2 compare-multi payload into the v15 render shape
+    // so it displays exactly like ODI-vs-DRD (operator request). When a DRD is
+    // present the engine tags each row `selected` (the review set = the
+    // standalone's selected_resolved_columns); default to that, with a
+    // "show all" toggle.
+    const _MODE2_SEV = {
+        CHANGED: 'logic_drift',
+        NO_RESOLVED_LINEAGE: 'real_gap',
+        ONLY_IN_ODI1: 'odi_only', ONLY_IN_ODI2: 'odi_only',
+    };
+    window._mode2Data = null;
+    window._mode2ShowAll = false;
+    function _mode2BuildShape(showAll) {
+        const data = window._mode2Data || {};
+        let diffs = Array.isArray(data.differences) ? data.differences : [];
+        if (data.has_selection && !showAll) diffs = diffs.filter(d => d.selected);
+        const rows = diffs.map((d, i) => ({
+            '#': String(i + 1),
+            'Area / Columns': d.target_column || '',
+            'Difference Type': d.status || '',
+            'Mapping Logic': d.mapping_logic || '',   // ODI #1 resolved
+            'ODI XML Logic': d.odi_logic || '',       // ODI #2 resolved
+            'Conclusion': d.conclusion || '',
+            'Recommended Action': d.recommended_action || '',
+            'severity': _MODE2_SEV[d.status] || 'logic_drift',
+        }));
+        const bc = { matched: 0, missing: 0, real_gap: 0, logic_drift: 0, structural: 0, odi_extra: 0 };
+        rows.forEach(r => { const k = r.severity === 'odi_only' ? 'odi_extra' : r.severity; if (bc[k] !== undefined) bc[k] += 1; });
+        const sblocks = Array.isArray(data.sql_block_diff) ? data.sql_block_diff : [];
+        const sqlText = sblocks.length
+            ? sblocks.map(b => '-- step ' + (b.step_no||'') + ' / task ' + (b.task_no||'') + ' [' + (b.sql_delta_status||'') + ']\n'
+                + '-- ODI #1:\n' + (b.original_sql_excerpt||'') + '\n-- ODI #2:\n' + (b.fixed_sql_excerpt||'') + '\n').join('\n')
+            : '';
+        return { engine: data.engine, summary: { mapping_columns: 0, in_both: 0 },
+                 bucket_counts: bc, detection: {}, differences: rows, sql: sqlText, mode2: true };
+    }
+    function _mode2DecorateCaption() {
+        const data = window._mode2Data || {};
+        const cap = document.getElementById('odi-v15-caption');
+        if (!cap) return;
+        const total = (data.differences || []).length;
+        const sel = (data.differences || []).filter(d => d.selected).length;
+        const showAll = !!window._mode2ShowAll;
+        const btn = data.has_selection
+            ? ' <button class="btn btn-outline btn-sm" style="margin-left:8px;padding:1px 8px;font-size:10px" onclick="_mode2ToggleShowAll()">'
+              + (showAll ? ('Show selected (' + sel + ')') : ('Show all (' + total + ')')) + '</button>'
+            : '';
+        cap.innerHTML = 'Code-vs-code differences (ODI #1 vs ODI #2)'
+            + (data.has_selection ? (' &mdash; ' + (showAll ? ('all ' + total) : ('selected ' + sel))) : '') + btn;
+    }
+    window._mode2ToggleShowAll = function() {
+        window._mode2ShowAll = !window._mode2ShowAll;
+        _odiRenderV15(_mode2BuildShape(window._mode2ShowAll));
+        _mode2DecorateCaption();
+    };
+    window._odiRenderModeTwoAsV15 = function(data) {
+        window._mode2Data = data;
+        window._mode2ShowAll = !data.has_selection;  // no DRD selection -> show all
+        _odiRenderV15(_mode2BuildShape(window._mode2ShowAll));
+        _mode2DecorateCaption();
     };
 
     // Status -> color. Actionable subset is shown in the table; UNCHANGED +
