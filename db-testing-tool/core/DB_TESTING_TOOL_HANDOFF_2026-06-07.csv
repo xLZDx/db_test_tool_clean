@@ -1,0 +1,28 @@
+section,item,detail,status
+status,v16.6 multi-mode compare (ODI-vs-DRD / ODI-vs-ODI / both),Gate A commit 87490ed; 22 tests + 3-mode GUI E2E,DONE
+status,control-table mark-correct -> regenerate v5.4 -> learn,Gate B commit a5a4687; 6 backend tests + GUI E2E,DONE
+status,v15 Compare button,removed from UI (operator: don't offer v15); backend endpoint left intact,REMOVED
+status,clean INSERT generation DB-validated,Gate C: 2 generic fixes + harness; 3 DRDs still FAIL deeper cascade,PARTIAL
+status,EXPLAIN-PLAN DB-validation harness,tools/validate_inserts_explain_plan.py (datasource id=2 FREEPDB1_LOCAL),DONE
+fix,_balance_parens,sanitize_on_clause left orphan ')' after stripping Oracle (+); cleared AVY ORA-03048,DONE
+fix,_balance_case_end,DRD prose CASE without END passed verbatim; appends missing END; cleared CLOSE ORA-02000,DONE
+punchlist,AVY AVY_FACT,ORA-03048 'WITH' following '...END_DT and populate ' -- DRD join prose 'populate with' leaks into ON clause,OPEN (rebuild)
+punchlist,CLOSE CLS_TAX_LOTS_NON_BKR_FACT,ORA-00942 TAXLOT_STG_OWNER.CL_VAL does not exist -- wrong schema; CL_VAL is CCAL_REPL_OWNER,OPEN (needs schema KB)
+punchlist,OPEN OPN_TAX_LOTS_NON_BKR_FACT,ORA-00904 ORIG_PROCD invalid identifier -- DRD target col not in physical table,OPEN (likely known mismatch; verify)
+file,run.py,launcher -> uvicorn app.main:app :8550,n/a
+file,app/services/odi_drd_compare_v16.py,v16.6 multi-mode engine,n/a
+file,app/services/odi_drd_compare_v15.py,v15 base engine (lineage/mapping detect),n/a
+file,app/services/universal_insert_builder_v54.py,v5.4 DRD-driven INSERT builder (heuristic; rebuild target),n/a
+file,app/routers/odi.py,ODI parse/compare/emit + compare-multi + live Oracle exec,n/a
+file,app/routers/tests_control_table.py,compare-docs / build-v54 / regenerate-with-corrections,n/a
+file,app/connectors/factory.py + oracle_connector.py,datasource -> live Oracle (decrypts password),n/a
+file,app/models/control_table_training.py,ControlTableCorrectionRule (datasource-scoped learn),n/a
+file,app/templates/mappings.html,whole UI (ODI panel + control-table),n/a
+file,tools/validate_inserts_explain_plan.py,EXPLAIN-PLAN DB validation harness (NEW),n/a
+file,data/local_kb/schema_kb_ds_1.json,table->schema + columns KB (for the rebuild),n/a
+file,data/MISMATCH_FINAL.csv,known-mismatch reference (AVY),n/a
+fixture,AVY DRD,data/taxlot/DRD_Activity_Fact.xlsx -> AVY_FACT,n/a
+fixture,CLOSE DRD,data/taxlot/DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx,n/a
+fixture,OPEN DRD,data/taxlot/DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx,n/a
+fixture,AVY ODI v1/v2,data/taxlot/1_SCEN_LH_AVY_PKG_LOAD_AVY_FACT_SIDE_V1_RT_ST_Version_001.xml (+ _v2),n/a
+remote,canonical push,git push cleannew HEAD:main (FF only; after push-GO),n/a
