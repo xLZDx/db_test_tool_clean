@@ -29,6 +29,7 @@ from app.services.control_table_service import (
     apply_compare_decisions,
     apply_sql_variant_preserving_joins,
     build_control_table_ddl,
+    build_control_table_test_defs,
     compare_insert_variants,
     dedupe_insert_join_blocks,
     ensure_parallel_hints,
@@ -766,8 +767,73 @@ async def analyze_control_table_from_drd(
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Control-table generation failed: {exc}")
-    comparison = result.get("comparison") or {"rows": []}
+
+    # Operator-locked 2026-06-07: every public control-table generation path
+    # must emit the v5.4 DRD-driven INSERT. The legacy analyzer above is kept
+    # only for DRD parsing, PDM-backed DDL, analysis rows, and suite scaffolding.
+    # If v5.4 cannot build a real INSERT, fail loud; never return the old SQL.
+    try:
+        import gc as _gc
+        import shutil as _shutil
+        import tempfile as _tempfile
+        from app.services.universal_insert_builder_v54 import build_to_dir
+
+        def _profile_for_table(name: str) -> str:
+            up = (name or "").upper()
+            if "AVY" in up:
+                return "avy"
+            if "TAX_LOT" in up or "TAXLOT" in up:
+                return "taxlot"
+            return "auto"
+
+        def _build_v54_sql() -> str:
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "xlsx"
+            td = _tempfile.mkdtemp(prefix="uib54_analyze_")
+            tdp = Path(td)
+            try:
+                xlsx_p = tdp / f"drd.{ext}"
+                xlsx_p.write_bytes(file_bytes)
+                out = tdp / "out"
+                build_to_dir(
+                    xlsx_p,
+                    None,
+                    out,
+                    target_schema=target_schema,
+                    target_table=target_table,
+                    profile=_profile_for_table(target_table),
+                )
+                gen = out / "generated_insert_select_candidate.sql"
+                sql = gen.read_text(encoding="utf-8") if gen.exists() else ""
+                if "INSERT INTO" not in sql.upper():
+                    raise ValueError("v5.4 builder produced no INSERT statement")
+                return sql
+            finally:
+                _gc.collect()
+                _shutil.rmtree(tdp, ignore_errors=True)
+
+        v54_sql = await asyncio.to_thread(_build_v54_sql)
+    except (FileNotFoundError, ValueError) as exc:
+        _ct_log.warning("control-table analyze v5.4 build error: %s", exc)
+        raise HTTPException(status_code=422, detail="v5.4 build error: could not build a valid INSERT from the DRD") from exc
+    except Exception as exc:
+        _ct_log.error("control-table analyze v5.4 unexpected error: %s", exc)
+        raise HTTPException(status_code=500, detail="v5.4 build failed unexpectedly") from exc
+
+    result["generated_insert_sql"] = v54_sql
+    comparison = compare_insert_variants(result.get("analysis_rows") or [], v54_sql, _manual_sql)
     result["comparison"] = _apply_training_rules_to_comparison(comparison, rules)
+    result["tests"] = build_control_table_test_defs(
+        target_schema=target_schema,
+        target_table=target_table,
+        control_schema=control_schema.upper(),
+        target_definition=result.get("target_definition") or {"columns": []},
+        main_grain=main_grain,
+        ddl_sql=result.get("create_table_sql", ""),
+        insert_sql=v54_sql,
+        analysis_rows=result.get("analysis_rows") or [],
+        source_datasource_id=source_datasource_id,
+        target_datasource_id=resolved_target_datasource_id,
+    )
     result["file_fingerprint"] = fingerprint
     result["state_restored"] = state_restored
     result["state_file_name"] = restored_state.file_name if restored_state else ""

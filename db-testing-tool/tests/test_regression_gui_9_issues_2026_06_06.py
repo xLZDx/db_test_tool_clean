@@ -93,12 +93,12 @@ def _pyfunc(src: str, name: str) -> str:
     return src[i:j] if j > 0 else src[i:]
 
 
-# -- Group A -- ODI vs DRD Validation: v15 must equal Analyze ------------------
+# -- Group A -- ODI vs DRD Validation: v16.6 review view -----------------------
 
 @_AVY
-def test_issue1_v15_returns_curated_review_rows():
-    # FIXED 2026-06-06 (step 1): /scenario/compare-v15 now passes profile="auto"
-    # (was hardcoded "generic" -> 262). De-xfailed -> permanent regression test.
+def test_issue1_v16_mode1_returns_curated_review_rows():
+    # Compatibility URL now runs the v16.6 engine; it must still return the
+    # curated Mode-1 review rows that the existing GUI table renders.
     with AVY_DRD.open("rb") as fd, AVY_ODI.open("rb") as fo:
         r = client.post(
             "/api/odi/scenario/compare-v15",
@@ -109,19 +109,18 @@ def test_issue1_v15_returns_curated_review_rows():
         )
     assert r.status_code == 200, r.text
     d = r.json()
+    assert d.get("engine") == "v16-generic-rule-proof"
+    assert d.get("mode") == "odi1_vs_drd"
     diffs = d.get("differences", [])
-    # v15 DOES find these under avy/auto; the GUI forces generic -> 262. After the
-    # one-line profile fix the endpoint returns the curated review rows.
     assert len(diffs) == AVY_REVIEW_ROWS, (
-        f"v15 returned {len(diffs)} review rows; expected {AVY_REVIEW_ROWS} "
-        f"(GUI forces profile=generic; pass auto)"
+        f"v16.6 Mode 1 returned {len(diffs)} review rows; expected {AVY_REVIEW_ROWS}"
     )
 
 
 @_AVY
-def test_issue2_v15_big_buckets_filter_sort():
-    # FIXED step 2 (operator-revised): v15 keeps its OWN table style + shows BIG Analyze-style
-    # tiles (v15 severity buckets incl Matched); click a tile to filter the table by severity;
+def test_issue2_v16_mode1_big_buckets_filter_sort():
+    # Mode 1 keeps the proven table style + shows BIG Analyze-style
+    # tiles (severity buckets incl Matched); click a tile to filter the table by severity;
     # sortable headers -- NOT the v9 6-verdict screen. Backend exposes bucket_counts + per-row
     # severity. (No small per-type tiles; no purple frame.)
     with AVY_DRD.open("rb") as fd, AVY_ODI.open("rb") as fo:
@@ -150,7 +149,7 @@ def test_issue2_v15_big_buckets_filter_sort():
     assert "odiToggleFullscreen" in HTML and "odi-fs" in HTML, "missing fullscreen toggle"
 
 
-def test_issue3_reset_clears_v15_result():  # FIXED step 1 (de-xfailed)
+def test_issue3_reset_clears_mode1_result():  # FIXED step 1 (de-xfailed)
     body = _window(HTML, "_odiResetPanel =", 1200)
     assert "odi-v15-result" in body, (
         "_odiResetPanel must hide odi-v15-result (and its tiles/diffbody) on new file"
@@ -170,20 +169,13 @@ def test_issue5_v54_does_not_force_show_all():  # FIXED step 1 (de-xfailed)
     )
 
 
-@pytest.mark.xfail(strict=True, reason="Issue #6: the control-table generator "
-                   "(analyze_control_table) still emits the OLD insert; v5.4 is "
-                   "only the opt-in /build-v54 button and never reaches saved tests")
 def test_issue6_generator_uses_v54_builder():
-    # Slice the analyze_control_table BODY (not the whole file) so a top-of-file
-    # dead import cannot satisfy this. (Functional proof -- assert the analyze
-    # endpoint's generated_insert_sql carries the v5.4 header -- is deferred to
-    # the Group E browser/TestClient harness, which needs a registered ds.)
-    src = CT_SVC.read_text(encoding="utf-8")
-    body = _pyfunc(src, "analyze_control_table")
-    assert body, "analyze_control_table not found in control_table_service.py"
+    src = (ROOT / "app" / "routers" / "tests_control_table.py").read_text(encoding="utf-8")
+    body = _pyfunc(src, "analyze_control_table_from_drd")
+    assert body, "analyze_control_table_from_drd not found in tests_control_table.py"
     assert ("build_to_dir" in body) or ("universal_insert_builder_v54" in body), (
-        "the generator (analyze_control_table) does not call the v5.4 builder; "
-        "v5.4 stays opt-in (/build-v54) and never reaches saved tests"
+        "/control-table/analyze does not force the v5.4 builder; "
+        "v5.4 must reach generated_insert_sql, comparison, and saved tests"
     )
 
 

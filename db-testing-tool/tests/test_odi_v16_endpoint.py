@@ -2,7 +2,7 @@
 
 Covers the two-ODI delta path (with full AVY overrides -> deterministic SDIRA
 promotion), the UI path (target_table only -> auto-detect still yields a delta),
-the single-ODI v15-only fallback, and the upload ext guards.
+the single-ODI DRD-vs-ODI v16.6 mode, and the upload ext guards.
 """
 from __future__ import annotations
 
@@ -74,14 +74,18 @@ def test_compare_multi_ui_path_target_table_only_returns_delta():
 
 
 @_avy
-def test_compare_multi_single_odi_is_v15_only():
+def test_compare_multi_single_odi_is_v16_drd_mode():
     r = client.post("/api/odi/scenario/compare-multi", files=_files(two=False), data=_OVERRIDE_FORM)
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["engine"] == "v15-only"
+    assert d["engine"] == "v16-generic-rule-proof"
+    assert d["mode"] == "odi1_vs_drd"
     assert "delta" not in d
     assert "proof" not in d
-    assert d["v15_by_target"]
+    assert d["v16_by_target"]
+    assert d["bucket_counts"]["matched"] > 0
+    assert d["summary"]["mapping_columns"] > 0
+    assert d["sql"].strip()
 
 
 @_avy

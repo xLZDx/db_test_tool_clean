@@ -18,8 +18,8 @@ Port rules baked in (per the 4-agent review of the integration plan):
     18-file disk dump, no out-dir, so the "rmtree before read" bug class
     (just fixed in the v15 endpoint) cannot recur here.
   * Empty-mapping / empty-final-lineage -> raise (no silent "no differences").
-  * Single-ODI -> v15-only fallback; delta/proof fields are OMITTED, never
-    returned empty-but-present (which would read as "no changes").
+  * Single-ODI + DRD -> v16.6 Mode 1 review output; delta/proof fields are
+    OMITTED, never returned empty-but-present (which would read as "no changes").
   * XML decoded with errors="replace" (never silently drop bytes).
   * ``resolve_one`` int() guard narrowed to (ValueError, TypeError).
   * No fixture/business hardcodes anywhere in the proof layer (matches the
@@ -45,12 +45,11 @@ from app.services import odi_drd_compare_v15 as base
 __VERSION__ = "16.6-generic-rule-proof"
 
 ENGINE_DELTA = "v16-generic-rule-proof"
-ENGINE_V15_ONLY = "v15-only"
 ENGINE_ODI_VS_ODI = "odi-vs-odi"
 
 # Comparison modes surfaced to the panel (operator-locked, 2026-06-07):
 #   MODE_ODI_VS_DRD   -- ODI #1 vs DRD (no ODI #2).  Mapping Logic = DRD,
-#                        ODI Logic = ODI #1.  differences = v15 mismatch rows.
+#                        ODI Logic = ODI #1.  differences = v16.6 review rows.
 #   MODE_ODI_VS_ODI   -- ODI #1 vs ODI #2 (DRD optional / ignored).  Pure
 #                        XML-vs-XML on RESOLVED per-column SQL; full blocks
 #                        where they differ.  Mapping Logic = ODI #1, ODI Logic
@@ -99,6 +98,30 @@ def _canonical(expr: str, limit: int = 12000) -> str:
 def _short(expr: str, n: int = 1600) -> str:
     e = _norm_space(expr)
     return e if len(e) <= n else e[: n - 3] + "..."
+
+
+def _sql_blocks_text(sql_blocks: List[Dict[str, str]], limit: int = 500_000) -> str:
+    """Render emitted ODI SQL blocks for the GUI review pane.
+
+    This replaces the old public /compare-v15 artifact read. v16.6 already has
+    the parsed ODI blocks in memory, so Mode 1 can surface the same operator
+    evidence without calling the legacy endpoint.
+    """
+    parts: List[str] = []
+    for b in sql_blocks or []:
+        sql = _clean(b.get("sql", ""))
+        if not sql:
+            continue
+        header = (
+            "-- " + "=" * 88 + "\n"
+            f"-- Step {b.get('step_no', '')} | Task {b.get('task_no', '')}"
+            + (f" | {b.get('task_name', '')}" if b.get("task_name") else "")
+            + "\n"
+            "-- " + "=" * 88
+        )
+        parts.append(header + "\n" + base.normalize_odi_sql(sql).rstrip())
+    text = "\n\n".join(parts)
+    return text if len(text) <= limit else text[:limit] + "\n-- ...truncated (over 500KB)..."
 
 
 # ======================================================================================
@@ -758,6 +781,69 @@ def _diffs_from_v15_mismatches(
     return out
 
 
+def _severity_for_review_row(row: Dict[str, str]) -> str:
+    dt = (row.get("Difference Type", "") or row.get("status", "") or "").lower()
+    c = (row.get("Conclusion", "") or row.get("conclusion", "") or "").lower()
+    if "missing implementation" in dt or "missing target column" in dt:
+        return "missing"
+    if "structural mismatch" in dt or "confirmed structural" in c or "structural gap" in c:
+        return "real_gap"
+    if "odi-only" in c or "environment" in c or "target risk" in c or "xml-only column" in dt:
+        return "odi_only"
+    if (
+        "structural difference" in c
+        or "structural lineage" in c
+        or "operationally specific" in c
+        or "more detailed" in dt
+        or "xml-only exception" in dt
+        or "journal source" in dt
+        or "where-vs-case" in dt
+        or "join filter moved" in dt
+        or "acceptable" in c
+    ):
+        return "structural"
+    return "logic_drift"
+
+
+def _review_table_shape(
+    *,
+    differences: List[Dict[str, str]],
+    column_diff: List[Dict[str, str]],
+    sql_blocks: List[Dict[str, str]],
+    detection_human: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Add the v16.6 Mode-1 fields consumed by the existing GUI review table."""
+    statuses = [r.get("status", "") for r in column_diff or []]
+    summary = {
+        "mapping_columns": sum(1 for s in statuses if s in ("IN_BOTH", "MAPPING_ONLY")),
+        "in_both": statuses.count("IN_BOTH"),
+        "mapping_only": statuses.count("MAPPING_ONLY"),
+        "xml_only": statuses.count("XML_ONLY"),
+    }
+    for r in differences:
+        r["severity"] = _severity_for_review_row(r)
+    diff_sev = [r.get("severity", "") for r in differences]
+    bucket_counts = {
+        "missing": diff_sev.count("missing"),
+        "real_gap": diff_sev.count("real_gap"),
+        "logic_drift": diff_sev.count("logic_drift"),
+        "structural": diff_sev.count("structural"),
+        "odi_extra": summary["xml_only"] + diff_sev.count("odi_only"),
+    }
+    bucket_counts["matched"] = max(
+        summary["in_both"]
+        - (diff_sev.count("logic_drift") + diff_sev.count("structural") + diff_sev.count("odi_only")),
+        0,
+    )
+    return {
+        "summary": summary,
+        "bucket_counts": bucket_counts,
+        "detection": detection_human,
+        "column_diff_count": len(column_diff or []),
+        "sql": _sql_blocks_text(sql_blocks),
+    }
+
+
 _XML_STATUS_HUMAN = {
     "CHANGED": "Both ODIs resolve this column to a concrete transform and they differ.",
     "NO_RESOLVED_LINEAGE": "One ODI routes this column through an inline view / staging, so the per-column logic is not directly resolvable -- review the full SQL block.",
@@ -864,9 +950,9 @@ def compare_two_odi_against_drd(
 
     Three modes, auto-selected from which inputs are present:
 
-    * DRD + ODI #1, no ODI #2  -> MODE_ODI_VS_DRD (engine="v15-only").
-      Quick ODI-vs-DRD classification; ``differences`` = v15 mismatch rows
-      (Mapping Logic = DRD, ODI Logic = ODI #1).  Keeps ``v15_by_target``.
+    * DRD + ODI #1, no ODI #2  -> MODE_ODI_VS_DRD (engine=ENGINE_DELTA).
+      Quick v16.6 ODI-vs-DRD classification; ``differences`` = review rows
+      (Mapping Logic = DRD, ODI Logic = ODI #1).  Keeps ``v16_by_target``.
     * ODI #1 + ODI #2, no DRD  -> MODE_ODI_VS_ODI (engine="odi-vs-odi").
       Pure XML-vs-XML on RESOLVED per-column SQL; ``differences`` carries the
       FULL per-column blocks where ODI #1 and ODI #2 differ (Mapping Logic =
@@ -976,24 +1062,29 @@ def compare_two_odi_against_drd(
 
         # ================= MODE 1: ODI #1 vs DRD (no ODI #2) =================
         if has_drd and not has_odi2:
-            by1, _cd1, m1, _e1 = _v15_compare(
+            by1, cd1, m1, _e1 = _v15_compare(
                 mapping_rows, o1_final, o1_lineage, o1_blocks, detection, resolved_profile
             )
             o1_res = _resolve_final(o1_final, o1_lineage)
             differences = _diffs_from_v15_mismatches(m1, mapping_by_target, o1_res)
+            review_shape = _review_table_shape(
+                differences=differences,
+                column_diff=cd1,
+                sql_blocks=o1_blocks,
+                detection_human=detection_human,
+            )
+            review_shape["summary"]["v16_class_counts"] = _summary_counts(by1)
+            review_shape["summary"]["difference_count"] = len(differences)
             return {
-                "engine": ENGINE_V15_ONLY,
+                "engine": ENGINE_DELTA,
                 "version": __VERSION__,
                 "mode": MODE_ODI_VS_DRD,
                 "profile_resolved": resolved_profile,
                 "detection": detection_human,
                 "mapping_rows": len(mapping_rows),
                 "differences": differences,
-                "v15_by_target": by1,
-                "summary": {
-                    "v15_class_counts": _summary_counts(by1),
-                    "difference_count": len(differences),
-                },
+                "v16_by_target": by1,
+                **review_shape,
             }
 
         # ============ BOTH: ODI #1 + ODI #2 + DRD -> delta + proof ============

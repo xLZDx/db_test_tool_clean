@@ -8333,12 +8333,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const tt = (document.getElementById('odi-target-table')?.value || '').trim();
         try {
             if (!xmlFile2) {
-                // ---- Mode 1: ODI #1 vs DRD -> the proven ODI-vs-DRD view
-                // (sortable severity tiles incl Matched, resizable SQL, emitted INSERT).
+                // ---- Mode 1: ODI #1 vs DRD -> v16.6 compare-multi.
+                // Rendered in the proven review-table view (sortable severity
+                // tiles incl Matched, resizable SQL, emitted INSERT).
                 const fd = new FormData();
                 fd.append('xml_file', xmlFile);
                 fd.append('drd_file', drdFile);
-                const resp = await fetch('/api/odi/scenario/compare-v15', { method: 'POST', body: fd });
+                if (tt) fd.append('target_table', tt);
+                const resp = await fetch('/api/odi/scenario/compare-multi', { method: 'POST', body: fd });
                 if (!resp.ok) {
                     const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
                     throw new Error(err.detail || 'HTTP ' + resp.status);
@@ -8730,7 +8732,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const _w = document.getElementById('odi-sql-wrap'); if (_w) _w.style.display = 'block';
             const _xe = document.getElementById('odi-xe-result'); if (_xe) _xe.style.display = 'none';
         }
-        showToast('v15: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + ((data.differences||[]).length) + ' review rows', 'info');
+        showToast('v16.6: ' + (s.mapping_columns||0) + ' DRD cols, ' + (s.in_both||0) + ' in ODI, ' + ((data.differences||[]).length) + ' review rows', 'info');
     }
 
     function _odiRender() {

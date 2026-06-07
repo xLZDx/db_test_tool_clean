@@ -80,10 +80,12 @@ def test_proof_rows_present_with_evidence():
 
 
 @_avy
-def test_single_odi_is_v15_only_no_delta_fields():
+def test_single_odi_is_v16_drd_mode_no_delta_fields():
     res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), None, **_OVERRIDES)
-    assert res["engine"] == v16.ENGINE_V15_ONLY
-    assert "v15_by_target" in res and res["v15_by_target"]
+    assert res["engine"] == v16.ENGINE_DELTA
+    assert "v16_by_target" in res and res["v16_by_target"]
+    assert res["bucket_counts"]["matched"] > 0
+    assert res["sql"].strip()
     # Delta/proof fields must be OMITTED (not empty-but-present).
     assert "delta" not in res
     assert "proof" not in res
@@ -123,9 +125,9 @@ _XML_DIFF_STATUSES = {"CHANGED", "NO_RESOLVED_LINEAGE", "ONLY_IN_ODI1", "ONLY_IN
 @_avy
 def test_mode1_odi_vs_drd_differences():
     res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), None, **_OVERRIDES)
-    assert res["engine"] == v16.ENGINE_V15_ONLY
+    assert res["engine"] == v16.ENGINE_DELTA
     assert res["mode"] == v16.MODE_ODI_VS_DRD
-    assert "v15_by_target" in res and res["v15_by_target"]
+    assert "v16_by_target" in res and res["v16_by_target"]
     diffs = res["differences"]
     assert isinstance(diffs, list) and diffs, "Mode 1 must surface ODI-vs-DRD discrepancies"
     d = diffs[0]

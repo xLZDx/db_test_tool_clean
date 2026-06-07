@@ -1029,178 +1029,39 @@ async def compare_odi_vs_drd_v15(
     xml_file: UploadFile = File(...),
     drd_file: UploadFile = File(...),
 ):
-    """R3 (2026-06-06): v15 generic DRD-vs-ODI comparator -- ADDITIVE, opt-in.
+    """Compatibility URL: executes the v16.6 engine, never the legacy v15 endpoint.
 
-    The existing /scenario/compare (v9 comparator) remains the DEFAULT and is
-    completely untouched. This route runs the vendored v15 pipeline
-    (app/services/odi_drd_compare_v15.py) with profile='generic' -- no AVY /
-    TaxLot curated heuristics -- and returns the honest column-level lineage
-    diff that reproduces the external gold reference (AVY 373/369/4/0).
-
-    Offline only; no Oracle DB. DRD must be an Excel workbook (v15 auto-detects
-    the mapping sheet / header row / columns).
-
-    Returns:
-      summary: {mapping_columns, in_both, mapping_only, xml_only}
-      detection: auto-detected DRD layout (sheet/header/cols/confidence)
-      differences: differences-only review rows (full_drd_vs_odi_xml_rules_diff)
-      drd_only_columns / odi_only_columns: column-name lists
+    The GUI no longer calls this route. It remains only so stale browser tabs or
+    old scripts do not silently execute the removed legacy service.
     """
-    import csv as _csv
-    import gc as _gc
-    import shutil as _shutil
-    import tempfile as _tempfile
-    from app.services.odi_drd_compare_v15 import compare_to_dir
+    from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
 
     xml_bytes = await _read_upload_checked_odi(xml_file)
     drd_bytes = await _read_upload_checked_odi(drd_file)
 
-    # SEC-1: ext allow-list on the XML slot (the drd slot is checked below).
     xml_name = xml_file.filename or "odi.xml"
     if not xml_name.lower().endswith(".xml"):
-        raise HTTPException(422, f"v15 engine needs an ODI XML (.xml), got {xml_name!r}")
+        raise HTTPException(422, f"v16.6 engine needs an ODI XML (.xml), got {xml_name!r}")
 
     drd_name = drd_file.filename or "drd.xlsx"
     drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else "xlsx"
     if drd_ext not in ("xlsx", "xls", "xlsm"):
         raise HTTPException(
-            422, f"v15 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
+            422, f"v16.6 engine needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}"
         )
 
-    def _run() -> Dict[str, Any]:
-        # NOTE: openpyxl read_only=True keeps the .xlsx file handle open until the
-        # workbook is GC'd. On Windows that locks the temp file, so we must NOT use
-        # TemporaryDirectory auto-cleanup (WinError 32). Manual dir + gc.collect()
-        # to release the handle + best-effort rmtree(ignore_errors=True).
-        td = _tempfile.mkdtemp(prefix="v15_")
-        tdp = Path(td)
-        try:
-            xlsx_p = tdp / f"drd.{drd_ext}"
-            xml_p = tdp / "odi.xml"
-            out = tdp / "out"
-            xlsx_p.write_bytes(drd_bytes)
-            xml_p.write_bytes(xml_bytes)
-
-            # #1 (2026-06-06): was hardcoded "generic" (keeps all 262 raw rows);
-            # "auto" resolves AVY->curated review + taxlot->filtered, matching the
-            # standalone final_v15 (AVY 14 / CLOSE 5 / OPEN 4).
-            compare_to_dir(xlsx_p, xml_p, out, profile="auto")
-
-            def _read_rows(name: str) -> List[Dict[str, str]]:
-                p = out / name
-                if not p.exists():
-                    return []
-                with p.open(encoding="utf-8-sig", newline="") as fh:
-                    return list(_csv.DictReader(fh))
-
-            col_rows = _read_rows("column_diff.csv")
-            diff_rows = _read_rows("full_drd_vs_odi_xml_rules_diff.csv")
-
-            # Bug 1a: surface the emitted Oracle INSERT SQL (odi_sql_blocks.sql) so the
-            # v15 Compare path can show it in the "Emitted Oracle INSERT SQL" section,
-            # the same way the Analyze path does. MUST read BEFORE the finally-block
-            # rmtree deletes the output dir. Cap at 500KB to keep the response bounded.
-            sql_text = ""
-            _sqlp = out / "odi_sql_blocks.sql"
-            if _sqlp.exists():
-                try:
-                    _raw = _sqlp.read_text(encoding="utf-8", errors="replace")
-                    sql_text = (
-                        _raw if len(_raw) <= 500_000
-                        else (_raw[:500_000] + "\n-- ...truncated (over 500KB)...")
-                    )
-                except Exception:
-                    sql_text = ""
-
-            # #2: tag each diff row with a severity bucket (from the v15 Conclusion
-            # marker) and build per-Difference-Type counts so the GUI can render
-            # dynamic v15-status tiles (one per type present), colored by severity.
-            def _sev(row: Dict[str, str]) -> str:
-                # NON-overlapping buckets: each diff row -> exactly one severity, so the
-                # GUI tiles partition the rows (Missing is distinct from Real gap, and a
-                # tile shows only its own rows -- never "all 14").
-                dt = (row.get("Difference Type", "") or "").lower()
-                c = (row.get("Conclusion", "") or "").lower()
-                if "missing implementation" in dt or "missing target column" in dt:
-                    return "missing"
-                if "structural mismatch" in dt or "confirmed structural" in c or "structural gap" in c:
-                    return "real_gap"
-                if ("odi-only" in c or "environment" in c or "target risk" in c
-                        or "xml-only column" in dt):
-                    return "odi_only"
-                if ("structural difference" in c or "structural lineage" in c
-                        or "operationally specific" in c or "more detailed" in dt
-                        or "xml-only exception" in dt or "journal source" in dt
-                        or "where-vs-case" in dt or "join filter moved" in dt
-                        or "acceptable" in c):
-                    return "structural"
-                return "logic_drift"
-
-            _tc: Dict[str, Dict[str, Any]] = {}
-            for _r in diff_rows:
-                _sv = _sev(_r)
-                _r["severity"] = _sv
-                _t = (_r.get("Difference Type", "") or "(unspecified)")
-                if _t not in _tc:
-                    _tc[_t] = {"type": _t, "count": 0, "severity": _sv}
-                _tc[_t]["count"] += 1
-            _sev_order = {"missing": 0, "real_gap": 1, "logic_drift": 2, "structural": 3, "odi_only": 4}
-            type_counts = sorted(
-                _tc.values(), key=lambda x: (_sev_order.get(x["severity"], 9), -x["count"])
-            )
-
-            detection: Dict[str, Any] = {}
-            dlj = out / "detected_layout.json"
-            if dlj.exists():
-                try:
-                    detection = json.loads(dlj.read_text(encoding="utf-8"))
-                except Exception:
-                    detection = {}
-
-            statuses = [r.get("status", "") for r in col_rows]
-            summary = {
-                "mapping_columns": sum(1 for s in statuses if s in ("IN_BOTH", "MAPPING_ONLY")),
-                "in_both": statuses.count("IN_BOTH"),
-                "mapping_only": statuses.count("MAPPING_ONLY"),
-                "xml_only": statuses.count("XML_ONLY"),
-            }
-            _diff_sev = [r.get("severity", "") for r in diff_rows]
-            bucket_counts = {
-                "missing": _diff_sev.count("missing"),
-                "real_gap": _diff_sev.count("real_gap"),
-                "logic_drift": _diff_sev.count("logic_drift"),
-                "structural": _diff_sev.count("structural"),
-                "odi_extra": summary["xml_only"] + _diff_sev.count("odi_only"),
-            }
-            # matched = in_both columns not flagged with an in_both-level difference
-            # (missing/real_gap rows are DRD-only / meta, not in_both subtractions).
-            bucket_counts["matched"] = max(
-                summary["in_both"]
-                - (_diff_sev.count("logic_drift") + _diff_sev.count("structural") + _diff_sev.count("odi_only")),
-                0,
-            )
-            return {
-                "engine": "v15-generic",
-                "summary": summary,
-                "bucket_counts": bucket_counts,
-                "detection": detection,
-                "differences": diff_rows,
-                "type_counts": type_counts,
-                "drd_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "MAPPING_ONLY"],
-                "odi_only_columns": [r.get("target_column", "") for r in col_rows if r.get("status") == "XML_ONLY"],
-                "column_diff_count": len(col_rows),
-                "sql": sql_text,
-            }
-        finally:
-            _gc.collect()  # release any lingering openpyxl read_only file handles
-            _shutil.rmtree(tdp, ignore_errors=True)
-
     try:
-        return await asyncio.to_thread(_run)
+        return await asyncio.to_thread(
+            compare_two_odi_against_drd,
+            drd_bytes,
+            xml_bytes,
+            None,
+            profile="auto",
+        )
     except FileNotFoundError as exc:
-        raise HTTPException(422, f"v15 compare error: {exc}") from exc
+        raise HTTPException(422, f"v16.6 compare error: {exc}") from exc
     except Exception as exc:
-        raise HTTPException(500, f"v15 compare unexpected error: {exc}") from exc
+        raise HTTPException(500, f"v16.6 compare unexpected error: {exc}") from exc
 
 
 @router.post("/scenario/compare-multi")
