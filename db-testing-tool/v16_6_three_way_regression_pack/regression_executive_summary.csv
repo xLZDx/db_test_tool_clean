@@ -1,0 +1,4 @@
+﻿case,folder,drd_rows,original_final_cols,fixed_final_cols,sql_blocks_changed,fixed_by_proof,fix_candidates,still_open,new_regressions,fixed_fields,fix_candidate_fields,still_open_fields,new_regression_fields
+AVY original vs v2,avy,373,369,369,9,5,3,5,0,DB_CARD_ORIG_CCY_CD | DB_CARD_TXN_DT | SDIRA_TXN_TP | SDIRA_TXN_TP_CD | SDIRA_TXN_YR,BKR_AR_ID | LGCY_TRD_CPCTY_TP_DIM_ID | MM_ALT_ID,BATCH_DT | SHRT_SALE_EXMPT_CD | SHRT_SALE_EXMPT_NM | STEP_IN_OUT_IND_CD | STEP_IN_OUT_IND_NM,
+Closed TaxLot guard,closed_taxlot,84,83,83,0,0,0,5,0,,,ACG_TP_NM | CCAL_PD_ID | POS_CLS_CD | SRC_STM_CD | SRC_STM_NM,
+Open TaxLot guard,open_taxlot,66,66,66,0,0,0,4,0,,,ACG_TP_NM | MISS_COST_BSS_F | MISS_IVS_COST_F | WASH_SALE_TP,

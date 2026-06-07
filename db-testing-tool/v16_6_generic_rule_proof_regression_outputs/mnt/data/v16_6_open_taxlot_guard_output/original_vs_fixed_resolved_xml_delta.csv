@@ -1,0 +1,5 @@
+﻿target_column,xml_delta_status,original_final_expression,fixed_final_expression,original_resolved_expression,fixed_resolved_expression,original_resolution_depth,fixed_resolution_depth,original_lineage_path,fixed_lineage_path
+ACG_TP_NM,UNCHANGED,S.ACG_TP_NM,S.ACG_TP_NM,S.ACG_TP_NM,S.ACG_TP_NM,0,0,step=2/task=100/col=ACG_TP_NM/expr=S.ACG_TP_NM,step=2/task=100/col=ACG_TP_NM/expr=S.ACG_TP_NM
+MISS_COST_BSS_F,UNCHANGED,S.MISS_COST_BSS_F,S.MISS_COST_BSS_F,S.MISS_COST_BSS_F,S.MISS_COST_BSS_F,0,0,step=2/task=100/col=MISS_COST_BSS_F/expr=S.MISS_COST_BSS_F,step=2/task=100/col=MISS_COST_BSS_F/expr=S.MISS_COST_BSS_F
+MISS_IVS_COST_F,UNCHANGED,S.MISS_IVS_COST_F,S.MISS_IVS_COST_F,S.MISS_IVS_COST_F,S.MISS_IVS_COST_F,0,0,step=2/task=100/col=MISS_IVS_COST_F/expr=S.MISS_IVS_COST_F,step=2/task=100/col=MISS_IVS_COST_F/expr=S.MISS_IVS_COST_F
+WASH_SALE_TP,UNCHANGED,S.WASH_SALE_TP,S.WASH_SALE_TP,S.WASH_SALE_TP,S.WASH_SALE_TP,0,0,step=2/task=100/col=WASH_SALE_TP/expr=S.WASH_SALE_TP,step=2/task=100/col=WASH_SALE_TP/expr=S.WASH_SALE_TP

@@ -1,0 +1,22 @@
+﻿#,Area / Columns,Conclusion,Difference Type,Mapping Logic,ODI XML Logic,Recommended Action
+1,ACG_TP_NM,"**Source drift.** DRD and ODI use equivalent-looking transformation branches, but derive the attribute from different physical source tables.",Transformation source drift,"Lookup on Accounting Type Dimension
+Use TAX_LOT_OPN_MSTR.ACG_TP_CODE 
+to get ACG_TP_NM",ODI attribute expression: ACG_TP_DIM.ACG_TP_NM ACG_TP_NM Driving source: from ((((((TAXLOT_STG_OWNER.OPN_TAX_LOTS_NONBKR_TGT OPN_TAX_LOTS_NONBKR_TGT Relevant JOIN / lookup context: LEFT OUTER JOIN COMMON_OWNER.ACG_TP_DIM ACG_TP_DIM ON ACG_TP_DIM.ACG_TP_CD =OPN_TAX_LOTS_NONBKR_TGT.AC_TP_CODE ),"Confirm whether TAX_LOT_OPN_MSTR and OPN_TAX_LOTS_NONBKR_TGT are semantically equivalent for this attribute. If not, adjust ODI source or update DRD."
+2,MISS_COST_BSS_F,"**Source drift.** DRD and ODI use equivalent-looking transformation branches, but derive the attribute from different physical source tables.",Transformation source drift,"CASE
+                        WHEN (TAX_LOT_OPN_MSTR.MISS_COST_F = 'Y' OR TAX_LOT_OPN_MSTR.null_bss_f = 'Y')
+                          THEN 'Y'
+                        ELSE 'N'
+                     END",ODI attribute expression: CASE WHEN (OPN_TAX_LOTS_NONBKR_TGT.MISS_COST_F= 'Y' OR OPN_TAX_LOTS_NONBKR_TGT.NULL_BSS_F = 'Y') THEN 'Y' ELSE 'N' END MISS_COST_BSS_F Driving source: from ((((((TAXLOT_STG_OWNER.OPN_TAX_LOTS_NONBKR_TGT OPN_TAX_LOTS_NONBKR_TGT,"Confirm whether TAX_LOT_OPN_MSTR and OPN_TAX_LOTS_NONBKR_TGT are semantically equivalent for this attribute. If not, adjust ODI source or update DRD."
+3,MISS_IVS_COST_F,"**Source drift.** DRD and ODI use equivalent-looking transformation branches, but derive the attribute from different physical source tables.",Transformation source drift,"CASE
+                          WHEN (TAX_LOT_OPN_MSTR.RVST_F<>'Y' AND (TAX_LOT_OPN_MSTR.MISS_COST_F = 'Y' OR TAX_LOT_OPN_MSTR.null_bss_f = 'Y'))
+                            THEN 'Y'
+                            ELSE 'N'
+                    END",ODI attribute expression: CASE WHEN (OPN_TAX_LOTS_NONBKR_TGT.RVST_F<>'Y' AND (OPN_TAX_LOTS_NONBKR_TGT.MISS_COST_F = 'Y' OR OPN_TAX_LOTS_NONBKR_TGT.NULL_BSS_F = 'Y')) THEN 'Y' ELSE 'N' END MISS_IVS_COST_F Driving source: from ((((((TAXLOT_STG_OWNER.OPN_TAX_LOTS_NONBKR_TGT OPN_TAX_LOTS_NONBKR_TGT,"Confirm whether TAX_LOT_OPN_MSTR and OPN_TAX_LOTS_NONBKR_TGT are semantically equivalent for this attribute. If not, adjust ODI source or update DRD."
+4,WASH_SALE_TP,"**Source drift.** DRD and ODI use equivalent-looking transformation branches, but derive the attribute from different physical source tables.",Transformation source drift,"(CASE   
+WHEN TAX_LOT_OPN_MSTR.WASH_SALE_IND ='Y' 
+AND TAX_LOT_OPN_MSTR.DISALWD_WASHSALE_AMT = 0    THEN 'CBW' 
+WHEN TAX_LOT_OPN_MSTR.WASH_SALE_IND ='Y' 
+AND TAX_LOT_OPN_MSTR.DISALWD_WASHSALE_AMT > 0    THEN 'BOTHW' 
+WHEN TAX_LOT_OPN_MSTR.WASH_SALE_IND <> 'Y' 
+AND TAX_LOT_OPN_MSTR.DISALWD_WASHSALE_AMT > 0    THEN 'GLW' 
+END) AS WASH_SALE_TP",ODI attribute expression: CASE WHEN OPN_TAX_LOTS_NONBKR_TGT.WASH_SALE_F ='Y' AND OPN_TAX_LOTS_NONBKR_TGT.SBC_WASH_SALE_AMT = 0 THEN 'CBW' WHEN OPN_TAX_LOTS_NONBKR_TGT.WASH_SALE_F ='Y' AND OPN_TAX_LOTS_NONBKR_TGT.SBC_WASH_SALE_AMT > 0 THEN 'BOTHW' WHEN OPN_TAX_LOTS_NONBKR_TGT.WASH_SALE_F <> 'Y' AND OPN_TAX_LOTS_NONBKR_TGT.SBC_WASH_SALE_AMT > 0 THEN 'GLW' else null END WASH_SALE_TP Driving source: from ((((((TAXLOT_STG_OWNER.OPN_TAX_LOTS_NONBKR_TGT OPN_TAX_LOTS_NONBKR_TGT,"Confirm whether TAX_LOT_OPN_MSTR and OPN_TAX_LOTS_NONBKR_TGT are semantically equivalent for this attribute. If not, adjust ODI source or update DRD."

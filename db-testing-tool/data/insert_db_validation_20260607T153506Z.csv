@@ -1,0 +1,4 @@
+﻿label,drd,target_table,sql_len,verdict,ora_error
+AVY,DRD_Activity_Fact.xlsx,AVY_FACT,219174,FAIL,ORA-00936: missing expression
+CLOSE,DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx,CLS_TAX_LOTS_NON_BKR_FACT,27042,PASS,
+OPEN,DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx,OPN_TAX_LOTS_NON_BKR_FACT,21415,FAIL,"ORA-00904: ""SRC_RCRD_TP_CD_CL_VAL"".""CL_VAL_CD"": invalid identifier"

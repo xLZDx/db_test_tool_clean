@@ -1,0 +1,4 @@
+﻿label,drd,target_table,sql_len,verdict,ora_error
+AVY,DRD_Activity_Fact.xlsx,AVY_FACT,218658,FAIL,"ORA-00942: table or view ""CCAL_REPL_OWNER"".""IMPCT_ACTION_LKU"" does not exist"
+CLOSE,DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx,CLS_TAX_LOTS_NON_BKR_FACT,26775,PASS,
+OPEN,DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx,OPN_TAX_LOTS_NON_BKR_FACT,21417,PASS,

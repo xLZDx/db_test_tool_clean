@@ -1,0 +1,6 @@
+﻿target_column,xml_delta_status,original_final_expression,fixed_final_expression,original_resolved_expression,fixed_resolved_expression,original_resolution_depth,fixed_resolution_depth,original_lineage_path,fixed_lineage_path
+ACG_TP_NM,UNCHANGED,ACG_TP_DIM.ACG_TP_DSC,ACG_TP_DIM.ACG_TP_DSC,ACG_TP_DIM.ACG_TP_DSC,ACG_TP_DIM.ACG_TP_DSC,0,0,step=1/task=100/col=ACG_TP_NM/expr=ACG_TP_DIM.ACG_TP_DSC,step=1/task=100/col=ACG_TP_NM/expr=ACG_TP_DIM.ACG_TP_DSC
+CCAL_PD_ID,UNCHANGED,CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID,CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID,CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID,CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID,0,0,step=1/task=100/col=CCAL_PD_ID/expr=CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID,step=1/task=100/col=CCAL_PD_ID/expr=CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT.CCAL_PD_ID
+POS_CLS_CD,NO_RESOLVED_LINEAGE,,,,,,,,
+SRC_STM_CD,UNCHANGED,'RJTRST1','RJTRST1','RJTRST1','RJTRST1',0,0,step=1/task=100/col=SRC_STM_CD/expr='RJTRST1',step=1/task=100/col=SRC_STM_CD/expr='RJTRST1'
+SRC_STM_NM,UNCHANGED,'Raymond James Trust','Raymond James Trust','Raymond James Trust','Raymond James Trust',0,0,step=1/task=100/col=SRC_STM_NM/expr='Raymond James Trust',step=1/task=100/col=SRC_STM_NM/expr='Raymond James Trust'

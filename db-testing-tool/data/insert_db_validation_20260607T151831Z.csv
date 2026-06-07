@@ -1,0 +1,4 @@
+﻿label,drd,target_table,sql_len,verdict,ora_error
+AVY,DRD_Activity_Fact.xlsx,AVY_FACT,219043,FAIL,ORA-00936: missing expression
+CLOSE,DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx,CLS_TAX_LOTS_NON_BKR_FACT,29608,FAIL,"ORA-00904: ""CLOSE_TAX_LOT_NONBKR_RJTRUST_TGT"".""TAX_LOT_TXN_EV_TP_ID"": invalid identifier"
+OPEN,DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx,OPN_TAX_LOTS_NON_BKR_FACT,22102,FAIL,"ORA-00904: ""OPN_TAX_LOTS_NONBKR_TGT"".""OPN_TAX_LOTS_NONBKR_TGT"".""NULL_BSS_F"": invalid identifier"
