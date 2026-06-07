@@ -42,7 +42,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.services import odi_drd_compare_v15 as base
 
-__VERSION__ = "16.6-generic-rule-proof"
+__VERSION__ = "16.6.1-canonical-contract"
 
 ENGINE_DELTA = "v16-generic-rule-proof"
 ENGINE_ODI_VS_ODI = "odi-vs-odi"
@@ -1049,6 +1049,13 @@ def compare_two_odi_against_drd(
                 "detection": detection_human,
                 "mapping_rows": 0,
                 "differences": differences,
+                # Canonical stable field names (Gate A): keep legacy fields too.
+                "resolved_xml_delta_rows": differences,
+                "drd_vs_odi1_rows": [],
+                "drd_vs_odi2_rows": [],
+                "delta_report_rows": [],
+                "proof_rows": [],
+                "sql_block_diff_rows": sdiff,
                 "has_selection": False,
                 "xml_delta": xdelta,
                 "sql_block_diff": sdiff,
@@ -1083,6 +1090,13 @@ def compare_two_odi_against_drd(
                 "detection": detection_human,
                 "mapping_rows": len(mapping_rows),
                 "differences": differences,
+                # Canonical stable field names (Gate A): keep legacy fields too.
+                "drd_vs_odi1_rows": differences,
+                "drd_vs_odi2_rows": [],
+                "resolved_xml_delta_rows": [],
+                "delta_report_rows": [],
+                "proof_rows": [],
+                "sql_block_diff_rows": [],
                 "v16_by_target": by1,
                 **review_shape,
             }
@@ -1132,6 +1146,13 @@ def compare_two_odi_against_drd(
             "proof": proof,
             "sql_block_diff": sdiff,
             "differences": odi_vs_odi_diffs,
+            # Canonical stable field names (Gate A): keep legacy fields too.
+            "drd_vs_odi1_rows": odi1_vs_drd,
+            "drd_vs_odi2_rows": odi2_vs_drd,
+            "resolved_xml_delta_rows": odi_vs_odi_diffs,
+            "delta_report_rows": delta,
+            "proof_rows": proof,
+            "sql_block_diff_rows": sdiff,
             "has_selection": True,
             "selected_count": sum(1 for d in odi_vs_odi_diffs if d.get("selected")),
             "odi1_vs_drd": odi1_vs_drd,

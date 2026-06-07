@@ -56,6 +56,12 @@ def test_compare_multi_two_odi_delta_promotes_sdira():
     assert d["summary"]["delta_status_counts"]["FIXED_BY_RESOLVED_RULE_PROOF"] == 2
     assert isinstance(d["delta"], list) and d["delta"]
     assert isinstance(d["proof"], list) and len(d["proof"]) == 8
+    assert isinstance(d.get("drd_vs_odi1_rows"), list)
+    assert isinstance(d.get("drd_vs_odi2_rows"), list)
+    assert isinstance(d.get("resolved_xml_delta_rows"), list)
+    assert isinstance(d.get("delta_report_rows"), list)
+    assert isinstance(d.get("proof_rows"), list)
+    assert isinstance(d.get("sql_block_diff_rows"), list)
 
 
 @_avy
@@ -86,6 +92,12 @@ def test_compare_multi_single_odi_is_v16_drd_mode():
     assert d["bucket_counts"]["matched"] > 0
     assert d["summary"]["mapping_columns"] > 0
     assert d["sql"].strip()
+    assert isinstance(d.get("drd_vs_odi1_rows"), list) and d.get("drd_vs_odi1_rows")
+    assert isinstance(d.get("drd_vs_odi2_rows"), list) and not d.get("drd_vs_odi2_rows")
+    assert isinstance(d.get("resolved_xml_delta_rows"), list) and not d.get("resolved_xml_delta_rows")
+    assert isinstance(d.get("delta_report_rows"), list) and not d.get("delta_report_rows")
+    assert isinstance(d.get("proof_rows"), list) and not d.get("proof_rows")
+    assert isinstance(d.get("sql_block_diff_rows"), list) and not d.get("sql_block_diff_rows")
 
 
 @_avy
