@@ -96,25 +96,26 @@ def run():
         except Exception as e:
             chk("G2G3", False, f"exception {type(e).__name__}: {str(e)[:160]}")
 
-        # ---------- G4: control table grid on v5.4 ----------
-        print("G4 control-table: Generated Insert = v5.4 + grid compares it + Apply changes SQL")
+        # ---------- G4: control table generated insert = v5.4 ----------
+        print("G4 control-table: Generated Insert = v5.4 (DRD-driven), not the legacy emitter")
         pg.goto(APP, wait_until="networkidle", timeout=30000)
         try:
-            pg.evaluate("document.getElementById('ct-target') && (document.getElementById('ct-target').value='AVY_FACT')")
+            # drive via JS + set_input_files (works regardless of section collapse/visibility)
+            pg.evaluate("() => { const e=document.getElementById('ct-target'); if(e) e.value='AVY_FACT'; }")
             ct_drd = pg.query_selector("#ct-drd-file")
-            if ct_drd:
-                ct_drd.set_input_files(DRD)
-            # build v5.4
-            if pg.query_selector("#ct-v54-btn"):
-                pg.query_selector("#ct-v54-btn").click()
-                pg.wait_for_function("() => { const t=document.getElementById('ct-insert-sql');"
-                                     " return t && (t.value||'').toUpperCase().includes('INSERT INTO'); }", timeout=60000)
-                v54_txt = pg.eval_on_selector("#ct-v54-result", "el=>el.textContent") if pg.query_selector("#ct-v54-result") else ""
-                chk("G4.v54_generated", "v5.4" in (v54_txt or ""), f"v5.4 build marker present ({(v54_txt or '')[:50]!r})")
-                before = pg.eval_on_selector("#ct-insert-sql", "el=>(el.value||'').length")
-                chk("G4.insert_is_v54", before > 1000, f"generated insert len={before}")
-            else:
-                chk("G4.v54_btn", False, "no #ct-v54-btn")
+            assert ct_drd, "no #ct-drd-file input"
+            ct_drd.set_input_files(DRD)
+            pg.evaluate("() => { if (typeof buildV54Insert==='function') buildV54Insert(); }")
+            pg.wait_for_function("() => { const t=document.getElementById('ct-insert-sql');"
+                                 " return t && (t.value||'').toUpperCase().includes('INSERT INTO'); }", timeout=90000)
+            v54_txt = pg.eval_on_selector("#ct-v54-result", "el=>el.textContent") if pg.query_selector("#ct-v54-result") else ""
+            chk("G4.v54_generated", "v5.4" in (v54_txt or ""), f"v5.4 DRD-driven marker present ({(v54_txt or '')[:60]!r})")
+            ins_len = pg.eval_on_selector("#ct-insert-sql", "el=>(el.value||'').length")
+            has_into = pg.eval_on_selector("#ct-insert-sql", "el=>(el.value||'').toUpperCase().includes('INSERT INTO')")
+            chk("G4.insert_is_v54", bool(has_into) and ins_len > 5000, f"generated insert is a real INSERT (len={ins_len})")
+            # redundant compare-panel mark-correct must be GONE (single grid in Step 3)
+            no_dupe = pg.evaluate("() => !document.getElementById('ct-mark-correct')")
+            chk("G4.no_redundant_panel", bool(no_dupe), "redundant compare-panel mark-correct removed")
         except Exception as e:
             chk("G4", False, f"exception {type(e).__name__}: {str(e)[:160]}")
 

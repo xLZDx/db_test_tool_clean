@@ -7066,6 +7066,31 @@ async function generateControlTableTests() {
         _ctState.compareChoices = {};
         document.getElementById('ct-ddl-sql').value = res.create_table_sql || document.getElementById('ct-ddl-sql').value;
         document.getElementById('ct-insert-sql').value = res.generated_insert_sql || '';
+        // Operator 2026-06-07: the control-table INSERT must be the v5.4 DRD-driven
+        // build, not the legacy emitter. Rebuild via v5.4 and use it as the generated
+        // insert so the Comparison Grid + Apply Fixes + suite all operate on v5.4.
+        try {
+            const _up = (targetTable || '').toUpperCase();
+            let _prof = 'auto';
+            if (_up.includes('AVY')) _prof = 'avy';
+            else if (_up.includes('TAX_LOT') || _up.includes('TAXLOT')) _prof = 'taxlot';
+            const _fd = new FormData();
+            _fd.append('drd_file', file);
+            const _odi = (document.getElementById('ct-v54-odi-file')?.files || [])[0];
+            if (_odi) _fd.append('odi_file', _odi);
+            _fd.append('target_schema', targetSchema);
+            _fd.append('target_table', targetTable);
+            _fd.append('profile', _prof);
+            const _r = await fetch('/api/tests/control-table/build-v54', { method: 'POST', body: _fd });
+            if (_r.ok) {
+                const _d = await _r.json();
+                if (_d.generated_sql && _d.generated_sql.toUpperCase().includes('INSERT INTO')) {
+                    document.getElementById('ct-insert-sql').value = _d.generated_sql;
+                    _ctState.v54_active = true;
+                    if (typeof _renderV54Result === 'function') { try { _renderV54Result(_d); } catch (_e2) {} }
+                }
+            }
+        } catch (_e) { console.warn('v5.4 build during generate failed:', _e); }
         document.getElementById('ct-output').style.display = '';
         setControlTableStep3Tab('compare');
         resetMainJoinsFromGeneratedSql();
@@ -7089,7 +7114,14 @@ async function generateControlTableTests() {
         }
 
         _renderControlTableValidation(res);
-        _renderControlTableComparison(res.comparison || {});
+        if (_ctState.v54_active) {
+            // Re-run the comparison against the v5.4 insert (operator: the grid must
+            // look at the new insert, not the legacy one) so Apply Fixes works on v5.4.
+            try { await compareControlTableStatements('all'); }
+            catch (_e) { _renderControlTableComparison(res.comparison || {}); }
+        } else {
+            _renderControlTableComparison(res.comparison || {});
+        }
         _renderControlTableSuite(res.tests || []);
         await loadControlTableTrainingRules();
         await loadControlTableFixtureOptions();
@@ -7275,9 +7307,8 @@ async function runControlTableDocCompare() {
             v16Html = _ctRenderV16Delta(v16);
         }
 
-        // Phase 2 chunk 3: mark-correct -> regenerate (full v5.4 flow) + learn.
-        const markCorrectHtml = _ctRenderMarkCorrect(_dbt);
-
+        // (Mark-correct -> regenerate lives in the Step-3 Comparison Grid, which now
+        // operates on the v5.4 insert -- no separate panel here.)
         out.innerHTML = `
             ${docsHtml}
             <div style="margin-bottom:8px">
@@ -7287,7 +7318,6 @@ async function runControlTableDocCompare() {
             ${pairHtml}
             ${conflictHtml}
             ${v16Html}
-            ${markCorrectHtml}
         `;
         showToast('Document comparison completed', 'success');
     } catch (e) {
