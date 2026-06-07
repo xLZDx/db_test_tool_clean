@@ -7221,6 +7221,9 @@ async function runControlTableDocCompare() {
         const _odiMap = _dbt['ODI XML 1'] || _dbt['ODI XML 2'] || {};
         window._ctDocOdiByTarget = {};
         for (const _k in _odiMap) { window._ctDocOdiByTarget[(_k || '').toUpperCase()] = _odiMap[_k]; }
+        // Phase 2 chunk 3: keep the full per-source per-column map for the
+        // mark-correct -> regenerate-via-v5.4 flow.
+        window._ctDocByTarget = _dbt;
         try {
             if (typeof _ctState !== 'undefined' && _ctState.analysis && _ctState.analysis.comparison) {
                 _renderControlTableComparison(_ctState.analysis.comparison);
@@ -7272,6 +7275,9 @@ async function runControlTableDocCompare() {
             v16Html = _ctRenderV16Delta(v16);
         }
 
+        // Phase 2 chunk 3: mark-correct -> regenerate (full v5.4 flow) + learn.
+        const markCorrectHtml = _ctRenderMarkCorrect(_dbt);
+
         out.innerHTML = `
             ${docsHtml}
             <div style="margin-bottom:8px">
@@ -7281,6 +7287,7 @@ async function runControlTableDocCompare() {
             ${pairHtml}
             ${conflictHtml}
             ${v16Html}
+            ${markCorrectHtml}
         `;
         showToast('Document comparison completed', 'success');
     } catch (e) {
@@ -7360,7 +7367,177 @@ function _ctRenderV16Delta(v16) {
 window.ctConfirmFix = function(col, btn) {
     window._ctV16Confirmed[(col || '').toUpperCase()] = true;
     if (btn) { btn.disabled = true; btn.innerHTML = 'Confirmed &#10003;'; btn.style.borderColor = '#22c55e'; btn.style.color = '#22c55e'; }
-    showToast('Fix confirmed for ' + col + ' (queued for regenerate/learn -- Phase 2)', 'success');
+    showToast('Fix confirmed for ' + col + ' -- pick it in the Mark-correct table below to regenerate', 'success');
+};
+
+// ── Phase 2 chunk 3: mark-correct -> regenerate (full v5.4 flow) -> learn ─────
+function _ctCanon(s) { return (s || '').replace(/\s+/g, ' ').trim().toUpperCase(); }
+// compare-docs by_target[col] is a LIST of expressions (one per mapping row).
+// Normalise to the single richest (longest) expression string.
+function _ctVal(v) {
+    if (Array.isArray(v)) {
+        let best = '';
+        for (const x of v) { const s = (x == null) ? '' : String(x); if (s.trim().length > best.length) best = s; }
+        return best;
+    }
+    return (v == null) ? '' : String(v);
+}
+
+// Build the per-column "which variant is correct?" table from the per-source
+// projections (DRD / ODI XML 1 / ODI XML 2). Only columns where >=2 sources are
+// present AND they disagree are shown -- those are the real decisions.
+function _ctRenderMarkCorrect(dbt) {
+    dbt = dbt || {};
+    const drd = dbt['DRD'] || {}, o1 = dbt['ODI XML 1'] || {}, o2 = dbt['ODI XML 2'] || {};
+    if ((Object.keys(drd).length + Object.keys(o1).length + Object.keys(o2).length) === 0) return '';
+    const pick = (m, col) => _ctVal(m[col] !== undefined ? m[col] : m[col.toLowerCase()]);
+    const cols = {};
+    [drd, o1, o2].forEach(m => Object.keys(m).forEach(k => { cols[(k || '').toUpperCase()] = 1; }));
+    const rows = [];
+    Object.keys(cols).sort().forEach(col => {
+        const dv = pick(drd, col), v1 = pick(o1, col), v2 = pick(o2, col);
+        const present = [dv, v1, v2].filter(x => (x || '').trim());
+        if (present.length < 2) return;
+        if (new Set(present.map(_ctCanon)).size < 2) return;
+        rows.push({ col, dv, v1, v2 });
+    });
+    window._ctMarkCorrectRows = rows;
+    if (!rows.length) {
+        return `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;color:var(--success)">
+            Mark-correct: all sources agree on shared columns -- nothing to correct.</div>`;
+    }
+    const cap = 200, shown = rows.slice(0, cap);
+    const cell = (txt) => `<pre style="margin:0;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:10px">${escapeHtml(txt || '—')}</pre>`;
+    const srcKey = { 'DRD': 'dv', 'ODI XML 1': 'v1', 'ODI XML 2': 'v2' };
+    const body = shown.map(r => {
+        const opts = [['', '— keep generated'], ['DRD', 'DRD'], ['ODI XML 1', 'ODI #1'], ['ODI XML 2', 'ODI #2'], ['__manual__', 'Manual…']]
+            .filter(o => o[0] === '' || o[0] === '__manual__' || (r[srcKey[o[0]]] || '').trim())
+            .map(o => `<option value="${o[0]}">${escapeHtml(o[1])}</option>`).join('');
+        return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:5px 6px;font-family:monospace;white-space:nowrap;vertical-align:top">${escapeHtml(r.col)}</td>
+            <td style="padding:5px 6px;vertical-align:top">${cell(r.dv)}</td>
+            <td style="padding:5px 6px;vertical-align:top">${cell(r.v1)}</td>
+            <td style="padding:5px 6px;vertical-align:top">${cell(r.v2)}</td>
+            <td style="padding:5px 6px;vertical-align:top">
+                <select class="form-control ct-mc-src" data-col="${escapeHtml(r.col)}" onchange="ctMarkCorrectSourceChange(this)" style="font-size:11px;padding:2px 4px">${opts}</select>
+                <textarea class="form-control ct-mc-manual" data-col="${escapeHtml(r.col)}" rows="2" placeholder="manual SQL expression" style="display:none;margin-top:4px;font-family:monospace;font-size:10px"></textarea>
+            </td></tr>`;
+    }).join('');
+    const more = rows.length > cap ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">showing first ${cap} of ${rows.length} differing columns</div>` : '';
+    return `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px" id="ct-mark-correct">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <strong style="color:#06b6d4">Mark-correct &amp; Regenerate INSERT (v5.4)</strong>
+            <span style="font-size:11px;color:var(--text-muted)">pick the correct variant per column, then regenerate the INSERT applying your choices</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <label style="font-size:11px">Datasource ID (learn scope, optional)
+                <input id="ct-mc-ds" type="number" class="form-control" style="width:90px;height:28px;font-size:11px;display:inline-block" placeholder="global"></label>
+            <label style="font-size:11px"><input type="checkbox" id="ct-mc-learn"> also learn choices as rules</label>
+            <button class="btn btn-sm btn-primary" onclick="ctRegenerateWithCorrections()">Regenerate INSERT with corrections</button>
+        </div>
+        <div id="ct-mc-confirm" style="display:none;margin-bottom:8px"></div>
+        <div style="overflow:auto;max-height:420px;border:1px solid var(--border);border-radius:6px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">
+                <th style="padding:5px 6px;text-align:left">Column</th>
+                <th style="padding:5px 6px;text-align:left">DRD</th>
+                <th style="padding:5px 6px;text-align:left">ODI #1</th>
+                <th style="padding:5px 6px;text-align:left">ODI #2</th>
+                <th style="padding:5px 6px;text-align:left;min-width:170px">Correct variant</th>
+            </tr></thead><tbody>${body}</tbody></table></div>
+        ${more}
+        <div id="ct-mc-result" style="margin-top:10px"></div>
+    </div>`;
+}
+
+window.ctMarkCorrectSourceChange = function(sel) {
+    const ta = sel.parentElement.querySelector('.ct-mc-manual');
+    if (ta) ta.style.display = (sel.value === '__manual__') ? 'block' : 'none';
+};
+
+function _ctCollectCorrections() {
+    const dbt = window._ctDocByTarget || {};
+    const drd = dbt['DRD'] || {}, o1 = dbt['ODI XML 1'] || {}, o2 = dbt['ODI XML 2'] || {};
+    const pick = (m, col) => _ctVal(m[col] !== undefined ? m[col] : m[col.toLowerCase()]);
+    const out = [];
+    document.querySelectorAll('#ct-mark-correct .ct-mc-src').forEach(sel => {
+        const col = sel.getAttribute('data-col'), src = sel.value;
+        if (!src) return;
+        let expr = '', chosen = '';
+        if (src === '__manual__') { const ta = sel.parentElement.querySelector('.ct-mc-manual'); expr = (ta && ta.value || '').trim(); chosen = 'manual'; }
+        else if (src === 'DRD') { expr = pick(drd, col); chosen = 'drd'; }
+        else if (src === 'ODI XML 1') { expr = pick(o1, col); chosen = 'odi1'; }
+        else if (src === 'ODI XML 2') { expr = pick(o2, col); chosen = 'odi2'; }
+        if ((expr || '').trim()) out.push({ column: col, expression: expr.trim(), chosen_source: chosen, issue_type: 'logic' });
+    });
+    return out;
+}
+
+window.ctRegenerateWithCorrections = async function(confirmedLearn) {
+    const corrections = _ctCollectCorrections();
+    if (!corrections.length) { showToast('Pick a correct variant for at least one column', 'warning'); return; }
+    const drd = document.getElementById('ct-doc-drd')?.files?.[0] || document.getElementById('ct-drd-file')?.files?.[0] || null;
+    if (!drd) { showToast('Attach the DRD (Step 1 or the compare panel) to regenerate', 'error'); return; }
+    if (!/\.(xlsx|xls|xlsm)$/i.test(drd.name)) { showToast('Regenerate needs an Excel DRD (.xlsx/.xls/.xlsm)', 'error'); return; }
+    const tgt = (document.getElementById('ct-target')?.value || '').trim();
+    if (!tgt) { showToast('Set the Target Table (Step 1) first', 'error'); return; }
+    let tsch = '', ttbl = tgt; if (tgt.includes('.')) { const p = tgt.split('.'); ttbl = p.pop(); tsch = p.join('.'); }
+    const up = ttbl.toUpperCase(); let profile = 'auto';
+    if (up.includes('AVY')) profile = 'avy'; else if (up.includes('TAX_LOT') || up.includes('TAXLOT')) profile = 'taxlot';
+    const dsRaw = (document.getElementById('ct-mc-ds')?.value || '').trim();
+    const learn = !!document.getElementById('ct-mc-learn')?.checked;
+    const confirmBox = document.getElementById('ct-mc-confirm');
+
+    // Confirm-learn gate: learning writes PERMANENT datasource-scoped rules.
+    if (learn && !confirmedLearn) {
+        const scope = dsRaw ? ('datasource ' + dsRaw) : 'GLOBAL (all datasources)';
+        if (confirmBox) {
+            confirmBox.style.display = 'block';
+            confirmBox.innerHTML = `<div style="border:1px solid #eab308;background:rgba(234,179,8,.1);border-radius:6px;padding:8px 10px">
+                <b>${corrections.length} correction(s)</b> will become PERMANENT rules for <b>${escapeHtml(scope)}</b> on <b>${escapeHtml(ttbl)}</b>.
+                <div style="margin-top:6px;display:flex;gap:8px">
+                    <button class="btn btn-sm btn-primary" onclick="ctRegenerateWithCorrections(true)">Yes, regenerate &amp; learn</button>
+                    <button class="btn btn-sm btn-outline" onclick="document.getElementById('ct-mc-confirm').style.display='none'">Cancel</button>
+                </div></div>`;
+        }
+        return;
+    }
+    if (confirmBox) confirmBox.style.display = 'none';
+
+    const resBox = document.getElementById('ct-mc-result');
+    if (resBox) resBox.innerHTML = '<span class="text-muted">Regenerating via v5.4 + applying corrections...</span>';
+    try {
+        const fd = new FormData();
+        fd.append('drd_file', drd);
+        fd.append('target_schema', tsch);
+        fd.append('target_table', ttbl);
+        fd.append('profile', profile);
+        if (dsRaw) fd.append('datasource_id', dsRaw);
+        fd.append('corrections_json', JSON.stringify(corrections));
+        fd.append('learn', learn ? 'true' : 'false');
+        fd.append('confirmed_by', 'operator');
+        fd.append('file_name', drd.name);
+        const r = await fetch('/api/tests/control-table/regenerate-with-corrections', { method: 'POST', body: fd });
+        if (!r.ok) { const e = await r.json().catch(() => ({ detail: 'HTTP ' + r.status })); throw new Error(e.detail || ('HTTP ' + r.status)); }
+        const d = await r.json();
+        const ta = document.getElementById('ct-insert-sql');
+        if (ta && d.corrected_sql) { ta.value = d.corrected_sql; ta.dispatchEvent(new Event('input', { bubbles: true })); if (typeof setCtSqlPaneView === 'function') { try { setCtSqlPaneView('ct-insert-sql', 'all'); } catch (_e) {} } }
+        const skipped = (d.skipped_columns || []).map(s => s.column + ' (' + s.reason + ')');
+        const learned = (d.learned || []).map(l => l.column + (l.created ? ' [new]' : ' [updated]'));
+        let html = `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+            <div style="color:var(--success)">Regenerated: applied <b>${(d.applied || []).length}</b> correction(s) to the INSERT (now in Step 3 &rarr; Insert SQL).</div>`;
+        if (skipped.length) html += `<div style="color:var(--warning);margin-top:4px">Skipped (not in generated SQL): ${escapeHtml(skipped.join(', '))}</div>`;
+        if (d.learn_requested) html += learned.length
+            ? `<div style="color:#06b6d4;margin-top:4px">Learned ${learned.length} rule(s): ${escapeHtml(learned.join(', '))}</div>`
+            : `<div style="color:var(--text-muted);margin-top:4px">Learn requested but nothing learned (only applied corrections are learned).</div>`;
+        if ((d.failed_learn || []).length) html += `<div style="color:var(--danger);margin-top:4px">Learn FAILED (rolled back): ${escapeHtml((d.failed_learn || []).map(f => f.reason).join('; '))}</div>`;
+        html += `</div>`;
+        if (resBox) resBox.innerHTML = html;
+        showToast('Regenerated: ' + (d.applied || []).length + ' applied' + (d.learn_requested ? ', ' + (d.learned || []).length + ' learned' : ''), 'success');
+    } catch (e) {
+        if (resBox) resBox.innerHTML = `<span style="color:var(--danger)">Regenerate failed: ${escapeHtml(e.message || String(e))}</span>`;
+        showToast('Regenerate failed: ' + (e.message || String(e)), 'error');
+    }
 };
 
 async function applyControlTableChoices() {
