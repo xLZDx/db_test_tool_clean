@@ -1,0 +1,15 @@
+section,item,detail,status
+success_criterion,clean suite,DDL+INSERT+validation for AVY/CLOSE/OPEN run on live Oracle id=2 with 0 ORA / 0 NULL-placeholder / 0 stubs; FAIL only on known mismatch,NOT DONE (rebuild)
+gate,validation harness,python -m tools.validate_inserts_explain_plan (EXPLAIN PLAN per DRD),SHIPPED
+baseline,AVY AVY_FACT,ORA-03048 'WITH' after 'END_DT and populate' -- DRD join prose leaks into ON clause,FAIL (needs prose-join parser)
+baseline,CLOSE CLS_TAX_LOTS_NON_BKR_FACT,ORA-00942 TAXLOT_STG_OWNER.CL_VAL does not exist -- wrong schema from DRD source_1,FAIL (KB schema resolution feasible)
+baseline,OPEN OPN_TAX_LOTS_NON_BKR_FACT,ORA-00904 ORIG_PROCD invalid identifier -- target column not in physical table,FAIL (column-existence vs PDM; likely known mismatch)
+baseline,ALL,NULL AS col placeholders + PDM_MISS markers -- unmapped columns,FAIL (complete mapping = rebuild)
+evidence,KB schema resolution,KBLookup(schema_kb_ds_3.json) table_index 5182; CL_VAL->CCAL_REPL_OWNER APA->CCAL_REPL_OWNER AR_DIM->CCSI_OWNER,CONFIRMED feasible
+evidence,KB ambiguity,CL_VAL exists in CCAL_REPL_OWNER / LOAN_STG_REPL_OWNER / REFERENCE_REPL_OWNER -- must disambiguate by DRD/ODI context not first-match,RISK noted
+plan,step1 KB schema resolution,source_ref + join builders use KB schema when DRD schema wrong; thread KBLookup into build_to_dir; guard with golden(17),TODO -> fixes CLOSE
+plan,step2 DRD-prose JOIN parser,replace extract_join_candidates_from_rule + sanitize_on_clause regex scrubbing with a real parse->model,TODO -> fixes AVY
+plan,step3 column-existence + source resolution,every target column maps to a real source expr or a known mismatch; eliminate NULL AS col + PDM_MISS,TODO -> fixes OPEN + nulls/stubs
+plan,step4 gate every emit,EXPLAIN PLAN + per-attribute suite on live DB; FAIL must map to MISMATCH_FINAL.csv,TODO
+done,Phases 0-3,operator's 4 UI/comparison findings fixed; GUI suite 11/11; commits 2cf90b7 + 24ee4f5,DONE + verified
+done,generic generator fixes,paren-balance + CASE/END-balance (commit f131b5d),DONE
