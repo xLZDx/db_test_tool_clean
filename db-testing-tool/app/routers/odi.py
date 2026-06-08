@@ -1000,12 +1000,58 @@ async def compare_odi_vs_drd(
         target_table=target_table,
         kb=kb,
     )
+
+    # Canonical parity layer (v16 mode1): keep SQL generation from v9, but make
+    # compare summary tiles identical to /scenario/compare-multi for the same
+    # ODI+DRD input.
+    summary_override = None
+    summary_v16_raw = None
+    try:
+        from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
+
+        v16_mode1 = compare_two_odi_against_drd(
+            drd_bytes,
+            xml_bytes,
+            None,
+            profile="auto",
+            target_table=target_table_drd or target_table,
+        )
+        b = dict(v16_mode1.get("bucket_counts") or {})
+        if b:
+            summary_override = {
+                "matched": int(b.get("matched", 0)),
+                "source_missing": int(b.get("missing", 0)),
+                "odi_extra": int(b.get("odi_extra", 0)),
+                "real_mismatch": int(b.get("logic_drift", 0))
+                + int(b.get("real_gap", 0))
+                + int(b.get("structural", 0)),
+                "alias_drift_only": 0,
+                "unresolvable": 0,
+                "total": int(v16_mode1.get("mapping_rows") or 0),
+                "ok_count": int(b.get("matched", 0)),
+                "error_count": int(b.get("missing", 0))
+                + int(b.get("odi_extra", 0))
+                + int(b.get("logic_drift", 0))
+                + int(b.get("real_gap", 0))
+                + int(b.get("structural", 0)),
+            }
+            summary_v16_raw = b
+    except Exception:
+        summary_override = None
+        summary_v16_raw = None
+
+    cmp_summary = dict(v9.comparison_summary)
+    if summary_override:
+        cmp_summary.update(summary_override)
+
     base_response["comparison"] = {
-        "summary": v9.comparison_summary,
+        "summary": cmp_summary,
         "rows": v9.comparison_rows,
         "drd_parse_errors": v9.drd_parse_errors,
         "drd_row_count": v9.drd_row_count,
     }
+    if summary_v16_raw is not None:
+        base_response["comparison"]["summary_v16"] = summary_v16_raw
     base_response["drd_first_insert"] = {
         "sql": v9.insert_sql,
         "provenance": v9.provenance,

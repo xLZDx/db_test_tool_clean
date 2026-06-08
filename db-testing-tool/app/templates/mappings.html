@@ -50,6 +50,7 @@
    full INSERT SQL is reachable. */
 #odi-sql-pre { resize: vertical; min-height: 60px; }
 #odi-val-card.odi-fs #odi-sql-pre { max-height: none; }
+#odi-v16-wrap { resize: vertical; min-height: 260px; }
 .tm-tfs-container { display:grid; grid-template-columns:1.15fr .95fr; gap:16px; }
 .tm-tfs-tree { border:1px solid var(--border); border-radius:8px; overflow:hidden; max-height:440px; overflow-y:auto; }
 .tm-tfs-tree-item { padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
@@ -1029,7 +1030,7 @@
                         <div id="ct-compare-summary" class="text-muted" style="margin-top:10px"></div>
                         <div id="ct-compare-results" style="margin-top:10px"></div>
 
-                        <div style="margin-top:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)">
+                        <div style="display:none;margin-top:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)">
                             <div class="ct-sect-hdr" onclick="ctToggleSection('ct-sect-doc-compare')" style="padding:10px 12px">
                                 <div style="font-weight:600;display:flex;gap:8px;align-items:center">
                                     <span>DRD / ODI / Manual SQL Compare</span>
@@ -8056,7 +8057,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </div>
             <div id="odi-sql-wrap">
-                <pre id="odi-sql-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+                <pre id="odi-sql-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5;margin:0;white-space:pre;word-break:normal"></pre>
             </div>
             <!-- XE run result (P6) -->
             <div id="odi-xe-result" style="display:none;margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;border:1px solid var(--border)">
@@ -8384,15 +8385,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function _v16Mode2ColumnsRows(data) {
         let diffs = Array.isArray(data.differences) ? data.differences.slice() : [];
-        if (data.has_selection) diffs = diffs.filter(d => d.selected);
         return diffs.map(d => ({
             area: d.target_column || '',
             conclusion: d.conclusion || 'Different ODI implementation detected for the same target column.',
             dtype: d.status || '',
+            dtype_label: (function() {
+                const raw = d.status || '';
+                const ex = _v16DiffTypeExplain(raw);
+                return ex ? (raw + ' -- ' + ex) : raw;
+            })(),
             odi1: d.mapping_logic || '',
             odi2: d.odi_logic || '',
             action: d.recommended_action || 'Review whether this ODI change is expected. If intentional, validate target output impact and document approval.'
         }));
+    }
+
+    function _v16SeverityByStatus(st) {
+        const s = String(st || '').toUpperCase();
+        if (!s || s === 'UNCHANGED') return 'matched';
+        if (s === 'ONLY_IN_ODI1' || s === 'ONLY_IN_ODI2') return 'missing';
+        if (s === 'NO_RESOLVED_LINEAGE') return 'structural';
+        if (s === 'CHANGED') return 'logic_drift';
+        return 'real_gap';
+    }
+
+    function _v16DiffTypeExplain(st) {
+        const s = String(st || '').toUpperCase();
+        if (s === 'CHANGED') return 'resolved expression differs between ODI #1 and ODI #2';
+        if (s === 'UNCHANGED') return 'resolved expressions are equivalent';
+        if (s === 'NO_RESOLVED_LINEAGE') return 'at least one side has no resolved per-column lineage';
+        if (s === 'ONLY_IN_ODI1') return 'column exists only in ODI #1';
+        if (s === 'ONLY_IN_ODI2') return 'column exists only in ODI #2';
+        return '';
+    }
+
+    function _v16BucketCountsFromDiffs(diffs) {
+        const out = { matched: 0, missing: 0, real_gap: 0, logic_drift: 0, structural: 0, odi_extra: 0 };
+        (Array.isArray(diffs) ? diffs : []).forEach(d => {
+            const sev = _v16SeverityByStatus(d.status || d.dtype || '');
+            out[sev] = (out[sev] || 0) + 1;
+        });
+        return out;
     }
 
     function _v16Mode2SqlBlockRows(data, withDrdLogic) {
@@ -8413,14 +8446,46 @@ document.addEventListener('DOMContentLoaded', function() {
             area: r['Area / Columns'] || r.target_column || '',
             conclusion: r['Conclusion'] || r.conclusion || '',
             dtype: r['Difference Type'] || r.status || '',
+            dtype_label: (function() {
+                const raw = r['Difference Type'] || r.status || '';
+                const ex = _v16DiffTypeExplain(raw);
+                return ex ? (raw + ' -- ' + ex) : raw;
+            })(),
             mapping: r['Mapping Logic'] || r.mapping_logic || '',
             odi: r.odi_resolved_logic || r['ODI XML Logic'] || r.odi_logic || '',
             action: r['Recommended Action'] || r.recommended_action || ''
         }));
     }
 
+    function _v16Mode3UnifiedRows(rows, drdMap) {
+        return (Array.isArray(rows) ? rows : []).map(r => {
+            const col = (r.target_column || r['Area / Columns'] || '').toUpperCase();
+            const deltaStatus = r.delta_status || '';
+            const issueState = r.issue_state || '';
+            return {
+                area: col,
+                delta_status: deltaStatus,
+                issue_state: issueState,
+                dtype: r.difference_type || r['Difference Type'] || '',
+                dtype_label: (function() {
+                    const raw = r.difference_type || r['Difference Type'] || '';
+                    const ex = _v16DiffTypeExplain(raw);
+                    return ex ? (raw + ' -- ' + ex) : raw;
+                })(),
+                mapping: r.mapping_logic || r['Mapping Logic'] || (drdMap[col] || ''),
+                odi: r.odi_logic || r.odi_resolved_logic || r['ODI XML Logic'] || '',
+                conclusion: r.conclusion || r['Conclusion'] || '',
+                action: r.recommended_action || r['Recommended Action'] || '',
+            };
+        });
+    }
+
     function _v16Mode3DrdLogicMap(data) {
         const m = {};
+        const full = data && data.drd_logic_by_target;
+        if (full && typeof full === 'object') {
+            Object.keys(full).forEach(k => { m[String(k || '').toUpperCase()] = String(full[k] || ''); });
+        }
         (Array.isArray(data.odi1_vs_drd) ? data.odi1_vs_drd : []).forEach(r => {
             const k = (r.target_column || '').toUpperCase();
             if (k && !m[k]) m[k] = r.mapping_logic || r['Mapping Logic'] || '';
@@ -8444,7 +8509,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const t = (txt == null) ? '' : String(txt);
         if (!t) return '<td style="padding:6px 8px;color:var(--text-muted)">&mdash;</td>';
         return '<td style="padding:6px 8px;vertical-align:top"><pre style="margin:0;max-height:240px;overflow:auto;'
-            + 'white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:11px">' + escapeHtml(t) + '</pre></td>';
+            + 'white-space:pre;word-break:normal;font-family:monospace;font-size:11px">' + escapeHtml(t) + '</pre></td>';
     }
 
     // Mode: ODI #1 + ODI #2 + DRD -> delta + rule-proof (control-table view).
@@ -8506,31 +8571,64 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Mode 1 (ODI vs DRD) / Mode 2 (ODI vs ODI) -> differences table (full blocks).
     function _v16RenderDiffTable(data, mode, tilesEl, shownEl, wrapEl) {
-        const diffs = Array.isArray(data.differences) ? data.differences : [];
+        const rawDiffs = Array.isArray(data.differences) ? data.differences : [];
+        const diffs = rawDiffs.filter(d => String((d && (d.status || d.dtype)) || '').toUpperCase() !== 'UNCHANGED');
         const isXml = (mode === 'odi1_vs_odi2' || mode === 'odi1_vs_odi2_with_drd');
-        const counts = {};
-        diffs.forEach(d => { const s = d.status || '?'; counts[s] = (counts[s] || 0) + 1; });
-        const palette = ['#ef4444', '#fb923c', '#eab308', '#06b6d4', '#a855f7', '#22c55e'];
-        const tileDefs = [{ label: (isXml ? 'Differences' : 'Discrepancies'), val: diffs.length, fg: '#ef4444' }];
-        let ti = 0;
-        Object.keys(counts).sort().forEach(s => { tileDefs.push({ label: s, val: counts[s], fg: palette[(ti++) % palette.length] }); });
-        const shownTiles = tileDefs.slice(0, 6);
-        tilesEl.style.gridTemplateColumns = 'repeat(' + Math.max(shownTiles.length, 1) + ',1fr)';
-        tilesEl.innerHTML = shownTiles.map(t =>
-            '<div style="padding:10px 12px;border-radius:8px;text-align:center;background:rgba(148,163,184,.08);border:1px solid ' + t.fg + '">'
-            + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
-            + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>'
-        ).join('');
+        let activeSev = null;
+        const tileDiffs = (mode === 'odi1_vs_odi2_with_drd')
+            ? diffs.filter(d => d && d.selected !== false)
+            : diffs;
+        const bc = _v16BucketCountsFromDiffs(tileDiffs);
+        const shownTiles = [
+            { sev:'matched', label:'Matched', val:bc.matched || 0, fg:'#22c55e', bg:'rgba(34,197,94,.10)', bd:'rgba(34,197,94,.30)' },
+            { sev:'missing', label:'Missing', val:bc.missing || 0, fg:'#ef4444', bg:'rgba(239,68,68,.10)', bd:'rgba(239,68,68,.35)' },
+            { sev:'real_gap', label:'Real gap', val:bc.real_gap || 0, fg:'#fb923c', bg:'rgba(251,146,60,.12)', bd:'rgba(251,146,60,.40)' },
+            { sev:'logic_drift', label:'Logic drift', val:bc.logic_drift || 0, fg:'#eab308', bg:'rgba(234,179,8,.12)', bd:'rgba(234,179,8,.40)' },
+            { sev:'structural', label:'Structural', val:bc.structural || 0, fg:'#06b6d4', bg:'rgba(6,182,212,.12)', bd:'rgba(6,182,212,.40)' },
+            { sev:'odi_extra', label:'ODI Extra', val:bc.odi_extra || 0, fg:'#a855f7', bg:'rgba(168,85,247,.10)', bd:'rgba(168,85,247,.35)' },
+        ];
+        function renderTiles() {
+            tilesEl.style.gridTemplateColumns = 'repeat(' + Math.max(shownTiles.length, 1) + ',1fr)';
+            tilesEl.innerHTML = shownTiles.map(t => {
+                const active = (activeSev === t.sev);
+                const border = active ? t.fg : t.bd;
+                const shadow = active ? ('box-shadow:0 0 0 1px ' + t.fg + ' inset;') : '';
+                return '<div class="v16-bigtile" data-v16sev="' + t.sev + '" style="cursor:pointer;padding:10px 12px;border-radius:8px;text-align:center;background:' + t.bg + ';border:1px solid ' + border + ';' + shadow + '">'
+                    + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
+                    + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>';
+            }).join('');
+            tilesEl.querySelectorAll('.v16-bigtile').forEach(el => {
+                el.addEventListener('click', () => {
+                    const sev = el.getAttribute('data-v16sev') || '';
+                    activeSev = (activeSev === sev) ? null : sev;
+                    renderTiles();
+                    renderCurrent();
+                });
+            });
+        }
 
-        shownEl.textContent = diffs.length + ' ' + (isXml ? 'differing columns' : 'discrepancies')
+        function filterByActiveSeverity(rows, keyName) {
+            const arr = Array.isArray(rows) ? rows.slice() : [];
+            if (!activeSev) return arr;
+            return arr.filter(r => _v16SeverityByStatus((r && r[keyName]) || '') === activeSev);
+        }
+
+        shownEl.textContent = tileDiffs.length + ' ' + (isXml ? 'differing columns' : 'discrepancies')
             + (data.mapping_rows ? ' / ' + data.mapping_rows + ' DRD rows' : '');
 
+        function renderCurrent() {
         if (mode === 'odi1_vs_odi2') {
-            const colsRows = _v16Mode2ColumnsRows(data);
+            const sevOrder = { missing: 0, real_gap: 1, logic_drift: 2, structural: 3, odi_extra: 4, matched: 5 };
+            const colsRowsAll = _v16Mode2ColumnsRows(data).sort((a, b) => {
+                const as = _v16SeverityByStatus(a.dtype);
+                const bs = _v16SeverityByStatus(b.dtype);
+                return (sevOrder[as] - sevOrder[bs]) || String(a.area || '').localeCompare(String(b.area || ''));
+            });
+            const colsRows = filterByActiveSeverity(colsRowsAll, 'dtype');
             const sqlRows = _v16Mode2SqlBlockRows(data, false);
             const headers = ['Area / Columns','Conclusion','Difference Type','ODI File 1 XML Logic','ODI File 2 XML Logic','Recommended Action'];
             const key = h => ({
-                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype',
+                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype_label',
                 'ODI File 1 XML Logic':'odi1', 'ODI File 2 XML Logic':'odi2', 'Recommended Action':'action'
             }[h]);
             wrapEl.innerHTML = '<div style="display:flex;gap:8px;margin:0 0 8px 0">'
@@ -8543,54 +8641,81 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('odi-v16-tab-cols').onclick = renderCols;
             document.getElementById('odi-v16-tab-sql').onclick = renderSql;
             renderCols();
+            shownEl.textContent = colsRows.length + ' ' + (isXml ? 'differing columns' : 'discrepancies') + (activeSev ? (' | filtered: ' + activeSev) : '');
             showToast('v16.6: ' + colsRows.length + ' ODI1 vs ODI2 column differences, ' + sqlRows.length + ' SQL blocks', 'info');
             return;
         }
 
         if (mode === 'odi1_vs_odi2_with_drd') {
             const drdMap = _v16Mode3DrdLogicMap(data);
-            const colsRows = _v16Mode2ColumnsRows(data).map(r => ({
+            const sevOrder = { missing: 0, real_gap: 1, logic_drift: 2, structural: 3, odi_extra: 4, matched: 5 };
+            const scoped = Object.assign({}, data, { differences: tileDiffs.filter(d => d && d.selected !== false) });
+            const colsRowsAll = _v16Mode2ColumnsRows(scoped).map(r => ({
                 area: r.area,
                 conclusion: r.conclusion,
                 dtype: r.dtype,
+                dtype_label: r.dtype_label,
                 drd: drdMap[(r.area || '').toUpperCase()] || '',
                 odi1: r.odi1,
                 odi2: r.odi2,
                 action: r.action,
-            }));
+            })).sort((a, b) => {
+                const as = _v16SeverityByStatus(a.dtype);
+                const bs = _v16SeverityByStatus(b.dtype);
+                return (sevOrder[as] - sevOrder[bs]) || String(a.area || '').localeCompare(String(b.area || ''));
+            });
+            const colsRows = filterByActiveSeverity(colsRowsAll, 'dtype');
             const sqlRows = _v16Mode2SqlBlockRows(data, true);
             const drd1Rows = _v16Mode3DrdRows(data.odi1_vs_drd);
-            const drd2Rows = _v16Mode3DrdRows(data.odi2_vs_drd);
+            const unifiedRowsAll = _v16Mode3UnifiedRows(data.unified_issue_rows, drdMap);
+            const unifiedActive = unifiedRowsAll.filter(r => (r.issue_state || '').toLowerCase() !== 'resolved');
+            const unifiedResolved = unifiedRowsAll.filter(r => (r.issue_state || '').toLowerCase() === 'resolved');
+
+            // Backward-compatible fallback for old payloads where unified rows are absent.
+            const legacyActive = _v16Mode3DrdRows(data.odi2_vs_drd);
+            const legacyResolved = _v16Mode3DrdRows(data.odi2_vs_drd_resolved);
+            const activeRows = unifiedRowsAll.length ? unifiedActive : legacyActive;
+            const resolvedRows = unifiedRowsAll.length ? unifiedResolved : legacyResolved;
 
             const headersWithDrd = ['Area / Columns','Conclusion','Difference Type','DRD Mapping Logic','ODI File 1 XML Logic','ODI File 2 XML Logic','Recommended Action'];
             const keyWithDrd = h => ({
-                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype', 'DRD Mapping Logic':'drd',
+                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype_label', 'DRD Mapping Logic':'drd',
                 'ODI File 1 XML Logic':'odi1', 'ODI File 2 XML Logic':'odi2', 'Recommended Action':'action'
             }[h]);
 
             const headersDrd = ['Area / Columns','Conclusion','Difference Type','Mapping Logic','ODI XML Logic','Recommended Action'];
             const keyDrd = h => ({
-                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype',
+                'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype_label',
                 'Mapping Logic':'mapping', 'ODI XML Logic':'odi', 'Recommended Action':'action'
+            }[h]);
+
+            const headersUnified = ['Area / Columns','Delta Status','Issue State','Difference Type','DRD Mapping Logic','ODI XML Logic','Conclusion','Recommended Action'];
+            const keyUnified = h => ({
+                'Area / Columns':'area', 'Delta Status':'delta_status', 'Issue State':'issue_state', 'Difference Type':'dtype_label',
+                'DRD Mapping Logic':'mapping', 'ODI XML Logic':'odi', 'Conclusion':'conclusion', 'Recommended Action':'action'
             }[h]);
 
             wrapEl.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px 0">'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-cols">ODI1 vs ODI2 Columns</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-sql">ODI1 vs ODI2 SQL Blocks</button>'
+                + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-unified">Unified Active Issues</button>'
+                + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-resolved">Resolved</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-drd1">DRD vs ODI File 1</button>'
-                + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-drd2">DRD vs ODI File 2</button>'
                 + '</div><div id="odi-v16-grid"></div>';
             const grid = document.getElementById('odi-v16-grid');
             const renderCols = () => { grid.innerHTML = _v16Grid(headersWithDrd, colsRows, keyWithDrd); };
             const renderSql = () => { grid.innerHTML = _v16Grid(headersWithDrd, sqlRows, keyWithDrd); };
+            const renderUnified = () => { grid.innerHTML = _v16Grid(headersUnified, activeRows, keyUnified); };
+            const renderResolved = () => { grid.innerHTML = _v16Grid(headersUnified, resolvedRows, keyUnified); };
             const renderDrd1 = () => { grid.innerHTML = _v16Grid(headersDrd, drd1Rows, keyDrd); };
-            const renderDrd2 = () => { grid.innerHTML = _v16Grid(headersDrd, drd2Rows, keyDrd); };
             document.getElementById('odi-v16-tab-cols').onclick = renderCols;
             document.getElementById('odi-v16-tab-sql').onclick = renderSql;
+            document.getElementById('odi-v16-tab-unified').onclick = renderUnified;
+            document.getElementById('odi-v16-tab-resolved').onclick = renderResolved;
             document.getElementById('odi-v16-tab-drd1').onclick = renderDrd1;
-            document.getElementById('odi-v16-tab-drd2').onclick = renderDrd2;
-            renderCols();
-            showToast('v16.6: mode3 grids ready (ODI columns/sql + DRD vs ODI 1/2)', 'info');
+            renderUnified();
+            shownEl.textContent = colsRows.length + ' ' + (isXml ? 'differing columns' : 'discrepancies') + (activeSev ? (' | filtered: ' + activeSev) : '');
+            showToast('v16.6: mode3 grids ready (unified active/resolved + ODI columns/sql + DRD vs ODI1)', 'info');
             return;
         }
 
@@ -8604,8 +8729,9 @@ document.addEventListener('DOMContentLoaded', function() {
             + '<th style="padding:6px 8px;text-align:left">' + escapeHtml(odiLabel) + '</th>'
             + '<th style="padding:6px 8px;text-align:left">Conclusion / Action</th>'
             + '</tr></thead><tbody>';
-        const body = diffs.length
-            ? diffs.map(d => {
+        const filtered = filterByActiveSeverity(diffs, 'status');
+        const body = filtered.length
+            ? filtered.map(d => {
                 const concl = [d.conclusion, d.recommended_action].filter(Boolean).join(' — ');
                 return '<tr style="border-bottom:1px solid var(--border)">'
                     + '<td style="padding:6px 8px;font-family:monospace;white-space:nowrap;vertical-align:top">' + escapeHtml(d.target_column || '') + '</td>'
@@ -8617,7 +8743,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }).join('')
             : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No discrepancies found between these inputs.</td></tr>';
         wrapEl.innerHTML = head + body + '</tbody></table>';
-        showToast('v16.6: ' + diffs.length + ' discrepancies', 'info');
+        shownEl.textContent = filtered.length + ' ' + (isXml ? 'differing columns' : 'discrepancies') + (activeSev ? (' | filtered: ' + activeSev) : '');
+        showToast('v16.6: ' + filtered.length + ' discrepancies', 'info');
+        }
+
+        renderTiles();
+        renderCurrent();
     }
 
     window._odiRenderV16 = function(data) {
@@ -8739,6 +8870,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    function _odiNormalizeSqlPreview(sql) {
+        return String(sql || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    }
+
     function _odiRenderV15(data) {
         _v15Data = data; _v15Filter = null; _v15Sort = { key: null, dir: 1 };
         const s = data.summary || {};
@@ -8761,7 +8896,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Bug 1a: surface the emitted Oracle INSERT SQL for the v15 Compare path too
         // (mirrors _odiRender()). The endpoint now returns data.sql (odi_sql_blocks.sql).
         if (data.sql) {
-            document.getElementById('odi-sql-pre').textContent = data.sql;
+            document.getElementById('odi-sql-pre').textContent = _odiNormalizeSqlPreview(data.sql);
             document.getElementById('odi-sql-section').style.display = 'block';
             _odiSqlVisible = true;
             const _tb = document.getElementById('odi-sql-toggle-btn'); if (_tb) _tb.textContent = 'Hide';
@@ -8778,7 +8913,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const badge = document.getElementById('odi-status-badge');
 
         if (data.sql) {
-            document.getElementById('odi-sql-pre').textContent = data.sql;
+            document.getElementById('odi-sql-pre').textContent = _odiNormalizeSqlPreview(data.sql);
             document.getElementById('odi-sql-section').style.display = 'block';
             _odiSqlVisible = true;
             document.getElementById('odi-sql-toggle-btn').textContent = 'Hide';

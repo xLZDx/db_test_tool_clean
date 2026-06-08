@@ -84,6 +84,37 @@ def generate_v9(
         except Exception:
             kb = None
 
+    # Parse ODI XML early so DRD auto-detection can use the same target context
+    # as v16 compare (sheet/header selection must be identical across branches).
+    from app.sql_model.odi_parser import OdiXmlParser
+    model = OdiXmlParser(target_schema=target_schema, target_table=target_table).parse_bytes(odi_xml_bytes)
+    target_schema = (target_schema or "").strip() or model.target.schema
+    target_table = (target_table or "").strip() or model.target.table
+
+    drd_sheet_override: Optional[str] = None
+    drd_header_override: Optional[int] = None
+    try:
+        import io
+        from openpyxl import load_workbook
+        from app.services import odi_drd_compare_v15 as _v16_base
+
+        wb = load_workbook(io.BytesIO(drd_bytes), read_only=True, data_only=True)
+        det = _v16_base.auto_detect_mapping(
+            wb,
+            xml_targets=[_v16_base.normalize_identifier(target_table)],
+            target_table_override=target_table or "",
+        )
+        drd_sheet_override = getattr(det, "mapping_sheet", None) or None
+        drd_header_override = getattr(det, "header_row", None)
+    except Exception as exc:
+        logger.warning(
+            "v9 DRD canonical sheet/header detection failed, using legacy parser auto-detect: %s",
+            exc,
+        )
+        # Best-effort alignment: if detection fails, keep legacy parser path.
+        drd_sheet_override = None
+        drd_header_override = None
+
     # 1) Parse DRD xlsx (raw -> rows).  We parse TWICE so we can compute
     # the set of struck-through target columns (rows where Y/Z/AA have
     # strike-through font in Excel).  These are de-scoped by the DRD author
@@ -101,6 +132,8 @@ def generate_v9(
         target_table=target_table,
         source_datasource_id=source_datasource_id,
         target_datasource_id=target_datasource_id,
+        sheet_name=drd_sheet_override,
+        header_row_override=drd_header_override,
     )
     parse_result = parse_drd_file(**_common_kwargs, exclude_strikethrough=True)
     drd_rows = parse_result.get("column_mappings", [])
@@ -118,16 +151,6 @@ def generate_v9(
         if r.get("physical_name")
     }
     out_of_scope_targets = {t for t in (_all_targets - _kept_targets) if t}
-
-    # 2) Parse ODI XML
-    from app.sql_model.odi_parser import OdiXmlParser
-    model = OdiXmlParser(target_schema=target_schema, target_table=target_table).parse_bytes(odi_xml_bytes)
-    # Phase 7.19.24: when the caller did not specify a target, use the one the
-    # parser auto-detected from the ODI integration INSERT/MERGE INTO (no AVY
-    # hardcode).  All downstream uses (PDM lookup + both emitters) then target
-    # the real table instead of the AVY_FACT_SIDE default.
-    target_schema = (target_schema or "").strip() or model.target.schema
-    target_table = (target_table or "").strip() or model.target.table
 
     # 3) ETL Notes index + global haystack
     from app.sql_model.drd_multi_sheet import parse_all_sheets, SheetRole
@@ -198,6 +221,45 @@ def generate_v9(
     )
     from app.sql_model.types import ComparisonVerdict, MismatchKind
     cmp_results = compare_drd_rows_to_model(aug, model, kb=kb)
+
+    # Cross-branch parity layer: align verdict surface with canonical v16
+    # mode1 (ODI #1 vs DRD) so both UI branches show the same match/mismatch
+    # targets for identical inputs.
+    try:
+        from app.services.odi_drd_compare_v16 import compare_two_odi_against_drd
+
+        v16_mode1 = compare_two_odi_against_drd(
+            drd_bytes,
+            odi_xml_bytes,
+            None,
+            profile="auto",
+            target_table=target_table,
+        )
+        v16_issues = {
+            (str(r.get("target_column") or "").strip().upper()): str(r.get("severity") or "").strip().lower()
+            for r in (v16_mode1.get("differences") or [])
+            if str(r.get("target_column") or "").strip()
+        }
+        if v16_issues:
+            for res in cmp_results:
+                tcol = (getattr(res, "target_col", "") or "").strip().upper()
+                st = v16_issues.get(tcol)
+                if not st:
+                    res.verdict = ComparisonVerdict.MATCHED
+                    continue
+                if st == "missing":
+                    res.verdict = ComparisonVerdict.SOURCE_MISSING
+                elif st in ("odi_only", "odi_extra"):
+                    res.verdict = ComparisonVerdict.ODI_EXTRA
+                else:
+                    # real_gap / logic_drift / structural (and unknowns) remain
+                    # actionable mismatches in this branch.
+                    res.verdict = ComparisonVerdict.REAL_MISMATCH
+    except Exception as exc:
+        logger.warning(
+            "v9 v16-parity harmonization skipped, keeping comparator-native verdicts: %s",
+            exc,
+        )
 
     # 6b) ODI_EXTRA detection (operator 2026-05-29 Phase 7.3):
     # Surface columns that ODI projects into the final INSERT but DRD

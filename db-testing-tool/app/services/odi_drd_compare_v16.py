@@ -124,6 +124,109 @@ def _sql_blocks_text(sql_blocks: List[Dict[str, str]], limit: int = 500_000) -> 
     return text if len(text) <= limit else text[:limit] + "\n-- ...truncated (over 500KB)..."
 
 
+def _extract_target_dml_sql(sql: str, target_tokens: set[str]) -> str:
+    """Extract DML statements that load the requested target (or aliases).
+
+    ODI blocks can contain multiple statements (target load + exception inserts).
+    This keeps only INSERT/MERGE statements that reference the target tokens and
+    excludes EXCP-side statements.
+    """
+    if not sql:
+        return ""
+    txt = str(sql)
+    stmt_re = re.compile(
+        r"((?:MERGE\s+INTO|INSERT(?:\s*/\*.*?\*/\s*)?\s+INTO)\s+.*?)(?:;\s*|$)",
+        flags=re.I | re.S,
+    )
+    picked: List[str] = []
+    for m in stmt_re.finditer(txt):
+        stmt = (m.group(1) or "").strip()
+        if not stmt:
+            continue
+        c = _canonical(stmt)
+        if target_tokens and not any(t in c for t in target_tokens):
+            continue
+        if "EXCP_TABLE_NAME" in c or "EXCP_DTL" in c or "_EXCP_" in c:
+            continue
+        picked.append(base.normalize_odi_sql(stmt).rstrip())
+    return "\n\n".join(picked)
+
+
+def _target_load_sql_blocks(
+    sql_blocks: List[Dict[str, str]],
+    final_lineage: List[Dict[str, str]],
+    *,
+    target_table_hint: str = "",
+) -> List[Dict[str, str]]:
+    """Keep only DML blocks that look like final target-table load steps.
+
+    This removes runtime/session helper statements and keeps insert/merge blocks
+    tied to final lineage steps for the emitted SQL pane.
+    """
+    target_hint = _ident(target_table_hint or "")
+    target_tokens = {
+        target_hint,
+        f"{target_hint}_TABLE_NAME" if target_hint else "",
+        f"J${target_hint}" if target_hint else "",
+        f"I${target_hint}" if target_hint else "",
+    }
+    target_tokens = {t for t in target_tokens if t}
+    final_steps = {
+        str(r.get("step_no", "")).strip()
+        for r in (final_lineage or [])
+        if str(r.get("step_no", "")).strip()
+    }
+
+    def _collect(enforce_hint: bool) -> List[Dict[str, str]]:
+        got: List[Dict[str, str]] = []
+        for b in sql_blocks or []:
+            sql = _clean(b.get("sql", ""))
+            if not sql:
+                continue
+            _step_no = str(b.get("step_no", "")).strip()
+            # Keep only final-target lineage steps when they are known; this
+            # removes runtime/session helper inserts from emitted SQL output.
+            if final_steps and _step_no not in final_steps:
+                continue
+            tks = target_tokens if enforce_hint else set()
+            target_only_sql = _extract_target_dml_sql(sql, tks)
+            if not target_only_sql:
+                continue
+            if enforce_hint and target_hint and target_hint not in _canonical(target_only_sql):
+                continue
+            nb = dict(b)
+            nb["sql"] = target_only_sql
+            got.append(nb)
+        return got
+
+    out = _collect(enforce_hint=True)
+    if not out:
+        # Fallback for target-hint misses, still constrained to final steps.
+        out = _collect(enforce_hint=False)
+    return out
+
+
+def _build_sql_step_index(sql_blocks: List[Dict[str, str]]) -> Dict[Tuple[str, str], str]:
+    idx: Dict[Tuple[str, str], str] = {}
+    for b in (sql_blocks or []):
+        step = str(b.get("step_no", "")).strip()
+        task = str(b.get("task_no", "")).strip()
+        sql = _clean(b.get("sql", ""))
+        if not step or not sql:
+            continue
+        idx[(step, task)] = base.normalize_odi_sql(sql).rstrip()
+    return idx
+
+
+def _is_uninformative_logic(expr: str) -> bool:
+    e = _norm_space(expr or "")
+    if not e:
+        return True
+    c = _canonical(e)
+    # Single identifiers / alias-only pointers are not helpful for review.
+    return bool(re.fullmatch(r"[A-Z_][A-Z0-9_#$]*(?:\.[A-Z_][A-Z0-9_#$]*){0,2}", c))
+
+
 # ======================================================================================
 # v16.4 delta-safe engine (ported; pure functions)
 # ======================================================================================
@@ -735,10 +838,68 @@ def _drd_logic(col: str, mapping_by_target: Dict[str, Dict[str, str]]) -> str:
     return " | ".join(s for s in (x.strip() for x in srcs) if s)
 
 
+def _lineage_brief(lineage_path: str, limit: int = 3) -> str:
+    rows = [ln.strip() for ln in str(lineage_path or "").splitlines() if ln.strip()]
+    if not rows:
+        return ""
+    out: List[str] = []
+    for ln in rows[:limit]:
+        m_step = re.search(r"step=([^/]+)", ln)
+        m_task = re.search(r"task=([^/]+)", ln)
+        m_col = re.search(r"col=([^/]+)", ln)
+        m_expr = re.search(r"expr=(.+)$", ln)
+        step = m_step.group(1) if m_step else "?"
+        task = m_task.group(1) if m_task else "?"
+        col = m_col.group(1) if m_col else "?"
+        expr = _short(m_expr.group(1) if m_expr else "", 180)
+        out.append(f"Step {step} / Task {task}: {col} <- {expr}")
+    return "\n".join(out)
+
+
+def _build_odi_column_trace(
+    col: str,
+    resolved_row: Dict[str, str],
+    step_sql: str,
+    drd_logic: str,
+    fallback_logic: str,
+) -> str:
+    """Human-readable per-column ODI trace (step -> expr -> context), not raw full INSERT block."""
+    final_expr = _norm_space(resolved_row.get("final_expression", ""))
+    resolved_expr = _norm_space(resolved_row.get("resolved_expression", ""))
+    step = str(resolved_row.get("resolved_step", "")).strip()
+    task = str(resolved_row.get("resolved_task", "")).strip()
+    lineage = _lineage_brief(resolved_row.get("lineage_path", ""))
+
+    expr_for_ctx = resolved_expr or final_expr or _norm_space(fallback_logic or "")
+    ctx = ""
+    if step_sql and expr_for_ctx:
+        using_ctx = base.extract_final_using_context(step_sql, limit=2400)
+        ctx = base.compact_relevant_sql_context(expr_for_ctx, using_ctx, max_len=1800)
+    if not ctx and step_sql:
+        ctx = _short(base.extract_final_using_context(step_sql, limit=1200), 1200)
+
+    parts: List[str] = [f"Column: {col}"]
+    if step or task:
+        parts.append(f"Resolved at: Step {step or '?'} / Task {task or '?'}")
+    if final_expr:
+        parts.append(f"Target expr: {final_expr}")
+    if resolved_expr and _canonical(resolved_expr) != _canonical(final_expr):
+        parts.append(f"Resolved expr: {resolved_expr}")
+    if lineage:
+        parts.append("Lineage path:\n" + lineage)
+    if ctx:
+        parts.append("Lookup/join/filter context:\n" + ctx)
+    if drd_logic:
+        parts.append("DRD rule context:\n" + _short(_norm_space(drd_logic), 400))
+    trace = "\n\n".join(parts)
+    return _short(trace, 3200)
+
+
 def _diffs_from_v15_mismatches(
     mismatches: List[Dict[str, str]],
     mapping_by_target: Dict[str, Dict[str, str]],
     resolved_by_target: Optional[Dict[str, Dict[str, str]]] = None,
+    sql_by_step_task: Optional[Dict[Tuple[str, str], str]] = None,
 ) -> List[Dict[str, str]]:
     """Unified difference rows for ODI-vs-DRD (Mode 1).
 
@@ -749,36 +910,183 @@ def _diffs_from_v15_mismatches(
     the raw v15 fields too so the legacy review table still renders.
     """
     resolved_by_target = resolved_by_target or {}
+    sql_by_step_task = sql_by_step_task or {}
     out: List[Dict[str, str]] = []
     for r in mismatches:
         area = r.get("Area / Columns", "")
         cols = _area_cols(area)
         col = cols[0] if cols else _ident(area)
-        rres = resolved_by_target.get(_ident(col)) or resolved_by_target.get(col) or {}
-        resolved_logic = rres.get("resolved_expression", "")
-        odi_logic = resolved_logic or r.get("ODI XML Logic", "")
-        out.append(
+        logic_cols = cols or ([col] if col else [])
+        for lc in logic_cols:
+            norm_lc = _ident(lc)
+            rres = resolved_by_target.get(norm_lc) or resolved_by_target.get(lc) or {}
+            step = str(rres.get("resolved_step", "")).strip()
+            task = str(rres.get("resolved_task", "")).strip()
+            step_sql = sql_by_step_task.get((step, task), "")
+            one_mapping_logic = r.get("Mapping Logic", "") or _drd_logic(norm_lc, mapping_by_target)
+            one_odi_logic = _build_odi_column_trace(
+                norm_lc or lc,
+                rres,
+                step_sql,
+                one_mapping_logic,
+                r.get("ODI XML Logic", ""),
+            )
+            out.append(
+                {
+                    "target_column": norm_lc or lc,
+                    "status": r.get("Difference Type", "") or "DIFFERENCE",
+                    "mapping_logic_label": "DRD",
+                    "mapping_logic": one_mapping_logic,
+                    "odi_logic_label": "ODI",
+                    "odi_logic": one_odi_logic,
+                    "odi_resolved_logic": one_odi_logic,
+                    "odi_lineage": str(rres.get("lineage_path", "") or ""),
+                    "conclusion": r.get("Conclusion", ""),
+                    "recommended_action": r.get("Recommended Action", ""),
+                    # raw v15 fields preserved for the legacy review table:
+                    "Area / Columns": norm_lc or lc,
+                    "Difference Type": r.get("Difference Type", ""),
+                    "Mapping Logic": one_mapping_logic,
+                    "ODI XML Logic": one_odi_logic,
+                    "Conclusion": r.get("Conclusion", ""),
+                    "Recommended Action": r.get("Recommended Action", ""),
+                }
+            )
+    return out
+
+
+_MODE3_ACTIVE_DELTA = {
+    "STILL_OPEN",
+    "FIX_CANDIDATE_UPSTREAM_CHANGED",
+    "NEW_REGRESSION_BY_FINAL_COMPARE",
+}
+_MODE3_RESOLVED_DELTA = {
+    "FIXED_BY_RESOLVED_RULE_PROOF",
+    "FIXED_BY_FINAL_COMPARE",
+    "UNCHANGED",
+    "UPSTREAM_CHANGED_NO_FINAL_MISMATCH",
+}
+
+
+def _mode3_issue_state(delta_status: str) -> str:
+    s = (delta_status or "").strip().upper()
+    if s in _MODE3_RESOLVED_DELTA:
+        return "resolved"
+    if s == "NEW_REGRESSION_BY_FINAL_COMPARE":
+        return "regression"
+    if s == "FIX_CANDIDATE_UPSTREAM_CHANGED":
+        return "candidate"
+    if s == "STILL_OPEN":
+        return "active"
+    return "unknown"
+
+
+def _mode3_partition_odi2_rows(
+    odi2_rows: List[Dict[str, str]],
+    delta_rows: List[Dict[str, str]],
+    drd_logic_by_target: Optional[Dict[str, str]] = None,
+    resolved_by_target: Optional[Dict[str, Dict[str, str]]] = None,
+    sql_by_step_task: Optional[Dict[Tuple[str, str], str]] = None,
+) -> Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+    """Split ODI2-vs-DRD rows by FINAL delta status.
+
+    Why this exists: the v15 mismatch classifier can still mark ODI2 rows as
+    REVIEW_REQUIRED even when the v16 delta/proof already resolved them.
+    Mode3 must therefore render ODI2 issues from ONE source of truth: delta_status.
+    """
+    drd_logic_by_target = {(_ident(k)): str(v or "") for k, v in (drd_logic_by_target or {}).items()}
+    resolved_by_target = resolved_by_target or {}
+    sql_by_step_task = sql_by_step_task or {}
+
+    delta_by_col = {
+        _ident(r.get("target_column", "")): r
+        for r in (delta_rows or [])
+        if _ident(r.get("target_column", ""))
+    }
+
+    active: List[Dict[str, str]] = []
+    resolved: List[Dict[str, str]] = []
+    for row in (odi2_rows or []):
+        col = _ident(row.get("target_column", "") or row.get("Area / Columns", ""))
+        ds = (delta_by_col.get(col, {}).get("delta_status", "") or "").strip().upper()
+        tagged = dict(row)
+        tagged["delta_status"] = ds
+        tagged["issue_state"] = _mode3_issue_state(ds)
+        if ds in _MODE3_RESOLVED_DELTA:
+            resolved.append(tagged)
+        else:
+            active.append(tagged)
+
+    # Canonical per-column issue view for downstream consumers (UI/control-table).
+    by_col_odi2 = {
+        _ident(r.get("target_column", "") or r.get("Area / Columns", "")): r
+        for r in (odi2_rows or [])
+        if _ident(r.get("target_column", "") or r.get("Area / Columns", ""))
+    }
+    unified: List[Dict[str, str]] = []
+    for col in sorted(set(delta_by_col) | set(by_col_odi2)):
+        drow = delta_by_col.get(col, {})
+        ds = (drow.get("delta_status", "") or "").strip().upper()
+        issue_state = _mode3_issue_state(ds)
+        r2 = by_col_odi2.get(col, {})
+        rres = resolved_by_target.get(col, {})
+        step = str(rres.get("resolved_step", "")).strip()
+        task = str(rres.get("resolved_task", "")).strip()
+        step_sql = sql_by_step_task.get((step, task), "")
+
+        mapping_logic = str(
+            r2.get("mapping_logic", "")
+            or r2.get("Mapping Logic", "")
+            or drd_logic_by_target.get(col, "")
+            or ""
+        )
+
+        raw_odi_logic = str(
+            r2.get("odi_resolved_logic", "")
+            or r2.get("odi_logic", "")
+            or r2.get("ODI XML Logic", "")
+            or rres.get("resolved_expression", "")
+            or rres.get("final_expression", "")
+            or ""
+        )
+        odi_logic = _build_odi_column_trace(
+            col,
+            rres,
+            step_sql,
+            mapping_logic,
+            raw_odi_logic,
+        )
+
+        unified.append(
             {
                 "target_column": col,
-                "status": r.get("Difference Type", "") or "DIFFERENCE",
-                "mapping_logic_label": "DRD",
-                "mapping_logic": r.get("Mapping Logic", "") or _drd_logic(col, mapping_by_target),
-                "odi_logic_label": "ODI",
+                "delta_status": ds,
+                "issue_state": issue_state,
+                "conclusion": str(
+                    r2.get("conclusion", "")
+                    or r2.get("Conclusion", "")
+                    or drow.get("fixed_reason", "")
+                    or drow.get("original_reason", "")
+                    or ""
+                ),
+                "difference_type": str(
+                    r2.get("status", "")
+                    or r2.get("Difference Type", "")
+                    or drow.get("fixed_difference_type", "")
+                    or drow.get("original_difference_type", "")
+                    or ""
+                ),
+                "mapping_logic": mapping_logic,
                 "odi_logic": odi_logic,
-                "odi_resolved_logic": resolved_logic,
-                "odi_lineage": rres.get("lineage_path", ""),
-                "conclusion": r.get("Conclusion", ""),
-                "recommended_action": r.get("Recommended Action", ""),
-                # raw v15 fields preserved for the legacy review table:
-                "Area / Columns": area,
-                "Difference Type": r.get("Difference Type", ""),
-                "Mapping Logic": r.get("Mapping Logic", ""),
-                "ODI XML Logic": r.get("ODI XML Logic", ""),
-                "Conclusion": r.get("Conclusion", ""),
-                "Recommended Action": r.get("Recommended Action", ""),
+                "recommended_action": str(
+                    r2.get("recommended_action", "")
+                    or r2.get("Recommended Action", "")
+                    or ""
+                ),
             }
         )
-    return out
+
+    return active, resolved, unified
 
 
 def _severity_for_review_row(row: Dict[str, str]) -> str:
@@ -881,7 +1189,8 @@ def _diffs_from_xml_delta(
     """Unified difference rows for ODI-vs-ODI.
 
     Mapping Logic column = ODI #1 (resolved, FULL block); ODI Logic column =
-    ODI #2 (resolved, FULL block).  UNCHANGED columns are dropped.  Each row is
+    ODI #2 (resolved, FULL block).  Includes UNCHANGED columns too, so matched
+    buckets can be shown consistently across all modes.  Each row is
     tagged ``selected`` = the column is in the DRD review set (when a DRD is
     present); the UI defaults to the selected set (the standalone's chosen
     columns) and offers "show all".  When ``selected_set`` is None every row is
@@ -890,8 +1199,6 @@ def _diffs_from_xml_delta(
     out: List[Dict[str, str]] = []
     for r in xdelta:
         raw = r.get("xml_delta_status", "")
-        if raw == "UNCHANGED":
-            continue
         o = r.get("original_resolved_expression", "")
         f = r.get("fixed_resolved_expression", "")
         if raw == "ADDED_IN_FIXED":
@@ -905,7 +1212,11 @@ def _diffs_from_xml_delta(
             {
                 "target_column": col,
                 "status": st,
-                "selected": True if selected_set is None else (_ident(col) in selected_set),
+                "selected": (
+                    True
+                    if selected_set is None
+                    else (_ident(col) in selected_set and st != "UNCHANGED")
+                ),
                 "mapping_logic_label": "ODI #1",
                 # FULL per-column resolved SQL block (untruncated):
                 "mapping_logic": o,
@@ -1073,11 +1384,21 @@ def compare_two_odi_against_drd(
                 mapping_rows, o1_final, o1_lineage, o1_blocks, detection, resolved_profile
             )
             o1_res = _resolve_final(o1_final, o1_lineage)
-            differences = _diffs_from_v15_mismatches(m1, mapping_by_target, o1_res)
+            o1_sql_idx = _build_sql_step_index(o1_blocks)
+            differences = _diffs_from_v15_mismatches(
+                m1,
+                mapping_by_target,
+                o1_res,
+                o1_sql_idx,
+            )
             review_shape = _review_table_shape(
                 differences=differences,
                 column_diff=cd1,
-                sql_blocks=o1_blocks,
+                sql_blocks=_target_load_sql_blocks(
+                    o1_blocks,
+                    o1_final,
+                    target_table_hint=target_table,
+                ),
                 detection_human=detection_human,
             )
             review_shape["summary"]["v16_class_counts"] = _summary_counts(by1)
@@ -1131,8 +1452,23 @@ def compare_two_odi_against_drd(
         # with that ODI's resolved per-column logic, so two versions surface
         # their own logic against the same DRD even when the v15-final classes
         # coincide (upstream-only changes).
-        odi1_vs_drd = _diffs_from_v15_mismatches(om, drd_by_target, orig_res)
-        odi2_vs_drd = _diffs_from_v15_mismatches(fm, drd_by_target, fixed_res)
+        o1_sql_idx = _build_sql_step_index(o1_blocks)
+        o2_sql_idx = _build_sql_step_index(o2_blocks)
+
+        odi1_vs_drd = _diffs_from_v15_mismatches(om, drd_by_target, orig_res, o1_sql_idx)
+        odi2_vs_drd_all = _diffs_from_v15_mismatches(fm, drd_by_target, fixed_res, o2_sql_idx)
+
+        drd_logic_by_target = {
+            col: _drd_logic(col, mapping_by_target)
+            for col in mapping_by_target.keys()
+        }
+        odi2_vs_drd, odi2_vs_drd_resolved, unified_issue_rows = _mode3_partition_odi2_rows(
+            odi2_vs_drd_all,
+            delta,
+            drd_logic_by_target,
+            fixed_res,
+            o2_sql_idx,
+        )
 
         delta_counts = dict(Counter(r.get("delta_status", "") for r in delta))
         return {
@@ -1157,6 +1493,10 @@ def compare_two_odi_against_drd(
             "selected_count": sum(1 for d in odi_vs_odi_diffs if d.get("selected")),
             "odi1_vs_drd": odi1_vs_drd,
             "odi2_vs_drd": odi2_vs_drd,
+            "odi2_vs_drd_all": odi2_vs_drd_all,
+            "odi2_vs_drd_resolved": odi2_vs_drd_resolved,
+            "unified_issue_rows": unified_issue_rows,
+            "drd_logic_by_target": drd_logic_by_target,
             "v15_original": orig_v15,
             "v15_fixed": fixed_v15,
             "summary": {
@@ -1175,6 +1515,8 @@ def compare_two_odi_against_drd(
                 "fixed_v15_class_counts": _summary_counts(fixed_v15),
                 "odi1_vs_drd_count": len(odi1_vs_drd),
                 "odi2_vs_drd_count": len(odi2_vs_drd),
+                "odi2_vs_drd_all_count": len(odi2_vs_drd_all),
+                "odi2_vs_drd_resolved_count": len(odi2_vs_drd_resolved),
             },
         }
     finally:

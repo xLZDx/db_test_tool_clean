@@ -3018,6 +3018,9 @@ def parse_insert_target_columns(sql_text: str) -> List[str]:
 
 def normalize_sql_expr(expr: str) -> str:
     text = (expr or "").strip().upper()
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+    text = re.sub(r"--.*?$", " ", text, flags=re.MULTILINE)
+    text = text.strip()
     text = strip_sql_qualifiers(text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s*([(),=+*/<>-])\s*", r"\1", text)

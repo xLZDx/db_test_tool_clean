@@ -1,0 +1,925 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ODI Studio Lite - DB Testing Tool</title>
+    <link rel="stylesheet" href="/static/css/app.css?v=1780359502552089300">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/eclipse.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/material-darker.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/fold/foldgutter.min.css">
+<style>.cm-error-line { background: #ffdddd !important; }</style></head>
+<body class="sql-theme-dark">
+
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+        DB Testing Tool
+    </div>
+    <nav class="sidebar-nav">
+        <a href="/" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>
+            Dashboard
+        </a>
+        <a href="/datasources" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+            SQL Terminal
+        </a>
+        <a href="/schema-browser" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3z"></path><path d="M14 3h7v7h-7z"></path><path d="M3 14h7v7H3z"></path><path d="M14 14h7v7h-7z"></path><path d="M7 7l3.5 3.5"></path><path d="M14 14l3.5-3.5"></path></svg>
+            Schema Browser
+        </a>
+        <a href="/mappings" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"></path><path d="M21 3l-7 7"></path><path d="M8 21H3v-5"></path><path d="M3 21l7-7"></path></svg>
+            Test Management
+        </a>
+        <a href="/regression-lab" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18"></path><path d="M6 8h12"></path><path d="M6 12h12"></path><path d="M6 16h8"></path><path d="M18 16l3 3"></path><path d="M21 16l-3 3"></path></svg>
+            Regression Lab
+        </a>
+        <a href="/ai-assistant" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"></path><path d="M6 10v1a6 6 0 0012 0v-1"></path><line x1="12" y1="17" x2="12" y2="22"></line><line x1="8" y1="22" x2="16" y2="22"></line></svg>
+            AI Assistant
+        </a>
+        <a href="/chat-assistant" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path></svg>
+            Chat Assistant
+        </a>
+        <a href="/training-studio" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path><path d="M12 12l8-4.5"></path><path d="M12 12v9"></path><path d="M12 12L4 7.5"></path></svg>
+            Training Studio
+        </a>
+        <a href="/odi" class="active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"></path><path d="M7 7h10v10H7z"></path><path d="M7 12h10"></path><path d="M12 7v10"></path></svg>
+            ODI
+        </a>
+        <a href="/tfs" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"></path><path d="M9 9h6v6H9z"></path><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"></path></svg>
+            TFS Integration
+        </a>
+        <a href="/agents" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Agents
+        </a>
+        <a href="/settings" class="">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>
+            Settings
+        </a>
+    </nav>
+</aside>
+
+<!-- Main -->
+<div class="main">
+    <div class="topbar">
+        <div class="flex gap-8" style="align-items:center">
+            <button class="btn btn-outline btn-sm" id="sidebar-toggle-btn" type="button" title="Hide or show sidebar">☰</button>
+            <h1>ODI Studio Lite</h1>
+        </div>
+        <div class="flex gap-8" id="topbar-actions"></div>
+    </div>
+    <div class="content">
+        
+<style>
+.odi-hero { display:grid; grid-template-columns: 1.4fr 1fr; gap:16px; }
+.odi-kv { font-size:12px; color:var(--text-muted); }
+.odi-progress-wrap { width:100%; height:10px; border-radius:999px; overflow:hidden; border:1px solid var(--border); background:var(--bg-dark); }
+.odi-progress-bar { height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #22d3ee); transition:width .3s ease; }
+@media (max-width: 980px) { .odi-hero { grid-template-columns:1fr; } }
+</style>
+
+<div class="odi-hero">
+    <div class="card">
+        <div class="card-header"><h2 style="margin:0">Repository Connection</h2></div>
+        <div class="form-group">
+            <label>ODI Config Root Path</label>
+            <input id="odi-root-path" class="form-control" placeholder="C:/Users/.../AppData/Roaming/odi">
+        </div>
+        <div class="grid grid-2" style="gap:12px">
+            <div class="form-group" style="margin:0">
+                <label>Login / Repository</label>
+                <select id="odi-login" class="form-control"><option value="">No ODI logins found</option></select>
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>Work Repository</label>
+                <input id="odi-work-repo" class="form-control" readonly="">
+            </div>
+        </div>
+        <div class="odi-kv" id="odi-login-meta" style="margin-top:8px">No repository selected.</div>
+        <div class="odi-kv" id="odi-connection-status" style="margin-top: 6px; color: var(--text-muted);">Repository not connected.</div>
+        <div class="flex gap-8" style="margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="odiConnectRepo()">Connect To Repo</button>
+            <button class="btn btn-outline" onclick="loadOdiConfig()">Reload Config Files</button>
+            <button class="btn btn-outline" onclick="loadOdiLogins()">Reload Logins</button>
+        </div>
+        <div id="odi-config-summary" class="odi-kv mt-16">Config details hidden. Discovered 0 files under C:\Users\ikorostelev\AppData\Roaming\odi.</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2 style="margin:0">Attachments For Analysis</h2></div>
+        <div class="form-group">
+            <label>Attach ODI exports / XML / SQL / logs</label>
+            <input id="odi-analysis-files" class="form-control" type="file" multiple="" accept=".xml,.sql,.txt,.csv,.json,.log,.conf,.cfg,.properties">
+        </div>
+        <div class="flex gap-8">
+            <button class="btn btn-primary" onclick="analyzeOdiAttachments()">Analyze Files</button>
+        </div>
+        <div class="table-wrap mt-16" style="max-height:240px;overflow:auto">
+            <table>
+                <thead><tr><th>Detected ODI Package / Scenario Names</th></tr></thead>
+                <tbody id="odi-candidates"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2 style="margin:0">Search ODI Package</h2></div>
+    <div class="grid grid-3" style="gap:12px">
+        <div class="form-group" style="margin:0">
+            <label>Package Name Contains</label>
+            <input id="odi-search" class="form-control" placeholder="e.g. SSDS_CLOSED_TAXLOT">
+        </div>
+        <div class="form-group" style="margin:0">
+            <label>Context</label>
+            <select id="odi-context" class="form-control"><option value="DEV">DEV</option><option value="PROD">PROD</option><option value="QA">QA</option><option value="TAXLOTS">TAXLOTS</option><option value="UAT">UAT</option></select>
+        </div>
+        <div class="form-group" style="margin:0">
+            <label>Execution Agent</label>
+            <select id="odi-agent-type" class="form-control"><option value="Local">Local</option><option value="Oracle">Oracle</option></select>
+        </div>
+    </div>
+    <div class="grid grid-2" style="gap:12px">
+        <div class="form-group" style="margin:0">
+            <label>Logical Agent</label>
+            <input id="odi-logical-agent" class="form-control" value="OracleDIAgent (ODI Agent)" list="odi-logical-agent-list">
+            <datalist id="odi-logical-agent-list"><option value="OracleDIAgent (ODI Agent)"></option></datalist>
+        </div>
+        <div class="form-group" style="margin:0">
+            <label>Command Template <span class="text-muted">(optional real run)</span></label>
+            <input id="odi-command-template" class="form-control" placeholder="startscen {package} {context} ...">
+        </div>
+    </div>
+    <div class="card" style="margin-top:12px;padding:12px">
+        <div class="flex" style="justify-content:space-between;align-items:center;gap:8px">
+            <strong>Run Variables</strong>
+            <button class="btn btn-outline btn-sm" onclick="addOdiVariableRow('', '')">Add Variable</button>
+        </div>
+        <div class="table-wrap mt-16" style="max-height:180px;overflow:auto">
+            <table>
+                <thead><tr><th>Name</th><th>Value</th><th>Action</th></tr></thead>
+                <tbody id="odi-variables"><tr>
+        <td><input class="form-control odi-var-name" value="" placeholder="VAR_NAME"></td>
+        <td><input class="form-control odi-var-value" value="" placeholder="value"></td>
+        <td><button class="btn btn-outline btn-sm" onclick="this.closest('tr').remove(); persistOdiState()">Remove</button></td>
+    </tr></tbody>
+            </table>
+        </div>
+        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <input id="odi-require-real-run" type="checkbox" checked=""> Require real ODI run (fail if command template is missing)
+        </label>
+    </div>
+    <div class="flex gap-8" style="margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="searchOdiPackages()">Search</button>
+        <button class="btn btn-primary" onclick="runSelectedOdiPackage()">Run Package</button>
+    </div>
+    <div class="table-wrap mt-16" style="max-height:260px;overflow:auto">
+        <table>
+            <thead><tr><th>Package</th><th>Action</th></tr></thead>
+            <tbody id="odi-packages"><tr><td colspan="2" class="text-muted">No packages found</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2 style="margin:0">Execution Monitor</h2></div>
+    <div class="grid grid-4" style="gap:12px">
+        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-top:24px">
+            <input id="odi-only-mine" type="checkbox" checked="" onchange="loadOdiSessions()"> Show only my sessions
+        </label>
+        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-top:24px">
+            <input id="odi-track-only" type="checkbox" checked="" onchange="loadOdiSessions()"> Show only tracked package progress
+        </label>
+        <div class="form-group" style="margin:0">
+            <label>Filter Session Name</label>
+            <input id="odi-session-filter" class="form-control" placeholder="contains..." oninput="loadOdiSessions()">
+        </div>
+        <div class="form-group" style="margin:0">
+            <label>Status Filter</label>
+            <select id="odi-status-filter" class="form-control" onchange="loadOdiSessions()">
+                <option value="">All</option>
+                <option value="running">Running</option>
+                <option value="success">Success</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+                <option value="canceled">Canceled</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:12px;padding:12px">
+        <div class="flex" style="justify-content:space-between;align-items:center;gap:8px">
+            <strong id="odi-track-title">Tracked Package Progress</strong>
+            <span id="odi-track-status" class="badge badge-muted">idle</span>
+        </div>
+        <div class="odi-progress-wrap mt-16"><div id="odi-track-progress" class="odi-progress-bar"></div></div>
+        <div id="odi-track-meta" class="odi-kv mt-16">No run started.</div>
+    </div>
+
+    <div class="table-wrap mt-16" style="max-height:320px;overflow:auto">
+        <table>
+            <thead><tr><th>Session</th><th>Package</th><th>Status</th><th>Progress</th><th>Context</th><th>Agent</th><th>Actions</th></tr></thead>
+            <tbody id="odi-sessions"><tr><td colspan="7" class="text-muted">No sessions found for current filters</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="grid grid-2" style="gap:16px">
+    <div class="card">
+        <div class="card-header"><h2 style="margin:0">Package Steps</h2></div>
+        <div class="table-wrap" style="max-height:320px;overflow:auto">
+            <table>
+                <thead><tr><th>#</th><th>Step</th><th>Status</th><th>Details</th></tr></thead>
+                <tbody id="odi-steps"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h2 style="margin:0">Errors</h2></div>
+        <div class="table-wrap" style="max-height:320px;overflow:auto">
+            <table>
+                <thead><tr><th>Time</th><th>Error</th><th>Line</th></tr></thead>
+                <tbody id="odi-errors"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2 style="margin:0">Raw Output</h2></div>
+    <textarea id="odi-raw-output" class="form-control" rows="12" readonly="" placeholder="Session output appears here"></textarea>
+</div>
+
+    </div>
+</div>
+
+<div class="app-toast-container"><div class="app-toast app-toast-error" title="Click to copy" style="cursor: pointer;">Connect failed: 404: Login profile 'No ODI logins found' not found</div><div class="app-toast app-toast-warning" title="Click to copy" style="cursor: pointer;">Attach ODI files first</div></div>
+
+<!-- ── Universal Rule Editor Modal ──────────────────────────────────────── -->
+<div id="rule-editor-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center">
+    <div style="background:var(--surface,#1e1e2e);border:1px solid var(--border,#333);border-radius:12px;padding:24px 28px;max-width:680px;width:95%;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+        <h3 style="margin:0 0 16px 0;font-size:15px" id="rule-editor-title">Edit Rule</h3>
+        <div class="grid grid-2" style="gap:12px">
+            <div class="form-group" style="margin:0">
+                <label style="font-size:12px">Target Table</label>
+                <input class="form-control" id="rule-ed-table" style="font-size:12px" data-schema-pred-bound="1" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin:0">
+                <label style="font-size:12px">Target Column</label>
+                <input class="form-control" id="rule-ed-column" style="font-size:12px">
+            </div>
+        </div>
+        <div class="form-group" style="margin:10px 0 0 0">
+            <label style="font-size:12px">Expression</label>
+            <textarea class="form-control" id="rule-ed-expression" rows="5" style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
+        </div>
+        <div class="grid grid-2" style="gap:12px;margin-top:10px">
+            <div class="form-group" style="margin:0">
+                <label style="font-size:12px">Source</label>
+                <select class="form-control" id="rule-ed-source" style="font-size:12px">
+                    <option value="rule">Rule</option>
+                    <option value="manual">Manual</option>
+                    <option value="drd">DRD</option>
+                    <option value="generated">Generated</option>
+                    <option value="training_win">Training Win</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin:0">
+                <label style="font-size:12px">Issue Type</label>
+                <select class="form-control" id="rule-ed-issue-type" style="font-size:12px">
+                    <option value="expression_mismatch">Expression Mismatch</option>
+                    <option value="training_win">Training Win</option>
+                    <option value="manual_edit">Manual Edit</option>
+                    <option value="manual_add">Manual Add</option>
+                    <option value="alias_mismatch">Alias Mismatch</option>
+                    <option value="missing_join">Missing Join</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group" style="margin:10px 0 0 0">
+            <label style="font-size:12px">Notes</label>
+            <textarea class="form-control" id="rule-ed-notes" rows="2" style="font-size:12px" placeholder="Optional notes"></textarea>
+        </div>
+        <input type="hidden" id="rule-ed-id">
+        <input type="hidden" id="rule-ed-callback">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-outline" onclick="closeRuleEditorModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveRuleEditorModal()">Save</button>
+        </div>
+    </div>
+</div>
+<script>
+let _ruleEditorCallback = null;
+function openRuleEditorModal(opts) {
+    opts = opts || {};
+    _ruleEditorCallback = opts.onSave || null;
+    document.getElementById('rule-editor-title').textContent = opts.title || (opts.id ? 'Edit Rule' : 'Add Rule');
+    document.getElementById('rule-ed-id').value = opts.id || '';
+    document.getElementById('rule-ed-table').value = opts.target_table || '';
+    document.getElementById('rule-ed-column').value = opts.target_column || '';
+    document.getElementById('rule-ed-expression').value = opts.replacement_expression || '';
+    document.getElementById('rule-ed-source').value = opts.recommended_source || 'rule';
+    document.getElementById('rule-ed-issue-type').value = opts.issue_type || 'expression_mismatch';
+    document.getElementById('rule-ed-notes').value = opts.notes || '';
+    document.getElementById('rule-ed-table').readOnly = !!opts.lockTable;
+    document.getElementById('rule-ed-column').readOnly = !!opts.lockColumn;
+    document.getElementById('rule-editor-modal').style.display = 'flex';
+    document.getElementById('rule-ed-expression').focus();
+}
+function closeRuleEditorModal() {
+    document.getElementById('rule-editor-modal').style.display = 'none';
+    _ruleEditorCallback = null;
+}
+async function saveRuleEditorModal() {
+    const data = {
+        id: document.getElementById('rule-ed-id').value || null,
+        target_table: (document.getElementById('rule-ed-table').value || '').trim().toUpperCase(),
+        target_column: (document.getElementById('rule-ed-column').value || '').trim().toUpperCase(),
+        replacement_expression: document.getElementById('rule-ed-expression').value || '',
+        recommended_source: document.getElementById('rule-ed-source').value || 'rule',
+        issue_type: document.getElementById('rule-ed-issue-type').value || 'expression_mismatch',
+        notes: document.getElementById('rule-ed-notes').value || '',
+    };
+    if (!data.target_table || !data.target_column) { showToast('Table and column are required', 'warning'); return; }
+    try {
+        if (data.id) {
+            await api('PUT', '/api/tests/control-table/training/rules/' + data.id, data);
+        } else {
+            await api('POST', '/api/tests/control-table/training/rules', data);
+        }
+        showToast(data.id ? 'Rule updated' : 'Rule created', 'success');
+        closeRuleEditorModal();
+        if (_ruleEditorCallback) _ruleEditorCallback(data);
+    } catch (e) {
+        showToast('Failed: ' + (e.message || String(e)), 'error');
+    }
+}
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/sql/sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/fold/foldcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/fold/foldgutter.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/sql-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/edit/closebrackets.min.js"></script>
+<script src="/static/js/app.js?v=1780359502552089300"></script>
+
+<script>
+let _odiOwnerToken = null;
+let _odiTrackedSessionId = '';
+let _odiPollHandle = null;
+let _odiSelectedPackage = '';
+let _odiLogins = [];
+
+const ODI_STATE_KEY = 'odi.page.state.v1';
+
+function _odiSafeJson(raw, fallback) {
+    try { const v = JSON.parse(raw); return v !== null && v !== undefined ? v : fallback; } catch (_) { return fallback; }
+}
+
+function persistOdiState() {
+    const names = Array.from(document.querySelectorAll('#odi-variables .odi-var-name'));
+    const values = Array.from(document.querySelectorAll('#odi-variables .odi-var-value'));
+    const vars = names.map((el, i) => ({ name: el.value || '', value: values[i]?.value || '' }));
+    const state = {
+        root_path: document.getElementById('odi-root-path')?.value || '',
+        search: document.getElementById('odi-search')?.value || '',
+        context: document.getElementById('odi-context')?.value || '',
+        agent_type: document.getElementById('odi-agent-type')?.value || '',
+        logical_agent: document.getElementById('odi-logical-agent')?.value || '',
+        command_template: document.getElementById('odi-command-template')?.value || '',
+        require_real_run: !!(document.getElementById('odi-require-real-run')?.checked),
+        variables: vars,
+    };
+    localStorage.setItem(ODI_STATE_KEY, JSON.stringify(state));
+}
+
+function restoreOdiState() {
+    const state = _odiSafeJson(localStorage.getItem(ODI_STATE_KEY), null);
+    const defaultRoot = 'C:/Users/ikorostelev/AppData/Roaming/odi';
+    const rootInput = document.getElementById('odi-root-path');
+    if (!state) {
+        if (rootInput && !rootInput.value.trim()) rootInput.value = defaultRoot;
+        return;
+    }
+    if (rootInput) rootInput.value = state.root_path || defaultRoot;
+    const searchEl = document.getElementById('odi-search');
+    if (searchEl && state.search) searchEl.value = state.search;
+    const logicalEl = document.getElementById('odi-logical-agent');
+    if (logicalEl && state.logical_agent) logicalEl.value = state.logical_agent;
+    const cmdEl = document.getElementById('odi-command-template');
+    if (cmdEl && state.command_template) cmdEl.value = state.command_template;
+    const reqReal = document.getElementById('odi-require-real-run');
+    if (reqReal && typeof state.require_real_run === 'boolean') reqReal.checked = state.require_real_run;
+    if (Array.isArray(state.variables) && state.variables.length) {
+        const tbody = document.getElementById('odi-variables');
+        if (tbody) tbody.innerHTML = '';
+        state.variables.forEach(v => {
+            if (typeof addOdiVariableRow === 'function') addOdiVariableRow(v.name || '', v.value || '');
+        });
+    }
+    // context + agent_type selects are populated async; deferred below via restoreOdiSelectsWhenReady
+    window._odiPendingState = state;
+}
+
+function restoreOdiSelectsWhenReady() {
+    const state = window._odiPendingState;
+    if (!state) return;
+    const ctxEl = document.getElementById('odi-context');
+    if (ctxEl && state.context) {
+        const has = Array.from(ctxEl.options || []).some(o => o.value === state.context);
+        if (has) ctxEl.value = state.context;
+    }
+    const agEl = document.getElementById('odi-agent-type');
+    if (agEl && state.agent_type) {
+        const has = Array.from(agEl.options || []).some(o => o.value === state.agent_type);
+        if (has) agEl.value = state.agent_type;
+    }
+}
+
+function _bindOdiPersistListeners() {
+    ['odi-root-path','odi-search','odi-logical-agent','odi-command-template'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', persistOdiState);
+    });
+    ['odi-context','odi-agent-type'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', persistOdiState);
+    });
+    const reqReal = document.getElementById('odi-require-real-run');
+    if (reqReal) reqReal.addEventListener('change', persistOdiState);
+}
+
+function renderOdiConnectionStatus(state) {
+    const el = document.getElementById('odi-connection-status');
+    if (!el) return;
+    if (!state || !state.connected || !state.connection) {
+        el.textContent = 'Repository not connected.';
+        el.style.color = 'var(--text-muted)';
+        return;
+    }
+    const c = state.connection;
+    el.textContent = `Connected: ${c.login_name || ''} | ${c.work_repository || ''} | ${c.db_url || ''}`;
+    el.style.color = 'var(--success)';
+}
+
+function getOdiOwnerToken() {
+    const key = 'dbTestingTool.odi.ownerToken.v1';
+    let token = localStorage.getItem(key);
+    if (!token) {
+        token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        localStorage.setItem(key, token);
+    }
+    return token;
+}
+
+function setTrackedProgress(summary) {
+    const progress = Math.max(0, Math.min(100, Number(summary?.progress || 0)));
+    const bar = document.getElementById('odi-track-progress');
+    const meta = document.getElementById('odi-track-meta');
+    const status = document.getElementById('odi-track-status');
+    const title = document.getElementById('odi-track-title');
+    if (bar) bar.style.width = `${progress}%`;
+    if (status) {
+        const s = String(summary?.status || 'idle');
+        status.textContent = s;
+        status.className = `badge ${s === 'success' ? 'badge-success' : s === 'error' ? 'badge-danger' : s === 'warning' ? 'badge-warning' : s === 'running' ? 'badge-info' : 'badge-muted'}`;
+    }
+    if (title) title.textContent = summary?.package_name ? `Tracked: ${summary.package_name}` : 'Tracked Package Progress';
+    if (meta) {
+        if (!summary) {
+            meta.textContent = 'No run started.';
+        } else {
+            meta.textContent = `Session ${summary.session_id} | ${summary.context || ''} | ${summary.execution_agent || ''} | ${progress}%`;
+        }
+    }
+}
+
+function renderTableRows(tbodyId, rows) {
+    const tb = document.getElementById(tbodyId);
+    if (!tb) return;
+    tb.innerHTML = rows.join('');
+}
+
+function getRootPathInput() {
+    return (document.getElementById('odi-root-path')?.value || '').trim();
+}
+
+function getSelectedLoginName() {
+    const idx = parseInt(document.getElementById('odi-login')?.value || '0', 10);
+    const row = (_odiLogins || [])[idx] || null;
+    return (row?.login_name || '').trim();
+}
+
+function populateSelect(id, options, fallbackValue = '') {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const rows = Array.isArray(options) ? options : [];
+    sel.innerHTML = rows.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    if (!rows.length && fallbackValue) {
+        sel.innerHTML = `<option value="${escapeHtml(fallbackValue)}">${escapeHtml(fallbackValue)}</option>`;
+    }
+}
+
+async function loadOdiConfig() {
+    try {
+        const res = await API.getOdiConfigFiles(getRootPathInput());
+        const summary = document.getElementById('odi-config-summary');
+        const count = Array.isArray(res.files) ? res.files.length : 0;
+        if (summary) summary.textContent = `Config details hidden. Discovered ${count} files under ${res.root_path || getRootPathInput()}.`;
+    } catch (e) {
+        showToast(`ODI config load failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function loadOdiLogins() {
+    const sel = document.getElementById('odi-login');
+    try {
+        const res = await API.getOdiLogins(getRootPathInput());
+        _odiLogins = res.logins || [];
+        sel.innerHTML = _odiLogins.map((l, idx) => `<option value="${idx}">${escapeHtml(l.login_name || 'Login')}</option>`).join('');
+        if (!_odiLogins.length) sel.innerHTML = '<option value="">No ODI logins found</option>';
+        sel.onchange = async () => {
+            applySelectedLogin(_odiLogins);
+            await loadOdiContexts();
+            await loadOdiAgents();
+            await searchOdiPackages();
+        };
+        applySelectedLogin(_odiLogins);
+        await loadOdiContexts();
+        await loadOdiAgents();
+        await loadOdiRepositoryStatus();
+    } catch (e) {
+        sel.innerHTML = '<option value="">Load failed</option>';
+        showToast(`ODI logins load failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function loadOdiContexts() {
+    const loginName = getSelectedLoginName();
+    try {
+        const res = await API.getOdiContexts(_odiOwnerToken, loginName, getRootPathInput());
+        const contexts = (res.contexts || []).filter(Boolean);
+        populateSelect('odi-context', contexts, 'QA');
+        const contextSel = document.getElementById('odi-context');
+        if (contextSel && !contextSel.value && contexts.includes('QA')) contextSel.value = 'QA';
+    } catch (_) {
+        populateSelect('odi-context', ['QA', 'DEV', 'UAT', 'PROD', 'TAXLOTS'], 'QA');
+    }
+}
+
+async function loadOdiAgents() {
+    const loginName = getSelectedLoginName();
+    try {
+        const res = await API.getOdiAgents(_odiOwnerToken, loginName);
+        const executionAgents = res.execution_agents || ['Oracle', 'Local'];
+        const logicalAgents = res.logical_agents || ['OracleDIAgent (ODI Agent)'];
+        populateSelect('odi-agent-type', executionAgents, 'Oracle');
+        const dl = document.getElementById('odi-logical-agent-list');
+        if (dl) dl.innerHTML = logicalAgents.map(a => `<option value="${escapeHtml(a)}"></option>`).join('');
+        const logicalInput = document.getElementById('odi-logical-agent');
+        if (logicalInput && !logicalInput.value && logicalAgents.length) logicalInput.value = logicalAgents[0];
+    } catch (_) {
+        populateSelect('odi-agent-type', ['Oracle', 'Local'], 'Oracle');
+    }
+}
+
+function addOdiVariableRow(name, value) {
+    const tb = document.getElementById('odi-variables');
+    if (!tb) return;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><input class="form-control odi-var-name" value="${escapeHtml(name || '')}" placeholder="VAR_NAME"></td>
+        <td><input class="form-control odi-var-value" value="${escapeHtml(value || '')}" placeholder="value"></td>
+        <td><button class="btn btn-outline btn-sm" onclick="this.closest('tr').remove(); persistOdiState()">Remove</button></td>
+    `;
+    tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', persistOdiState));
+    tb.appendChild(tr);
+}
+
+function collectOdiVariables() {
+    const names = Array.from(document.querySelectorAll('#odi-variables .odi-var-name'));
+    const values = Array.from(document.querySelectorAll('#odi-variables .odi-var-value'));
+    const out = {};
+    names.forEach((nameEl, idx) => {
+        const key = String(nameEl?.value || '').trim();
+        if (!key) return;
+        out[key] = String(values[idx]?.value || '').trim();
+    });
+    return out;
+}
+
+function applySelectedLogin(logins) {
+    const idx = parseInt(document.getElementById('odi-login')?.value || '0', 10);
+    const row = (logins || [])[idx] || null;
+    const repo = document.getElementById('odi-work-repo');
+    const meta = document.getElementById('odi-login-meta');
+    if (!row) {
+        if (repo) repo.value = '';
+        if (meta) meta.textContent = 'No repository selected.';
+        return;
+    }
+    if (repo) repo.value = row.work_repository || '';
+    if (meta) meta.textContent = `DB URL: ${row.db_url || ''} | DB User: ${row.db_user || ''} | Login User: ${row.login_user || ''}`;
+}
+
+async function odiConnectRepo() {
+    const idx = parseInt(document.getElementById('odi-login')?.value || '0', 10);
+    const row = (_odiLogins || [])[idx] || null;
+    const loginName = row?.login_name || document.getElementById('odi-login')?.selectedOptions?.[0]?.textContent || '';
+    if (!loginName) return showToast('Select ODI login first', 'warning');
+    try {
+        const res = await API.connectOdiRepository({
+            login_name: loginName,
+            owner_token: _odiOwnerToken,
+            root_path: getRootPathInput(),
+        });
+        renderOdiConnectionStatus(res || {});
+        await loadOdiContexts();
+        await loadOdiAgents();
+        await searchOdiPackages();
+        showToast(`Connected to ${loginName}`, 'success');
+    } catch (e) {
+        renderOdiConnectionStatus(null);
+        showToast(`Connect failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function loadOdiRepositoryStatus() {
+    try {
+        const state = await API.getOdiRepositoryStatus(_odiOwnerToken);
+        renderOdiConnectionStatus(state || {});
+        if (state?.connected && state?.connection?.login_name && Array.isArray(_odiLogins)) {
+            const idx = _odiLogins.findIndex(x => String(x.login_name || '').toUpperCase() === String(state.connection.login_name || '').toUpperCase());
+            if (idx >= 0) {
+                const loginSel = document.getElementById('odi-login');
+                if (loginSel) loginSel.value = String(idx);
+                applySelectedLogin(_odiLogins);
+            }
+        }
+    } catch (_) {
+        renderOdiConnectionStatus(null);
+    }
+}
+
+async function analyzeOdiAttachments() {
+    const files = Array.from(document.getElementById('odi-analysis-files')?.files || []);
+    if (!files.length) return showToast('Attach ODI files first', 'warning');
+    try {
+        const res = await API.analyzeOdiFiles(files, {
+            owner_token: _odiOwnerToken,
+            login_name: getSelectedLoginName(),
+        });
+        const rows = (res.package_candidates || []).slice(0, 200).map(n => `<tr><td>${escapeHtml(n)}</td></tr>`);
+        renderTableRows('odi-candidates', rows.length ? rows : ['<tr><td class="text-muted">No package candidates found</td></tr>']);
+        showToast(`Analyzed ${files.length} files`, 'success');
+        await searchOdiPackages();
+    } catch (e) {
+        showToast(`Analyze failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function searchOdiPackages() {
+    const q = (document.getElementById('odi-search')?.value || '').trim();
+    try {
+        const res = await API.searchOdiPackages(q, 300, {
+            owner_token: _odiOwnerToken,
+            login_name: getSelectedLoginName(),
+        });
+        const rows = (res.packages || []).map(name => `<tr><td>${escapeHtml(name)}</td><td><button class="btn btn-outline btn-sm" onclick="selectOdiPackage('${encodeURIComponent(name)}')">Select</button></td></tr>`);
+        renderTableRows('odi-packages', rows.length ? rows : ['<tr><td colspan="2" class="text-muted">No packages found</td></tr>']);
+    } catch (e) {
+        showToast(`Package search failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+function selectOdiPackage(encodedName) {
+    const name = decodeURIComponent(encodedName || '');
+    _odiSelectedPackage = name;
+    const input = document.getElementById('odi-search');
+    if (input) input.value = name;
+    showToast(`Selected ${name}`, 'info');
+}
+
+async function runSelectedOdiPackage() {
+    const packageName = (document.getElementById('odi-search')?.value || _odiSelectedPackage || '').trim();
+    if (!packageName) return showToast('Select or type package name first', 'warning');
+
+    const payload = {
+        package_name: packageName,
+        context: (document.getElementById('odi-context')?.value || 'QA').trim(),
+        execution_agent: (document.getElementById('odi-agent-type')?.value || 'Oracle').trim(),
+        logical_agent: (document.getElementById('odi-logical-agent')?.value || 'OracleDIAgent (ODI Agent)').trim(),
+        login_name: getSelectedLoginName(),
+        owner_token: _odiOwnerToken,
+        command_template: (document.getElementById('odi-command-template')?.value || '').trim(),
+        variables: collectOdiVariables(),
+        require_real_run: !!document.getElementById('odi-require-real-run')?.checked,
+    };
+
+    try {
+        const res = await API.runOdiPackage(payload);
+        const session = res.session || {};
+        _odiTrackedSessionId = session.session_id || '';
+        setTrackedProgress(session);
+        showToast(`Started ODI package ${session.package_name || packageName}`, 'success');
+        startOdiPolling();
+        await loadOdiSessions();
+    } catch (e) {
+        showToast(`Run failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function loadOdiSessions() {
+    const onlyMine = !!document.getElementById('odi-only-mine')?.checked;
+    const trackOnly = !!document.getElementById('odi-track-only')?.checked;
+    const nameFilter = (document.getElementById('odi-session-filter')?.value || '').trim();
+    const statusFilter = (document.getElementById('odi-status-filter')?.value || '').trim();
+
+    try {
+        const res = await API.listOdiSessions({
+            owner_token: _odiOwnerToken,
+            only_mine: onlyMine,
+            name_contains: nameFilter,
+            status: statusFilter,
+            tracked_only: trackOnly,
+            tracked_session_id: _odiTrackedSessionId,
+            limit: 300,
+        });
+        let sessions = res.sessions || [];
+        if (trackOnly && !_odiTrackedSessionId) {
+            sessions = [];
+        }
+        const rows = sessions.map(s => `
+            <tr>
+                <td>${escapeHtml(s.session_id || '')}</td>
+                <td>${escapeHtml(s.package_name || '')}</td>
+                <td>${escapeHtml(s.status || '')}</td>
+                <td>${Number(s.progress || 0)}%</td>
+                <td>${escapeHtml(s.context || '')}${s.repository_connected ? ' | repo' : ''}</td>
+                <td>${escapeHtml(`${s.execution_agent || ''} / ${s.logical_agent || ''}`)}</td>
+                <td class="flex gap-8">
+                    <button class="btn btn-outline btn-sm" onclick="openOdiSession('${s.session_id}')">Open</button>
+                    <button class="btn btn-outline btn-sm" onclick="cancelOdiSession('${s.session_id}')">Cancel</button>
+                </td>
+            </tr>
+        `);
+        renderTableRows('odi-sessions', rows.length ? rows : ['<tr><td colspan="7" class="text-muted">No sessions found for current filters</td></tr>']);
+
+        if (_odiTrackedSessionId) {
+            const tracked = (res.sessions || []).find(s => s.session_id === _odiTrackedSessionId);
+            if (tracked) setTrackedProgress(tracked);
+        }
+    } catch (e) {
+        showToast(`Session load failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function openOdiSession(sessionId) {
+    _odiTrackedSessionId = sessionId;
+    try {
+        const res = await API.getOdiSession(sessionId);
+        const summary = res.session || {};
+        setTrackedProgress(summary);
+
+        const steps = (res.steps || []).map(st => `<tr><td>${st.step_no || ''}</td><td>${escapeHtml(st.name || '')}</td><td>${escapeHtml(st.status || '')}</td><td>${escapeHtml(st.detail || '')}</td></tr>`);
+        renderTableRows('odi-steps', steps.length ? steps : ['<tr><td colspan="4" class="text-muted">No steps yet</td></tr>']);
+
+        const errors = (res.errors || []).map(er => `<tr><td>${new Date((er.ts || 0) * 1000).toLocaleString()}</td><td>${escapeHtml(er.message || '')}</td><td>${escapeHtml(er.line || '')}</td></tr>`);
+        renderTableRows('odi-errors', errors.length ? errors : ['<tr><td colspan="3" class="text-muted">No errors</td></tr>']);
+
+        const output = document.getElementById('odi-raw-output');
+        if (output) output.value = (res.raw_output || []).join('\n');
+    } catch (e) {
+        showToast(`Failed to open session: ${e.message || String(e)}`, 'error');
+    }
+}
+
+async function cancelOdiSession(sessionId) {
+    try {
+        await API.cancelOdiSession(sessionId);
+        showToast(`Cancel requested for ${sessionId}`, 'warning');
+        await loadOdiSessions();
+    } catch (e) {
+        showToast(`Cancel failed: ${e.message || String(e)}`, 'error');
+    }
+}
+
+function startOdiPolling() {
+    if (_odiPollHandle) clearInterval(_odiPollHandle);
+    _odiPollHandle = setInterval(async () => {
+        await loadOdiSessions();
+        if (_odiTrackedSessionId) await openOdiSession(_odiTrackedSessionId);
+    }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    _odiOwnerToken = getOdiOwnerToken();
+    restoreOdiState();
+    _bindOdiPersistListeners();
+
+    await loadOdiConfig();
+    await loadOdiLogins();   // also calls loadOdiContexts + loadOdiAgents internally
+    await loadOdiRepositoryStatus();
+    restoreOdiSelectsWhenReady();
+    if (!document.querySelector('#odi-variables tr')) addOdiVariableRow('', '');
+    await searchOdiPackages();
+    await loadOdiSessions();
+    startOdiPolling();
+});
+</script>
+
+<script>
+/* ── Copilot auto-auth on page load (COPILOT_AUTH_MODE=automatic) ── */
+(async function _copilotAutoAuth() {
+    try {
+        const status = await API.copilotStatus();
+        if ((status.auth_mode || 'manual') !== 'automatic' || status.connected) return;
+        _showCopilotAuthWidget('Starting automatic GitHub Copilot sign-in…', 'info');
+        // Not connected + automatic mode → start device flow
+        const flow = await API.copilotStartDevice();
+        if (!flow || flow.error) {
+            _showCopilotAuthWidget(flow?.error || 'Automatic sign-in could not start.', 'error');
+            return;
+        }
+        if (!flow.device_code) {
+            _showCopilotAuthWidget('Automatic sign-in did not return a device code.', 'error');
+            return;
+        }
+        // Open GitHub authorization page in new tab
+        window.open(flow.verification_uri, '_blank');
+        _showCopilotAuthWidget(`Browser opened. Enter code ${flow.user_code} if prompted.`, 'waiting', flow.user_code);
+        _pollCopilotAuth(flow.device_code, flow.interval || 5);
+    } catch (e) {
+        _showCopilotAuthWidget(`Automatic sign-in failed: ${e.message || 'unknown error'}`, 'error');
+    }
+})();
+
+function _showCopilotAuthWidget(message, tone = 'info', userCode = '') {
+    let widget = document.getElementById('copilot-auth-widget');
+    if (!widget) {
+        widget = document.createElement('div');
+        widget.id = 'copilot-auth-widget';
+        widget.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9000;width:320px;background:#0f172a;color:#e2e8f0;border:1px solid rgba(148,163,184,.35);border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.35);padding:12px 14px';
+        document.body.appendChild(widget);
+    }
+    const toneColor = tone === 'error' ? '#fca5a5' : tone === 'success' ? '#86efac' : '#93c5fd';
+    widget.innerHTML = `
+        <div style="display:flex;align-items:flex-start;gap:10px">
+            <div style="width:10px;height:10px;border-radius:999px;background:${toneColor};margin-top:5px;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#94a3b8">GitHub Copilot Connection</div>
+                <div style="margin-top:6px;font-size:13px;line-height:1.4">${escapeHtml(message || '')}</div>
+                <div id="copilot-auth-widget-code" style="margin-top:6px;font-family:monospace;font-size:12px;color:#cbd5e1;${userCode ? '' : 'display:none'}">Code: ${escapeHtml(userCode || '')}</div>
+            </div>
+            <button onclick="document.getElementById('copilot-auth-widget')?.remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>
+        </div>`;
+}
+
+function _pollCopilotAuth(deviceCode, intervalSecs) {
+    const ms = Math.max(5000, (intervalSecs || 5) * 1000);
+    let tries = 0;
+    const maxTries = 60;
+    const timer = setInterval(async () => {
+        if (++tries > maxTries) {
+            clearInterval(timer);
+            _showCopilotAuthWidget('Automatic sign-in timed out. Open the AI Assistant page to retry manually.', 'error');
+            return;
+        }
+        try {
+            const result = await API.copilotPollDevice(deviceCode);
+            if (result?.status === 'authorization_pending' || result?.status === 'slow_down') {
+                _showCopilotAuthWidget('Waiting for GitHub authorization to finish…', 'waiting');
+                return;
+            }
+            if (result?.error) {
+                clearInterval(timer);
+                _showCopilotAuthWidget(result.error, 'error');
+                return;
+            }
+            if (result && result.connected) {
+                clearInterval(timer);
+                _showCopilotAuthWidget('GitHub Copilot connected successfully.', 'success');
+                setTimeout(() => document.getElementById('copilot-auth-widget')?.remove(), 4000);
+                showToast('GitHub Copilot connected!', 'success');
+            }
+        } catch (e) {
+            clearInterval(timer);
+            _showCopilotAuthWidget(`Automatic sign-in failed: ${e.message || 'unknown error'}`, 'error');
+        }
+    }, ms);
+}
+</script>
+
+</body></html>

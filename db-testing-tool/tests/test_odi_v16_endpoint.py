@@ -62,6 +62,9 @@ def test_compare_multi_two_odi_delta_promotes_sdira():
     assert isinstance(d.get("delta_report_rows"), list)
     assert isinstance(d.get("proof_rows"), list)
     assert isinstance(d.get("sql_block_diff_rows"), list)
+    assert isinstance(d.get("odi2_vs_drd_all"), list)
+    assert isinstance(d.get("odi2_vs_drd_resolved"), list)
+    assert isinstance(d.get("unified_issue_rows"), list)
 
 
 @_avy

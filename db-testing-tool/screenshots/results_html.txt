@@ -1,0 +1,290 @@
+
+
+        <!-- Upload row -->
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>ODI Scenario XML <span style="color:var(--danger)">*</span></label>
+                <input type="file" id="odi-xml-file" accept=".xml" class="form-control">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>DRD Mapping File <span class="text-muted" style="font-size:11px">(XLSX = all sheets parsed · CSV = mapping sheet only)</span></label>
+                <input type="file" id="odi-drd-file" accept=".csv,.xlsx,.xls,.xlsm" class="form-control">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+                <label>ODI Scenario XML #2 <span class="text-muted" style="font-size:11px">(optional · Δ Compare: ODI #1 vs ODI #2 code-vs-code; DRD then optional)</span></label>
+                <input type="file" id="odi-xml-file-2" accept=".xml" class="form-control">
+            </div>
+        </div>
+
+        <!-- Config + filter row -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Schema</label>
+                <input class="form-control" id="odi-target-schema" value="" placeholder="auto-detect from ODI XML">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 160px">
+                <label style="font-size:11px">Target Table</label>
+                <input class="form-control" id="odi-target-table" value="" placeholder="auto-detect from ODI XML">
+            </div>
+            <div class="form-group" style="margin:0;flex:0 0 190px">
+                <label style="font-size:11px">Filter Verdict</label>
+                <select class="form-control" id="odi-filter-verdict" onchange="odiRenderGrid()">
+                    <option value="">All verdicts</option>
+                    <option value="REAL_MISMATCH">Mismatches only</option>
+                    <option value="UNRESOLVABLE">Unresolvable only</option>
+                    <option value="SOURCE_MISSING">Missing only</option>
+                    <option value="ODI_EXTRA">ODI Extra (no DRD rule) only</option>
+                    <option value="ALIAS_DRIFT_ONLY">Alias drift only</option>
+                    <option value="MATCHED">Matched only</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" style="flex:0 0 130px;height:38px" onclick="odiRunAnalysis()" id="odi-analyze-btn">🔍 Analyze</button>
+            <button class="btn btn-outline" style="flex:0 0 190px;height:38px;border-color:#22c55e;color:#22c55e" onclick="odiRunV16()" id="odi-v16-btn" title="v16.6 generic compare. Attach a DRD (ODI vs DRD) and/or a second ODI XML (ODI #1 vs ODI #2, pure code-vs-code). Shows discrepancies + full blocks where they differ -- no tests run." disabled="">Δ Compare v16.6</button>
+        </div>
+
+        <!-- Loading -->
+        <div id="odi-loading" style="display: block; text-align: center; padding: 28px; color: var(--text-muted);">Analyzing ODI XML…</div>
+
+        <!-- Summary stats -- click any card to filter the grid -->
+        <div id="odi-summary" style="display:none;margin-bottom:14px">
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
+                <div onclick="odiFilterFromCard('MATCHED')" style="cursor:pointer;padding:10px 14px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;text-align:center" title="Click to filter by Matched">
+                    <div style="font-size:11px;color:var(--success)">Matched</div>
+                    <div id="odi-s-matched" style="font-size:24px;font-weight:700;color:var(--success)">0</div>
+                </div>
+                <div onclick="odiFilterFromCard('ALIAS_DRIFT_ONLY')" style="cursor:pointer;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;text-align:center" title="Click to filter by Alias Drift">
+                    <div style="font-size:11px;color:var(--warning)">Alias Drift</div>
+                    <div id="odi-s-alias" style="font-size:24px;font-weight:700;color:var(--warning)">0</div>
+                </div>
+                <div onclick="odiFilterFromCard('REAL_MISMATCH')" style="cursor:pointer;padding:10px 14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;text-align:center" title="Click to filter by Mismatch">
+                    <div style="font-size:11px;color:var(--danger)">Mismatch</div>
+                    <div id="odi-s-mismatch" style="font-size:24px;font-weight:700;color:var(--danger)">0</div>
+                </div>
+                <div onclick="odiFilterFromCard('UNRESOLVABLE')" style="cursor:pointer;padding:10px 14px;background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);border-radius:8px;text-align:center" title="Click to filter by Unresolvable">
+                    <div style="font-size:11px;color:var(--info)">Unresolvable</div>
+                    <div id="odi-s-unresolvable" style="font-size:24px;font-weight:700;color:var(--info)">0</div>
+                </div>
+                <div onclick="odiFilterFromCard('SOURCE_MISSING')" style="cursor:pointer;padding:10px 14px;background:rgba(148,163,184,.1);border:1px solid rgba(148,163,184,.3);border-radius:8px;text-align:center" title="Click to filter by Missing">
+                    <div style="font-size:11px;color:var(--text-muted)">Missing</div>
+                    <div id="odi-s-missing" style="font-size:24px;font-weight:700">0</div>
+                </div>
+                <div onclick="odiFilterFromCard('ODI_EXTRA')" style="cursor:pointer;padding:10px 14px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.3);border-radius:8px;text-align:center" title="Click to filter by ODI Extra (ODI projects but DRD has no rule)">
+                    <div style="font-size:11px;color:#a855f7">ODI Extra</div>
+                    <div id="odi-s-extra" style="font-size:24px;font-weight:700;color:#a855f7">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ODI-vs-DRD / ODI-vs-ODI result (v15-style: sortable severity tiles incl Matched,
+             resizable SQL pane, emitted INSERT). Used by Mode 1 (ODI+DRD) and Mode 2 (ODI+ODI). -->
+        <div id="odi-v15-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-weight:700;color:#22c55e">Δ v16.6 comparison</span>
+                <span id="odi-v15-layout" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
+            </div>
+            <div id="odi-v15-bigtiles" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span id="odi-v15-caption" style="font-size:12px;font-weight:600;color:var(--text-muted)">Differences</span>
+                <span id="odi-v15-shown" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 8px;text-align:left">#</th>
+                            <th style="padding:6px 8px;text-align:left">Area / Columns</th>
+                            <th style="padding:6px 8px;text-align:left">Difference Type</th>
+                            <th style="padding:6px 8px;text-align:left">Mapping Logic</th>
+                            <th style="padding:6px 8px;text-align:left">ODI XML Logic</th>
+                            <th style="padding:6px 8px;text-align:left">Conclusion</th>
+                            <th style="padding:6px 8px;text-align:left">Recommended Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-v15-diffbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- v16.6 delta + rule-proof result (read-only) -->
+        <div id="odi-v16-result" style="display:none;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-weight:700;color:#22c55e">Δ v16.6 delta + rule-proof</span>
+                <span id="odi-v16-engine" style="font-size:11px;color:var(--text-muted);font-family:monospace"></span>
+            </div>
+            <div id="odi-v16-tiles" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span id="odi-v16-title" style="font-size:12px;font-weight:600;color:var(--text-muted)">Comparison result</span>
+                <span id="odi-v16-shown" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="odi-v16-wrap" style="overflow-x:auto;max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 8px;text-align:left">Target Column</th>
+                            <th style="padding:6px 8px;text-align:left">Delta Status</th>
+                            <th style="padding:6px 8px;text-align:left">XML Delta</th>
+                            <th style="padding:6px 8px;text-align:left">Proof</th>
+                            <th style="padding:6px 8px;text-align:left">Fixed Reason / Conclusion</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-v16-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SQL preview -->
+        <div id="odi-sql-section" style="display:none;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Emitted Oracle INSERT SQL</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-outline btn-sm" onclick="odiToggleSql()" id="odi-sql-toggle-btn">Hide</button>
+                    <button class="btn btn-outline btn-sm" onclick="odiCopySql()">Copy</button>
+                    <button class="btn btn-outline btn-sm" id="odi-run-xe-btn" onclick="odiRunXe()" style="border-color:var(--info);color:var(--info)" title="Run emitted SQL against local Oracle XE Docker (optional confirmatory)">Run vs XE</button>
+                </div>
+            </div>
+            <div id="odi-sql-wrap">
+                <pre id="odi-sql-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-all"></pre>
+            </div>
+            <!-- XE run result (P6) -->
+            <div id="odi-xe-result" style="display:none;margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;border:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-weight:600">XE Run Result</span>
+                    <span id="odi-xe-badge" style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700"></span>
+                    <span id="odi-xe-loading" style="display:none;font-size:11px;color:var(--text-muted)">Running…</span>
+                </div>
+                <div id="odi-xe-detail" style="color:var(--text-muted);font-family:monospace;font-size:11px;line-height:1.6"></div>
+            </div>
+        </div>
+
+        <!-- P5 Static validation errors -->
+        <div id="odi-static-section" style="display:none;margin-bottom:14px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Static KB Validation</div>
+            <div id="odi-static-body" style="overflow-x:auto;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead style="position:sticky;top:0;background:var(--surface)">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:6px 10px;text-align:left">Code</th>
+                            <th style="padding:6px 10px;text-align:left">Table</th>
+                            <th style="padding:6px 10px;text-align:left">Column</th>
+                            <th style="padding:6px 10px;text-align:left">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-static-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Comparison grid -->
+        <div id="odi-grid-section" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted)" id="odi-grid-title">Comparison Grid</span>
+                <button class="btn btn-outline btn-sm" onclick="odiExportCsv()">Export CSV</button>
+            </div>
+            <div style="overflow-x:auto;max-height:480px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
+                        <tr style="border-bottom:2px solid var(--border)">
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Target Col</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">DRD Source</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">ODI Source</th>
+                            <th style="padding:8px 6px;text-align:center;white-space:nowrap">Step</th>
+                            <th style="padding:8px 10px;text-align:left;white-space:nowrap">Verdict</th>
+                            <th style="padding:8px 10px;text-align:left">Explanation</th>
+                            <th style="padding:8px 4px;text-align:center;white-space:nowrap">Fix</th>
+                        </tr>
+                    </thead>
+                    <tbody id="odi-grid-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Quick-correct panel -->
+        <div id="odi-fix-panel" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--warning);border-radius:8px;background:rgba(245,158,11,.06)">
+            <div style="font-weight:600;margin-bottom:10px;color:var(--warning)">Quick Correction — <span id="odi-fix-col" style="font-family:monospace"></span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Source Table</label>
+                    <input class="form-control" id="odi-fix-table" placeholder="e.g. APA_SECURITY_POSITION">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Correct Attribute</label>
+                    <input class="form-control" id="odi-fix-attr" placeholder="e.g. BKR_AR_ID">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:140px">
+                    <label style="font-size:11px">Transformation Rule</label>
+                    <input class="form-control" id="odi-fix-transform" placeholder="e.g. Direct copy">
+                </div>
+            </div>
+            <div class="form-group" style="margin:0 0 10px 0">
+                <label style="font-size:11px">Annotation / Reason</label>
+                <textarea class="form-control" id="odi-fix-note" rows="2" placeholder="Explain the correct mapping or why this differs from DRD…"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button class="btn btn-outline btn-sm" onclick="odiCloseFix()">Cancel</button>
+                <button class="btn btn-warning btn-sm" onclick="odiSaveFix()">Save Annotation</button>
+            </div>
+        </div>
+
+        <!-- P7: DRD Multi-Sheet Context panel (populated when XLSX DRD is uploaded) -->
+        <div id="odi-multisheet-panel" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                <span style="font-size:13px;font-weight:600">DRD Multi-Sheet Context</span>
+                <span id="odi-ms-verdict-badge" style="display:none;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700"></span>
+                <span class="text-muted" style="font-size:11px">ETL Notes · Model · Grain · Consumer View extracted from all sheets</span>
+            </div>
+
+            <!-- Sheet summary pills -->
+            <div id="odi-ms-pills" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+
+            <!-- Deferred refs (only when PARTIAL_DRD) -->
+            <div id="odi-ms-deferred-section" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.3);border-radius:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--warning);margin-bottom:6px">
+                    ⚠ Deferred References
+                    <span id="odi-ms-deferred-count" style="background:var(--warning);color:#000;border-radius:10px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+                    <span style="font-weight:400;color:var(--text-muted);font-size:11px;margin-left:6px">— these hyperlinks/PBIs cannot be followed offline; verdict downgraded to PARTIAL_DRD</span>
+                </div>
+                <div style="overflow-x:auto;max-height:160px;overflow-y:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                        <thead>
+                            <tr style="border-bottom:1px solid rgba(245,158,11,.3)">
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Location</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Type</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Value</th>
+                                <th style="padding:4px 8px;text-align:left;color:var(--text-muted)">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="odi-ms-deferred-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Grain columns -->
+            <div id="odi-ms-grain-section" style="display:none;margin-bottom:12px">
+                <span style="font-size:12px;font-weight:600;color:var(--success);margin-right:8px">Grain / Key Columns:</span>
+                <span id="odi-ms-grain-list" style="display:inline-flex;flex-wrap:wrap;gap:5px"></span>
+            </div>
+
+            <!-- Extracted rules (collapsible) -->
+            <div id="odi-ms-rules-section" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Extracted Rules</span>
+                    <span id="odi-ms-rules-count" style="background:var(--info);color:#fff;border-radius:10px;padding:1px 8px;font-size:11px"></span>
+                    <button class="btn btn-outline btn-sm" id="odi-ms-rules-toggle" onclick="odiToggleMsRules()" style="padding:1px 8px;font-size:11px">Show</button>
+                </div>
+                <div id="odi-ms-rules-wrap" style="display:none;overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                        <thead style="position:sticky;top:0;background:var(--surface)">
+                            <tr style="border-bottom:2px solid var(--border)">
+                                <th style="padding:5px 8px;text-align:left">Sheet</th>
+                                <th style="padding:5px 8px;text-align:left">Role</th>
+                                <th style="padding:5px 8px;text-align:left">Type</th>
+                                <th style="padding:5px 8px;text-align:left">Target Col</th>
+                                <th style="padding:5px 8px;text-align:left">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="odi-ms-rules-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    

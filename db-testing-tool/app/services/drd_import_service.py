@@ -715,6 +715,7 @@ def parse_drd_file(
     target_datasource_id: int = 1,
     default_source_table: str = "",
     sheet_name: Optional[str] = None,
+    header_row_override: Optional[int] = None,
     exclude_strikethrough: bool = False,
 ) -> Dict[str, Any]:
     """Parse a DRD file and create mapping rules grouped by source table.
@@ -743,6 +744,22 @@ def parse_drd_file(
         return {"rules": [], "column_mappings": [], "stats": {}, "errors": ["Empty file"]}
 
     header_row_idx, headers = _find_header_row(rows)
+    if header_row_override is not None:
+        # Override is 1-based Excel row index from canonical v16 detection.
+        try:
+            forced_row = int(header_row_override)
+        except (TypeError, ValueError):
+            forced_row = -1
+        if forced_row >= 1:
+            forced_idx = forced_row - 1
+            if forced_idx < len(rows):
+                header_row_idx = forced_idx
+                forced_header = rows[header_row_idx] if header_row_idx < len(rows) else []
+                headers = [str(h).strip() if h is not None else "" for h in forced_header]
+        else:
+            errors.append(
+                f"Invalid header_row_override={header_row_override!r}; using auto-detected header row"
+            )
     data_rows = rows[header_row_idx + 1:]
     mapped = _map_drd_headers(headers)
 

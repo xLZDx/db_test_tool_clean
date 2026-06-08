@@ -119,7 +119,7 @@ def test_empty_odi1_raises():
 # both-mode per-ODI-vs-DRD enrichment.
 # ---------------------------------------------------------------------------
 
-_XML_DIFF_STATUSES = {"CHANGED", "NO_RESOLVED_LINEAGE", "ONLY_IN_ODI1", "ONLY_IN_ODI2"}
+_XML_DIFF_STATUSES = {"CHANGED", "UNCHANGED", "NO_RESOLVED_LINEAGE", "ONLY_IN_ODI1", "ONLY_IN_ODI2"}
 
 
 @_avy
@@ -183,6 +183,46 @@ def test_both_mode_per_odi_vs_drd_carry_each_odi_logic():
 
 
 @_avy
+def test_mode3_odi2_rows_follow_final_delta_status():
+    """Resolved columns must not remain in active ODI2-vs-DRD rows.
+
+    Single source of truth for mode3 issue state is delta_status, not the raw
+    v15 mismatch class on ODI2.
+    """
+    res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), _b(_ODI2), **_OVERRIDES)
+    delta = res["delta"]
+    resolved_cols = {
+        r["target_column"]
+        for r in delta
+        if r.get("delta_status") in {
+            "FIXED_BY_RESOLVED_RULE_PROOF",
+            "FIXED_BY_FINAL_COMPARE",
+            "UNCHANGED",
+            "UPSTREAM_CHANGED_NO_FINAL_MISMATCH",
+        }
+    }
+    odi2_active_cols = {r.get("target_column", "") for r in res.get("odi2_vs_drd", [])}
+    assert not (resolved_cols & odi2_active_cols)
+    assert isinstance(res.get("odi2_vs_drd_resolved"), list)
+    unified = res.get("unified_issue_rows")
+    assert isinstance(unified, list) and unified
+    allowed_states = {"active", "candidate", "regression", "resolved", "unknown"}
+    sample = unified[0]
+    for k in (
+        "target_column",
+        "delta_status",
+        "issue_state",
+        "conclusion",
+        "difference_type",
+        "mapping_logic",
+        "odi_logic",
+        "recommended_action",
+    ):
+        assert k in sample
+    assert {u.get("issue_state") for u in unified} <= allowed_states
+
+
+@_avy
 def test_mode3_odi_vs_odi_selected_set_matches_standalone():
     """The DRD review set (selected) reproduces the standalone's 8 CHANGED
     columns -- the original_vs_fixed_resolved_xml_delta.csv CHANGED rows."""
@@ -224,3 +264,127 @@ def test_args_shim_header_row_defaults_none():
     a = v16._args_shim(profile="auto")
     assert a.header_row is None  # auto-detect; 0/'' would mis-detect
     assert a.profile == "auto"
+
+
+def test_target_load_sql_blocks_respects_final_steps_and_drops_runtime_noise():
+    blocks = [
+        {
+            "step_no": "8",
+            "task_no": "9",
+            "sql": "INSERT INTO ODI_RUNTIME_VALUE.SSDS_SESS_LOG (SESS_NO) SELECT 1 FROM dual",
+        },
+        {
+            "step_no": "16",
+            "task_no": "17",
+            "sql": "INSERT INTO ODI_RUNTIME_VALUE.AVY_FACT_LOG (TXN_ID) SELECT TXN_ID FROM ODI_RUNTIME_VALUE.J$AVY_FACT",
+        },
+        {
+            "step_no": "120",
+            "task_no": "5",
+            "sql": "INSERT INTO AVY_FACT_SIDE (TXN_ID) SELECT TXN_ID FROM INLINE_VIEW_1",
+        },
+    ]
+    final_lineage = [{"step_no": "120", "task_no": "5", "target_column": "TXN_ID"}]
+    out = v16._target_load_sql_blocks(blocks, final_lineage, target_table_hint="AVY_FACT_SIDE")
+    assert len(out) == 1
+    assert out[0]["step_no"] == "120"
+    assert "AVY_FACT_SIDE" in out[0]["sql"].upper()
+
+
+def test_diffs_from_v15_mismatches_expands_grouped_rows_per_column_generic_names():
+    mismatches = [
+        {
+            "Area / Columns": "`COL_ALPHA` `COL_BETA` `COL_GAMMA`",
+            "Difference Type": "Transformation logic difference",
+            "Mapping Logic": "DRD_GENERIC_RULE",
+            "ODI XML Logic": "INLINE_VIEW.COL_ALPHA",
+            "Conclusion": "generic grouped mismatch",
+            "Recommended Action": "review",
+        }
+    ]
+    mapping_by_target = {
+        "COL_ALPHA": {"drd_rule": "RULE_ALPHA"},
+        "COL_BETA": {"drd_rule": "RULE_BETA"},
+        "COL_GAMMA": {"drd_rule": "RULE_GAMMA"},
+    }
+    resolved_by_target = {
+        "COL_ALPHA": {
+            "resolved_expression": "CASE WHEN A.K = 1 THEN 'X' END",
+            "final_expression": "A.COL_ALPHA",
+            "resolved_step": "23",
+            "resolved_task": "100",
+            "lineage_path": "step=23/task=100/col=COL_ALPHA/expr=CASE WHEN A.K = 1 THEN 'X' END",
+        },
+        "COL_BETA": {
+            "resolved_expression": "B.COL_BETA",
+            "final_expression": "B.COL_BETA",
+            "resolved_step": "23",
+            "resolved_task": "100",
+            "lineage_path": "step=23/task=100/col=COL_BETA/expr=B.COL_BETA",
+        },
+        "COL_GAMMA": {
+            "resolved_expression": "TO_CHAR(C.COL_GAMMA)",
+            "final_expression": "C.COL_GAMMA",
+            "resolved_step": "24",
+            "resolved_task": "101",
+            "lineage_path": "step=24/task=101/col=COL_GAMMA/expr=TO_CHAR(C.COL_GAMMA)",
+        },
+    }
+    sql_by_step_task = {
+        ("23", "100"): "SELECT A.COL_ALPHA, B.COL_BETA FROM SRC_A A JOIN SRC_B B ON A.ID=B.ID WHERE A.K=1",
+        ("24", "101"): "SELECT TO_CHAR(C.COL_GAMMA) AS COL_GAMMA FROM SRC_C C",
+    }
+
+    rows = v16._diffs_from_v15_mismatches(
+        mismatches,
+        mapping_by_target,
+        resolved_by_target,
+        sql_by_step_task,
+    )
+
+    assert len(rows) == 3
+    got_cols = sorted(r["target_column"] for r in rows)
+    assert got_cols == ["COL_ALPHA", "COL_BETA", "COL_GAMMA"]
+    for r in rows:
+        assert r["Area / Columns"] == r["target_column"]
+        assert "Column:" in (r.get("ODI XML Logic") or "")
+        assert "Step" in (r.get("ODI XML Logic") or "")
+
+
+def test_build_odi_column_trace_is_generic_not_business_specific():
+    trace = v16._build_odi_column_trace(
+        "GENERIC_COL_X",
+        {
+            "final_expression": "X.GENERIC_COL_X",
+            "resolved_expression": "CASE WHEN X.FLAG = 1 THEN X.GENERIC_COL_X END",
+            "resolved_step": "17",
+            "resolved_task": "42",
+            "lineage_path": "step=17/task=42/col=GENERIC_COL_X/expr=CASE WHEN X.FLAG = 1 THEN X.GENERIC_COL_X END",
+        },
+        "SELECT X.GENERIC_COL_X FROM SRC_X X LEFT JOIN DIM_Y Y ON X.Y_ID=Y.ID WHERE X.FLAG=1",
+        "DRD says derive from SRC_X with lookup DIM_Y",
+        "INLINE_VIEW.GENERIC_COL_X",
+    )
+
+    assert "Column: GENERIC_COL_X" in trace
+    assert "Resolved at: Step 17 / Task 42" in trace
+    assert "Lookup/join/filter context:" in trace
+    assert "DRD rule context:" in trace
+
+
+@_avy
+def test_mode3_unified_rows_enriched_for_sdira_candidates():
+    """Columns present in delta but absent from odi2 mismatches must still carry
+    useful DRD/ODI logic (not empty cells)."""
+    res = v16.compare_two_odi_against_drd(_b(_DRD), _b(_ODI1), _b(_ODI2), **_OVERRIDES)
+    rows = {r.get("target_column", ""): r for r in (res.get("unified_issue_rows") or [])}
+    row = rows.get("SDIRA_TXN_TP")
+    assert row is not None
+    assert (row.get("delta_status") or "") in {
+        "FIX_CANDIDATE_UPSTREAM_CHANGED",
+        "FIXED_BY_RESOLVED_RULE_PROOF",
+        "FIXED_BY_FINAL_COMPARE",
+        "STILL_OPEN",
+    }
+    assert (row.get("mapping_logic") or "").strip(), "SDIRA mapping logic must not be empty"
+    assert (row.get("odi_logic") or "").strip(), "SDIRA ODI logic must not be empty"
