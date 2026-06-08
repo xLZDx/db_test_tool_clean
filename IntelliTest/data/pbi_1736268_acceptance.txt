@@ -1,1 +1,0 @@
-﻿New logic reproduces at least same output as CDSMANUC for SIS stock movements.
