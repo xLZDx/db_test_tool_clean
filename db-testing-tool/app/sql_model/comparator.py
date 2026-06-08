@@ -339,6 +339,74 @@ def _load_role_prefix_equivalences() -> tuple:
 _ROLE_PREFIX_EQUIVALENCES = _load_role_prefix_equivalences()
 
 
+def _load_confirmed_name_pairs() -> tuple:
+    """Read operator-confirmed DRD<->ODI column-name pairs from
+    data/comparator_config.json `confirmed_name_pairs`.
+
+    Phase 7.19.14 (2026-06-02): the config already declares pairs like
+    ['YIELD','YLD'], ['YIELD_TO_WORST','YTW'], ['DISCRETION','DSCTN'] --
+    a DRD logical name vs the ODI/physical name of the SAME field -- but
+    the comparator only ever loaded role_prefix_equivalences, so these
+    pairs were never applied and the columns showed as REAL_MISMATCH.
+    Returns a tuple of frozensets (hashable, order-independent).  Generic:
+    no names hardcoded in code; project-specific pairs live in the config.
+    """
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        cfg_path = _Path(__file__).resolve().parent.parent.parent / "data" / "comparator_config.json"
+        if not cfg_path.exists():
+            return ()
+        cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        pairs = cfg.get("confirmed_name_pairs") or []
+        out = []
+        for p in pairs:
+            if isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(x, str) for x in p):
+                out.append(frozenset((p[0].strip().upper(), p[1].strip().upper())))
+        return tuple(out)
+    except Exception:
+        return ()
+
+
+_CONFIRMED_NAME_PAIRS = _load_confirmed_name_pairs()
+
+
+def _load_audit_skip_list() -> frozenset:
+    """Read target columns to SKIP from the issue tally (audit/session/
+    sysdate columns the operator marked non-comparable) from
+    data/comparator_config.json `audit_column_skip_list`.
+
+    Phase 7.19.14 (2026-06-02): the config already lists SESS_NO,
+    LAST_UDT_DTM/USR_NM, FRST_INS_* -- ODI fills these with session/sysdate
+    values that have no DRD source rule, so they land as UNRESOLVABLE.  The
+    operator's rule: skip them entirely from the issue count.  Generic --
+    names live in the config, not in code.
+    """
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        cfg_path = _Path(__file__).resolve().parent.parent.parent / "data" / "comparator_config.json"
+        if not cfg_path.exists():
+            return frozenset()
+        cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        cols = cfg.get("audit_column_skip_list") or []
+        return frozenset(str(c).strip().upper() for c in cols if str(c).strip())
+    except Exception:
+        return frozenset()
+
+
+_AUDIT_SKIP_LIST = _load_audit_skip_list()
+
+
+def _columns_equivalent_via_confirmed_pair(a: str, b: str) -> bool:
+    """True if (a, b) is an operator-confirmed equivalent DRD/ODI name pair
+    (e.g. YIELD<->YLD).  Order-independent; exact-token match on each side."""
+    if not a or not b:
+        return False
+    pair = frozenset((a.strip().upper(), b.strip().upper()))
+    return any(pair == eq for eq in _CONFIRMED_NAME_PAIRS)
+
+
 def _columns_equivalent_via_role_prefix(a: str, b: str) -> bool:
     """True if ``a`` and ``b`` share a common suffix AND their distinct
     leading prefixes appear together in one of the operator-locked
@@ -353,6 +421,11 @@ def _columns_equivalent_via_role_prefix(a: str, b: str) -> bool:
     A = a.strip().upper()
     B = b.strip().upper()
     if A == B:
+        return True
+    # Phase 7.19.14: operator-confirmed DRD<->ODI name pairs (YIELD<->YLD,
+    # DISCRETION<->DSCTN, ...) count as equivalent.  Propagates to every
+    # equivalence call-site that already calls this helper.
+    if _columns_equivalent_via_confirmed_pair(A, B):
         return True
     # Find each known-equivalent pair and check.
     for equiv in _ROLE_PREFIX_EQUIVALENCES:
@@ -387,6 +460,9 @@ def _columns_equivalent_modulo_prefix(odi_col: str, drd_col: str) -> bool:
     o = odi_col.strip().upper()
     d = drd_col.strip().upper()
     if o == d:
+        return True
+    # Phase 7.19.14: operator-confirmed DRD<->ODI name pair (YIELD<->YLD).
+    if _columns_equivalent_via_confirmed_pair(o, d):
         return True
     if o.endswith("_" + d):
         return True
@@ -2432,13 +2508,23 @@ def compare_drd_rows_to_model(
 def comparison_summary(results: list[ComparisonResult]) -> dict:
     """Aggregate comparison results into a summary dict for the UI."""
     total = len(results)
+    # Phase 7.19.14: audit/session columns (SESS_NO, LAST_UDT_*, FRST_INS_*)
+    # are operator-skipped -- excluded from every error tally.  They still
+    # appear in `results` (the grid shows them) but are counted separately as
+    # `audit_skipped`, never as UNRESOLVABLE / errors.
+    def _is_audit_skip(r: "ComparisonResult") -> bool:
+        return (r.target_col or "").strip().upper() in _AUDIT_SKIP_LIST
+
     by_verdict: dict[str, int] = {}
     for r in results:
+        if _is_audit_skip(r):
+            continue
         key = r.verdict.value
         by_verdict[key] = by_verdict.get(key, 0) + 1
 
-    mismatches = [r for r in results if r.verdict == ComparisonVerdict.REAL_MISMATCH]
-    unresolvable = [r for r in results if r.verdict == ComparisonVerdict.UNRESOLVABLE]
+    audit_skipped = sum(1 for r in results if _is_audit_skip(r))
+    mismatches = [r for r in results if r.verdict == ComparisonVerdict.REAL_MISMATCH and not _is_audit_skip(r)]
+    unresolvable = [r for r in results if r.verdict == ComparisonVerdict.UNRESOLVABLE and not _is_audit_skip(r)]
 
     # PDM enrichment counts: how many of the "problem" verdicts are actually
     # explained by the PDM (column exists in target / complex expression but PDM confirms it)
@@ -2453,6 +2539,7 @@ def comparison_summary(results: list[ComparisonResult]) -> dict:
         "unresolvable": by_verdict.get("UNRESOLVABLE", 0),
         "source_missing": by_verdict.get("SOURCE_MISSING", 0),
         "odi_extra": by_verdict.get("ODI_EXTRA", 0),
+        "audit_skipped": audit_skipped,
         "ok_count": by_verdict.get("MATCHED", 0) + by_verdict.get("ALIAS_DRIFT_ONLY", 0),
         "error_count": (
             by_verdict.get("REAL_MISMATCH", 0)

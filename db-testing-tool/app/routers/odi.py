@@ -1067,6 +1067,17 @@ async def compare_odi_vs_drd(
         "sql": v9.insert_sql_comparator_driven,
         "stats": v9.insert_comparator_driven_stats,
     }
+    # Phase 7.19.15 (2026-06-02, operator): the panel's "Emitted Oracle
+    # INSERT SQL" + Run-vs-XE must use the DRD-DRIVEN insert (built from the
+    # DRD spec, joins verified by ODI) -- NOT the ODI-derived sql_emitter
+    # output.  The whole point is to test that the ODI code matches the DRD,
+    # so the INSERT under test is generated FROM the DRD.  Fall back to the
+    # ODI-derived emit only if the DRD-driven one is empty.
+    if v9.insert_sql_comparator_driven:
+        base_response["sql"] = v9.insert_sql_comparator_driven
+        base_response["sql_source"] = "drd_driven"
+    else:
+        base_response["sql_source"] = "odi_emit_fallback"
     return base_response
 
 

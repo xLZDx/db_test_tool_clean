@@ -296,8 +296,19 @@ async def _create_new_folder(db: AsyncSession, folder_name: str) -> Optional[Tes
     name = (folder_name or "").strip()
     if not name:
         return None
+    # Phase 7.19.14 (2026-06-02): TestFolder.name is UNIQUE and the timestamp
+    # is second-resolution, so two generations in the same second collided ->
+    # sqlite3.IntegrityError -> HTTP 500 ("test suite generation stuck").
+    # Uniquify on collision with a bounded counter suffix.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    folder = TestFolder(name=f"{name}_{timestamp}")
+    base = f"{name}_{timestamp}"
+    candidate = base
+    for suffix in range(1, 1000):
+        existing = await db.execute(select(TestFolder).where(TestFolder.name == candidate))
+        if existing.scalar_one_or_none() is None:
+            break
+        candidate = f"{base}_{suffix}"
+    folder = TestFolder(name=candidate)
     db.add(folder)
     await db.flush()
     return folder
