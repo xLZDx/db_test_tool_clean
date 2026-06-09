@@ -379,14 +379,24 @@ def build_v18_insert_to_dir(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ABSOLUTE paths only. The v18 tool materializes its engine into
+    # <out>/.generated_profile_engine/ and resolves --xlsx/--schema-kb relative to
+    # THAT directory; a relative input path is silently joined onto the engine dir
+    # and "not found" -> rc=2, no INSERT (looks like flaky builds). Resolving here
+    # makes every caller robust regardless of cwd. (out_dir is the subprocess's own
+    # output target -- resolve it too so the engine's join base is stable.)
+    drd_abs = str(Path(drd_path).resolve())
+    out_abs = str(out_dir.resolve())
+    kb_abs = str(kb.resolve())
+
     cmd: List[str] = [
         sys.executable, "-B", str(_INSERT_SCRIPT),
-        "--xlsx", str(drd_path),
-        "--out", str(out_dir),
+        "--xlsx", drd_abs,
+        "--out", out_abs,
         "--profile", (profile or "auto"),
         "--target-schema", str(target_schema).strip(),
         "--target-table", str(target_table).strip(),
-        "--schema-kb", str(kb),
+        "--schema-kb", kb_abs,
     ]
     if _RESOLUTION_PROFILE.exists():
         cmd += ["--resolution-profile", str(_RESOLUTION_PROFILE)]

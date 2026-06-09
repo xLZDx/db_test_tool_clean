@@ -287,6 +287,29 @@ def test_build_v18_stages_avy_but_not_close():
         shutil.rmtree(td, ignore_errors=True)
 
 
+@_needs_v18
+@pytest.mark.skipif(not CLOSE_DRD.exists(), reason="CLOSE DRD fixture absent")
+def test_build_v18_resolves_relative_drd_path():
+    # Regression: the v18 tool materializes its engine into
+    # <out>/.generated_profile_engine/ and resolves --xlsx relative to THAT dir, so
+    # a RELATIVE drd path was silently "not found" -> rc=2, no INSERT (looked flaky).
+    # build_v18_insert_to_dir must resolve the DRD path to absolute. Pass a relative
+    # Path and assert it builds (not raises).
+    import os, tempfile, shutil, gc
+    rel = Path(os.path.relpath(CLOSE_DRD, Path.cwd()))
+    assert not rel.is_absolute()
+    td = Path(tempfile.mkdtemp(prefix="t_v18rel_"))
+    try:
+        res = build_v18_insert_to_dir(
+            rel, td / "out", target_schema="TAXLOT_OWNER",
+            target_table="CLS_TAX_LOTS_NON_BKR_FACT", profile="taxlot",
+        )
+        assert "INSERT INTO" in res["generated_sql"].upper()
+    finally:
+        gc.collect()
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def test_build_v18_rejects_non_excel():
     resp = client.post(
         URL,
