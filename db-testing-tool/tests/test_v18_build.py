@@ -91,6 +91,30 @@ def test_build_v18_helper_classifies_audit_vs_business_stubs():
         shutil.rmtree(td, ignore_errors=True)
 
 
+@_needs_v18
+@pytest.mark.skipif(not CLOSE_DRD.exists(), reason="CLOSE DRD fixture absent")
+def test_build_v18_retargets_to_control_schema():
+    # control_schema retargets INSERT INTO <owner>.<table> -> <control_schema>.<table>
+    # (the user's own control table). NOT hardcoded -- driven by the param.
+    import tempfile, shutil, gc
+    td = Path(tempfile.mkdtemp(prefix="t_v18cs_"))
+    try:
+        res = build_v18_insert_to_dir(
+            CLOSE_DRD, td / "out",
+            target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
+            profile="taxlot", control_schema="IKOROSTELEV",
+        )
+        sql = res["generated_sql"].upper()
+        assert "INSERT INTO IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT" in sql
+        assert "INSERT INTO TAXLOT_OWNER.CLS_TAX_LOTS_NON_BKR_FACT" not in sql
+        assert res["target"] == "IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT"
+        assert res["production_target"] == "TAXLOT_OWNER.CLS_TAX_LOTS_NON_BKR_FACT"
+        assert res["control_schema"] == "IKOROSTELEV"
+    finally:
+        gc.collect()
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def test_build_v18_rejects_non_excel():
     resp = client.post(
         URL,

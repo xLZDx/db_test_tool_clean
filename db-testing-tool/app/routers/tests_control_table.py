@@ -961,6 +961,7 @@ async def build_control_table_v18(
     target_schema: str = Form(""),
     target_table: str = Form(""),
     profile: str = Form("auto"),
+    control_schema: str = Form(""),
 ):
     """Gate V1 (2026-06-09): DRD-driven INSERT via the vendored v18 KB-resolved builder.
 
@@ -998,6 +999,7 @@ async def build_control_table_v18(
                 xlsx_p, out,
                 target_schema=target_schema, target_table=target_table,
                 profile=(profile or "auto"),
+                control_schema=(control_schema.strip().upper() or None),
             )
         finally:
             _gc.collect()

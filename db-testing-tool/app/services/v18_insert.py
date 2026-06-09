@@ -68,6 +68,7 @@ def build_v18_insert_to_dir(
     target_table: str,
     profile: str = "auto",
     schema_kb: Optional[Path] = None,
+    control_schema: Optional[str] = None,
     timeout_s: int = _DEFAULT_TIMEOUT_S,
 ) -> Dict[str, Any]:
     """Run the vendored v18 insert builder and return its result.
@@ -76,9 +77,13 @@ def build_v18_insert_to_dir(
     HTTP body except ``target_schema`` / ``target_table`` / ``profile`` (plain
     identifiers passed as argv, never shell-interpolated).
 
+    ``control_schema`` (optional): when given, the generated INSERT is retargeted
+    to ``<control_schema>.<table>`` (the user's own control table). Driven by the
+    same config as the rest of the control-table flow; NOT hardcoded.
+
     Returns a dict with: engine, generated_sql, returncode, stub_columns,
     stub_count, business_stub_columns, audit_stub_columns, hardcode_gate,
-    hardcode_gate_failed, target.
+    hardcode_gate_failed, target (effective), production_target, control_schema.
 
     Raises V18BuildError if the tool is missing, times out, fails to start, or
     produces no INSERT statement (fail-loud -- never returns a stub silently).
@@ -137,6 +142,26 @@ def build_v18_insert_to_dir(
             "resolved; check sheet/header/columns, --profile, or the target owner)."
         )
 
+    # Optional control-schema retarget. The same config the rest of the
+    # control-table flow uses (request `control_schema`, settings "Default
+    # Control Schema") -- NOT hardcoded. v18 emits the production owner; when a
+    # control schema is given we retarget INSERT INTO <owner>.<table> ->
+    # <control_schema>.<table> so the row lands in the user's own control table
+    # (where they hold full privileges; no GRANT/DBA needed). The SELECT side is
+    # untouched. Empty/None => keep the production target (back-compat).
+    production_target = f"{str(target_schema).strip()}.{str(target_table).strip()}"
+    effective_target = production_target
+    cs = (control_schema or "").strip()
+    if cs:
+        sql = re.sub(
+            r"(INSERT\s+INTO\s+)[A-Za-z0-9_$#]+(\s*\.\s*[A-Za-z0-9_$#]+)",
+            lambda m: m.group(1) + cs + m.group(2),
+            sql,
+            count=1,
+            flags=re.I,
+        )
+        effective_target = f"{cs}.{str(target_table).strip()}"
+
     gate_report: Dict[str, Any] = {}
     gate_path = out_dir / "hardcode_gate_report.json"
     if gate_path.exists():
@@ -164,5 +189,7 @@ def build_v18_insert_to_dir(
         "audit_stub_columns": audit_stubs,
         "hardcode_gate": gate_report,
         "hardcode_gate_failed": hardcode_gate_failed,
-        "target": f"{str(target_schema).strip()}.{str(target_table).strip()}",
+        "target": effective_target,
+        "production_target": production_target,
+        "control_schema": cs or None,
     }

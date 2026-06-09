@@ -79,6 +79,36 @@ def select_only(sql: str) -> str | None:
     return None
 
 
+def _table_exists(cur, owner: str, table: str) -> bool:
+    cur.execute("SELECT 1 FROM all_tables WHERE owner = :o AND table_name = :t",
+                {"o": owner, "t": table})
+    return cur.fetchone() is not None
+
+
+def _ensure_control_copy(cur, raw, control_schema: str, table: str, real_owner: str, current_user: str) -> bool:
+    """Make control_schema.table exist for EXPLAIN PLAN (mirrors Step 1 "create
+    empty control table"). CTAS an empty structural copy from the real owner.
+    Returns True if it was created here (caller drops it). Only creates in the
+    connected user's OWN schema -- never in a schema we do not own.
+    """
+    if _table_exists(cur, control_schema, table):
+        return False
+    if control_schema != (current_user or "").upper():
+        return False
+    cur.execute(f'CREATE TABLE "{control_schema}"."{table}" AS '
+                f'SELECT * FROM "{real_owner}"."{table}" WHERE 1=0')
+    raw.commit()
+    return True
+
+
+def _drop_control_copy(cur, raw, control_schema: str, table: str) -> None:
+    try:
+        cur.execute(f'DROP TABLE "{control_schema}"."{table}" PURGE')
+        raw.commit()
+    except Exception:  # noqa: BLE001 -- best-effort cleanup
+        pass
+
+
 def _explain(cur, raw, stmt: str) -> tuple[bool, str]:
     try:
         cur.execute("EXPLAIN PLAN SET STATEMENT_ID='v18cert' FOR " + stmt)
@@ -134,7 +164,12 @@ def classify(cur, raw, sql: str, kb: KBLookup | None) -> tuple[str, str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ds", type=int, default=2, help="datasource id (default 2 = FREEPDB1_LOCAL = LH mirror)")
+    ap.add_argument("--control-schema", default="IKOROSTELEV",
+                    help="schema the INSERT is retargeted to (the user's own control table; "
+                         "config, not hardcoded -- same concept as the control-table page field). "
+                         "Empty => validate against the production owner (privilege-only -> PASS_RESOLVED).")
     args = ap.parse_args()
+    control_schema = (args.control_schema or "").strip().upper()
 
     with sync_engine.begin() as c:
         row = c.execute(text("SELECT * FROM datasources WHERE id=:i"), {"i": args.ds}).fetchone()
@@ -164,13 +199,26 @@ def main() -> int:
             continue
         td = Path(tempfile.mkdtemp(prefix=f"v18cert_{label}_"))
         try:
-            res = build_v18_insert_to_dir(p, td / "out", target_schema=tsch, target_table=tgt, profile=prof)
+            res = build_v18_insert_to_dir(p, td / "out", target_schema=tsch, target_table=tgt,
+                                          profile=prof, control_schema=(control_schema or None))
             sql = res["generated_sql"]
+            row["target"] = res["target"]
             row["sql_len"] = len(sql)
             row["business_stubs"] = len(res["business_stub_columns"])
             row["business_stub_cols"] = ";".join(res["business_stub_columns"])
             row["audit_stubs"] = len(res["audit_stub_columns"])
-            verdict, detail = classify(cur, raw, sql, kb)
+            created = _ensure_control_copy(cur, raw, control_schema, tgt, tsch, conn.username) if control_schema else False
+            try:
+                verdict, detail = classify(cur, raw, sql, kb)
+            finally:
+                if created:
+                    _drop_control_copy(cur, raw, control_schema, tgt)
+            # 00942 on the control target itself => the control table is not
+            # created yet (Step 1), not a generator defect.
+            if verdict == "FAIL_SQL" and control_schema and _missing_object(detail) == tgt:
+                verdict, detail = ("CONTROL_TABLE_MISSING",
+                                   f"control table {control_schema}.{tgt} not present "
+                                   f"(create it first / Step 1)")
             row["verdict"] = verdict
             row["detail"] = detail
         except V18BuildError as exc:
