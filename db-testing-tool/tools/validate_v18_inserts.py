@@ -216,6 +216,10 @@ def main() -> int:
             row["business_stubs"] = len(res["business_stub_columns"])
             row["business_stub_cols"] = ";".join(res["business_stub_columns"])
             row["audit_stubs"] = len(res["audit_stub_columns"])
+            # Save the generated insert to disk (operator request).
+            save_dir = _REPO / "data" / "generated_inserts"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            (save_dir / f"{label}_v18.sql").write_text(sql, encoding="utf-8")
             # Fresh DB connection AFTER the long v18 subprocess: a single
             # long-lived connection drops during the KB-load + subprocess gap
             # (-> DPY-1001 not connected). Open it only for the quick EXPLAIN.

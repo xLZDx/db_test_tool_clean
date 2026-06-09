@@ -23,6 +23,7 @@ from app.services.v18_insert import (
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
     _fix_alias_in_on,
+    _inject_parallel_hint,
     _reorder_joins_by_dependency,
     build_v18_insert_to_dir,
 )
@@ -179,6 +180,21 @@ def test_reorder_joins_noop_when_already_ordered():
     fixed, relocated = _reorder_joins_by_dependency(sql)
     assert relocated == []
     assert fixed == sql
+
+
+# --- parallel hint (pure logic) ------------------------------------------------
+
+def test_inject_parallel_hint_adds_to_insert_select():
+    sql = "INSERT INTO O.T (A)\nSELECT X.c AS A FROM S.X X"
+    out = _inject_parallel_hint(sql)
+    assert "SELECT /*+ PARALLEL */" in out
+
+
+def test_inject_parallel_hint_noop_when_already_hinted():
+    sql = "INSERT INTO O.T (A)\nSELECT /*+ PARALLEL(8) */ X.c AS A FROM S.X X"
+    out = _inject_parallel_hint(sql)
+    assert out.count("/*+") == 1
+    assert out == sql
 
 
 def test_build_v18_rejects_non_excel():

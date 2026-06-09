@@ -157,6 +157,21 @@ def _reorder_joins_by_dependency(sql: str) -> tuple[str, list]:
     return "\n".join(new_lines), relocated
 
 
+def _inject_parallel_hint(sql: str, degree=None) -> str:
+    """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
+    scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
+    the SELECT is already hinted or no INSERT...SELECT is found. Affects EXECUTION
+    DOP, not parse time."""
+    hint = f"/*+ PARALLEL({degree}) */" if degree else "/*+ PARALLEL */"
+    m = re.search(r"\)\s*SELECT\b", sql, re.I)
+    if not m:
+        return sql
+    pos = m.end()
+    if sql[pos:pos + 24].lstrip().startswith("/*+"):  # already hinted
+        return sql
+    return sql[:pos] + " " + hint + sql[pos:]
+
+
 def build_v18_insert_to_dir(
     drd_path: Path,
     out_dir: Path,
@@ -166,6 +181,7 @@ def build_v18_insert_to_dir(
     profile: str = "auto",
     schema_kb: Optional[Path] = None,
     control_schema: Optional[str] = None,
+    parallel: bool = True,
     timeout_s: int = _DEFAULT_TIMEOUT_S,
 ) -> Dict[str, Any]:
     """Run the vendored v18 insert builder and return its result.
@@ -245,6 +261,9 @@ def build_v18_insert_to_dir(
     # Then fix forward-referenced JOIN aliases (reorder joins by ON-dependency).
     # After the alias-in-ON fix so dependencies reflect the inlined source columns.
     sql, join_reorder = _reorder_joins_by_dependency(sql)
+    # Default PARALLEL hint -> use all CPU on the scan/join at execution time.
+    if parallel:
+        sql = _inject_parallel_hint(sql)
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -298,4 +317,5 @@ def build_v18_insert_to_dir(
         "control_schema": cs or None,
         "on_alias_fixes": on_alias_fixes,
         "join_reorder": join_reorder,
+        "parallel_hint": bool(parallel),
     }
