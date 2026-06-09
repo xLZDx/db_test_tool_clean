@@ -955,6 +955,68 @@ async def build_control_table_v54(
         raise HTTPException(500, "v5.4 build failed unexpectedly.") from exc
 
 
+@_ct_router.post("/control-table/build-v18")
+async def build_control_table_v18(
+    drd_file: UploadFile = File(...),
+    target_schema: str = Form(""),
+    target_table: str = Form(""),
+    profile: str = Form("auto"),
+):
+    """Gate V1 (2026-06-09): DRD-driven INSERT via the vendored v18 KB-resolved builder.
+
+    Replaces the v5.4 heuristic for clean generation: v18 resolves owners +
+    columns against the schema KB (no prose-join leak, no wrong-owner refs).
+    ODI XML is NOT needed here (this is DRD -> INSERT). NULL stubs are returned
+    classified (audit vs business) so the UI / Gate V2 can flag business stubs
+    instead of hiding them. Offline; no Oracle DB (EXPLAIN-PLAN certification is
+    Gate V2/V4). Lives on the same authed router as build-v54.
+    """
+    import gc as _gc
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from app.services.v18_insert import build_v18_insert_to_dir, V18BuildError
+
+    drd_name = drd_file.filename or "drd.xlsx"
+    drd_ext = drd_name.rsplit(".", 1)[-1].lower() if "." in drd_name else ""
+    if drd_ext not in ("xlsx", "xls", "xlsm"):
+        raise HTTPException(422, f"v18 builder needs an Excel DRD (.xlsx/.xls/.xlsm), got {drd_ext!r}")
+
+    _MAX = 30 * 1024 * 1024  # 30 MB hard cap (bound openpyxl input)
+    drd_bytes = await drd_file.read(_MAX + 1)
+    if len(drd_bytes) > _MAX:
+        raise HTTPException(413, "DRD file exceeds 30 MB limit")
+
+    def _run() -> Dict[str, Any]:
+        # Server-controlled temp dir only (never a caller-supplied out path).
+        td = _tempfile.mkdtemp(prefix="uib18_")
+        tdp = Path(td)
+        try:
+            xlsx_p = tdp / f"drd.{drd_ext}"
+            xlsx_p.write_bytes(drd_bytes)
+            out = tdp / "out"
+            return build_v18_insert_to_dir(
+                xlsx_p, out,
+                target_schema=target_schema, target_table=target_table,
+                profile=(profile or "auto"),
+            )
+        finally:
+            _gc.collect()
+            _shutil.rmtree(tdp, ignore_errors=True)
+
+    try:
+        return await asyncio.to_thread(_run)
+    except V18BuildError as exc:
+        # V18BuildError messages are ASCII + carry no server path -> safe to surface.
+        logging.getLogger(__name__).warning("build-v18 build error: %s", exc)
+        raise HTTPException(422, f"v18 build error: {exc}") from exc
+    except (FileNotFoundError, ValueError) as exc:
+        logging.getLogger(__name__).warning("build-v18 input error: %s", exc)
+        raise HTTPException(422, "v18 build error: could not build a valid INSERT from the DRD.") from exc
+    except Exception as exc:
+        logging.getLogger(__name__).error("build-v18 unexpected error: %s", exc)
+        raise HTTPException(500, "v18 build failed unexpectedly.") from exc
+
+
 @_ct_router.post("/control-table/regenerate-with-corrections")
 async def regenerate_control_table_with_corrections(
     drd_file: UploadFile = File(...),
