@@ -16,6 +16,7 @@ Pinned canonical v18 tree (git-tracked). The stray copies under
 """
 from __future__ import annotations
 
+import csv
 import json
 import re
 import subprocess
@@ -50,6 +51,40 @@ _AUDIT_STUB_COLUMNS = frozenset({
 })
 
 _DEFAULT_TIMEOUT_S = 120
+
+
+def _read_impl_null_status(out_dir: Path) -> Dict[str, str]:
+    """From the v18 tool's `implementation_map.csv` (authoritative per-column
+    resolution), classify each NULL-emitted target column GENERICALLY -- no
+    hardcoded column names. Returns {COLUMN -> 'null_per_drd' | 'real_stub'}.
+
+    A NULL is ``null_per_drd`` (expected, not a defect) when the DRD's own resolved
+    expression is itself NULL/blank -- i.e. the DRD maps the column to NULL, OR the
+    DRD's source is unresolvable so v18 correctly emits NULL (operator: a DRD that
+    references a non-existent/ambiguous source is a DRD bug, and the column should be
+    NULL). A NULL is a ``real_stub`` only when the DRD intended a concrete non-NULL
+    source (``drd_expression`` is a real expression) yet v18 still produced NULL --
+    that is the genuine "business column with data that did not get mapped".
+
+    Columns absent from the map (unknown) are NOT returned -> the caller keeps them
+    as business stubs (conservative: never hide an unexplained NULL).
+    """
+    p = out_dir / "implementation_map.csv"
+    if not p.exists():
+        return {}
+    status: Dict[str, str] = {}
+    try:
+        with p.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                col = (row.get("target_column") or "").strip().upper()
+                gen = (row.get("generated_expression") or "").strip()
+                drd = (row.get("drd_expression") or "").strip()
+                if not col or gen.upper() != "NULL":
+                    continue
+                status[col] = "real_stub" if (drd and drd.upper() != "NULL") else "null_per_drd"
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return {}
+    return status
 
 
 class V18BuildError(RuntimeError):
@@ -351,7 +386,9 @@ def build_v18_insert_to_dir(
     same config as the rest of the control-table flow; NOT hardcoded.
 
     Returns a dict with: engine, generated_sql, returncode, stub_columns,
-    stub_count, business_stub_columns, audit_stub_columns, hardcode_gate,
+    stub_count, business_stub_columns (real unmapped business cols only),
+    null_per_drd_columns (V4: NULLs the DRD itself maps to NULL / unresolvable-source
+    DRD bugs -> correctly NULL, NOT defects), audit_stub_columns, hardcode_gate,
     hardcode_gate_failed, target (effective), production_target, control_schema,
     on_alias_fixes (V7), join_reorder (V8), parallel_hint, staged (V9 bool),
     stage_source_cols (staged CTE source-column count or None),
@@ -475,7 +512,15 @@ def build_v18_insert_to_dir(
     # NULL-stub extraction + classification (Gate V2 acts on business stubs).
     all_stubs = [c.upper() for c in re.findall(r"NULL\s+AS\s+([A-Z0-9_$#]+)", sql, re.I)]
     audit_stubs = [c for c in all_stubs if c in _AUDIT_STUB_COLUMNS]
-    business_stubs = [c for c in all_stubs if c not in _AUDIT_STUB_COLUMNS]
+    non_audit = [c for c in all_stubs if c not in _AUDIT_STUB_COLUMNS]
+    # V4: reclassify NULLs the DRD itself maps to NULL (or whose DRD source is a bug
+    # -> correctly NULL) out of "business stubs". GENERIC -- driven by the v18 tool's
+    # own implementation_map.csv (drd_expression), no hardcoded column names. A
+    # business stub is now ONLY a column the DRD intended to populate (real source)
+    # that v18 left NULL. Unknown columns stay as business stubs (never hide a NULL).
+    impl_status = _read_impl_null_status(out_dir)
+    null_per_drd = [c for c in non_audit if impl_status.get(c) == "null_per_drd"]
+    business_stubs = [c for c in non_audit if impl_status.get(c) != "null_per_drd"]
 
     # rc != 0 with a real INSERT present == the v18 hardcode gate flagged the
     # package (code-quality), not a bad SQL. Surface it; do not fail the build.
@@ -489,6 +534,7 @@ def build_v18_insert_to_dir(
         "stub_count": len(all_stubs),
         "business_stub_columns": business_stubs,
         "audit_stub_columns": audit_stubs,
+        "null_per_drd_columns": null_per_drd,
         "hardcode_gate": gate_report,
         "hardcode_gate_failed": hardcode_gate_failed,
         "target": effective_target,

@@ -25,6 +25,7 @@ from app.services.v18_insert import (
     _STAGE_JOIN_THRESHOLD,
     _fix_alias_in_on,
     _inject_parallel_hint,
+    _read_impl_null_status,
     _reorder_joins_by_dependency,
     _stage_projection_over_join,
     build_v18_insert_to_dir,
@@ -305,6 +306,54 @@ def test_build_v18_resolves_relative_drd_path():
             target_table="CLS_TAX_LOTS_NON_BKR_FACT", profile="taxlot",
         )
         assert "INSERT INTO" in res["generated_sql"].upper()
+    finally:
+        gc.collect()
+        shutil.rmtree(td, ignore_errors=True)
+
+
+# --- V4: reclassify NULL-per-DRD out of business stubs (generic, no hardcoding) ----
+
+def test_read_impl_null_status_classifies_generically(tmp_path):
+    # synthetic implementation_map.csv (the v18 tool's per-column output)
+    csv_text = (
+        "ordinal,target_column,generated_expression,drd_expression\n"
+        "1,DRD_NULL_COL,NULL,NULL\n"                 # DRD maps to NULL -> null_per_drd
+        "2,DRD_BLANK_COL,NULL,\n"                    # DRD blank -> null_per_drd
+        "3,REAL_STUB_COL,NULL,SRC.REAL_COLUMN\n"     # DRD intended a source, got NULL -> real_stub
+        "4,RESOLVED_COL,SRC.X,SRC.X\n"               # not NULL -> not reported
+    )
+    (tmp_path / "implementation_map.csv").write_text(csv_text, encoding="utf-8-sig")
+    status = _read_impl_null_status(tmp_path)
+    assert status["DRD_NULL_COL"] == "null_per_drd"
+    assert status["DRD_BLANK_COL"] == "null_per_drd"
+    assert status["REAL_STUB_COL"] == "real_stub"
+    assert "RESOLVED_COL" not in status          # non-NULL columns are not stubs
+
+
+def test_read_impl_null_status_missing_file(tmp_path):
+    assert _read_impl_null_status(tmp_path) == {}
+
+
+@_needs_v18
+@pytest.mark.skipif(not CLOSE_DRD.exists(), reason="CLOSE DRD fixture absent")
+def test_build_v18_reclassifies_drd_null_out_of_business_stubs():
+    # CLOSE's NULL columns are all DRD-mapped-to-NULL -> business stubs must be 0,
+    # the NULLs land in null_per_drd, and the three sets are disjoint.
+    import tempfile, shutil, gc
+    td = Path(tempfile.mkdtemp(prefix="t_v18v4_"))
+    try:
+        res = build_v18_insert_to_dir(
+            CLOSE_DRD, td / "out", target_schema="TAXLOT_OWNER",
+            target_table="CLS_TAX_LOTS_NON_BKR_FACT", profile="taxlot",
+        )
+        assert res["business_stub_columns"] == []          # all NULLs explained by DRD
+        assert len(res["null_per_drd_columns"]) >= 1
+        b = set(res["business_stub_columns"])
+        n = set(res["null_per_drd_columns"])
+        a = set(res["audit_stub_columns"])
+        assert b.isdisjoint(n) and b.isdisjoint(a) and n.isdisjoint(a)
+        # every NULL stub is accounted for by exactly one bucket
+        assert set(res["stub_columns"]) == (b | n | a)
     finally:
         gc.collect()
         shutil.rmtree(td, ignore_errors=True)

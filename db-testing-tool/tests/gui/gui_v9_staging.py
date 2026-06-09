@@ -58,6 +58,8 @@ def run():
                         return {status: r.status, staged: d.staged,
                                 skip: d.stage_skip_reason, srcCols: d.stage_source_cols,
                                 hasCte: sql.includes('WITH STG AS ('),
+                                biz: (d.business_stub_columns||[]).length,
+                                nullDrd: (d.null_per_drd_columns||[]).length,
                                 target: d.target, len: sql.length};
                     }""", [tsch, ttbl, prof])
                 chk(f"V9.{label}.status", res.get("status") == 200, f"HTTP {res.get('status')} target={res.get('target')}")
@@ -68,6 +70,11 @@ def run():
                 if not expect_staged:
                     chk(f"V9.{label}.skip_reason", res.get("skip") == "below_threshold",
                         f"stage_skip_reason={res.get('skip')}")
+                # V4: business stubs reclassified to 0; NULL-per-DRD surfaced instead
+                chk(f"V4.{label}.no_business_stubs", res.get("biz") == 0,
+                    f"business_stub_columns={res.get('biz')} (expected 0)")
+                chk(f"V4.{label}.null_per_drd", res.get("nullDrd") and res.get("nullDrd") > 0,
+                    f"null_per_drd_columns={res.get('nullDrd')} (expected >0)")
             except Exception as e:
                 chk(f"V9.{label}", False, f"exception {type(e).__name__}: {str(e)[:160]}")
 

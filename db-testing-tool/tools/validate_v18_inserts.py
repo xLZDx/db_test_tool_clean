@@ -200,7 +200,7 @@ def main() -> int:
         p = _REPO / rel
         row = {"label": label, "target": f"{tsch}.{tgt}", "sql_len": 0,
                "verdict": "", "detail": "", "business_stubs": 0, "business_stub_cols": "",
-               "audit_stubs": 0}
+               "audit_stubs": 0, "null_per_drd": 0}
         if not p.exists():
             row["verdict"] = "BUILD_FAIL"
             row["detail"] = "DRD file not found"
@@ -217,6 +217,7 @@ def main() -> int:
             row["business_stubs"] = len(res["business_stub_columns"])
             row["business_stub_cols"] = ";".join(res["business_stub_columns"])
             row["audit_stubs"] = len(res["audit_stub_columns"])
+            row["null_per_drd"] = len(res.get("null_per_drd_columns") or [])
             # Save the generated insert to disk (operator request).
             save_dir = _REPO / "data" / "generated_inserts"
             save_dir.mkdir(parents=True, exist_ok=True)
@@ -261,7 +262,8 @@ def main() -> int:
             shutil.rmtree(td, ignore_errors=True)
         results.append(row)
         print(f"[{label}] {row['target']} sql_len={row['sql_len']} -> {row['verdict']}"
-              f"  biz_stubs={row['business_stubs']} audit_stubs={row['audit_stubs']}"
+              f"  biz_stubs={row['business_stubs']} null_per_drd={row['null_per_drd']} "
+              f"audit_stubs={row['audit_stubs']}"
               + (f"  {row['detail']}" if row['detail'] else ""))
 
     sql_valid = sum(1 for r in results if r["verdict"] in ("PASS", "PASS_RESOLVED"))
@@ -285,12 +287,12 @@ def main() -> int:
         f"fail_sql={fail_sql} build_fail={build_fail} of {len(results)} "
         f"({overall}{review}); total business stubs={total_biz_stubs}",
         "",
-        "| DRD | target | sql_len | verdict | business_stubs | audit_stubs | detail |",
-        "|---|---|---|---|---|---|---|",
+        "| DRD | target | sql_len | verdict | business_stubs | null_per_drd | audit_stubs | detail |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         lines.append(f"| {r['label']} | {r['target']} | {r['sql_len']} | {r['verdict']} | "
-                     f"{r['business_stubs']} | {r['audit_stubs']} | {r['detail']} |")
+                     f"{r['business_stubs']} | {r['null_per_drd']} | {r['audit_stubs']} | {r['detail']} |")
     if total_biz_stubs:
         lines += ["", "## Business NULL-stubs (unresolved mappings -- Gate V4 punch-list)"]
         for r in results:
@@ -299,10 +301,12 @@ def main() -> int:
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with csvp.open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["label", "target", "sql_len", "verdict", "business_stubs", "business_stub_cols", "audit_stubs", "detail"])
+        w.writerow(["label", "target", "sql_len", "verdict", "business_stubs", "business_stub_cols",
+                    "null_per_drd", "audit_stubs", "detail"])
         for r in results:
             w.writerow([r["label"], r["target"], r["sql_len"], r["verdict"],
-                        r["business_stubs"], r["business_stub_cols"], r["audit_stubs"], r["detail"]])
+                        r["business_stubs"], r["business_stub_cols"], r["null_per_drd"],
+                        r["audit_stubs"], r["detail"]])
 
     print(f"\nReport: {md}")
     print(f"Overall: {overall}  (valid={sql_valid} known_mismatch={known_mm} "
