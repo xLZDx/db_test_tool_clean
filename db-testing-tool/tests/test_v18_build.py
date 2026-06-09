@@ -26,6 +26,7 @@ from app.services.v18_insert import (
     _drop_unreferenced_cross_joins,
     _fix_alias_in_on,
     _inject_parallel_hint,
+    _promote_real_base,
     _read_impl_null_status,
     _reorder_joins_by_dependency,
     _stage_projection_over_join,
@@ -36,6 +37,7 @@ from app.services.v18_insert import (
 REPO = Path(__file__).resolve().parents[1]
 TX = REPO / "data" / "taxlot"
 AVY_DRD = TX / "DRD_Activity_Fact.xlsx"
+IMP_OTSND_DRD = REPO / "temp files" / "DRD_IMPACT_Outstanding_Activity_FACT (1).xlsx"
 CLOSE_DRD = TX / "DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx"
 URL = "/api/tests/control-table/build-v18"
 
@@ -408,6 +410,62 @@ def test_drop_unreferenced_cross_joins_noop_without_cross_joins():
     sql = "INSERT INTO O.T (A)\nSELECT Y.c AS A\nFROM S.X X\n    LEFT JOIN S.Y Y ON Y.id = X.id\n"
     out, dropped = _drop_unreferenced_cross_joins(sql)
     assert out == sql and dropped == []
+
+
+# --- V12: promote real base when v18's base is unreferenced (table-level) ----------
+
+def test_promote_real_base_promotes_unreferenced_base_with_self_join_spam():
+    # base TXN never used; the real source SRC self-joined ON 1=1 (the IMP_OTSND case)
+    sql = (
+        "INSERT INTO O.T (A, B)\n"
+        "SELECT SRC.col1 AS A, SRC.col2 AS B\n"
+        "FROM S.TXN TXN\n"
+        "    LEFT JOIN S.SRCTBL SRC ON 1=1\n"
+        "    LEFT JOIN S.SRCTBL SRC_2 ON 1=1\n"
+    )
+    out, base = _promote_real_base(sql)
+    assert base == "SRC"
+    assert "FROM S.SRCTBL SRC" in out
+    assert "FROM S.TXN TXN" not in out
+    assert "JOIN" not in out.upper()                 # all ON-1=1 joins dropped
+
+
+def test_promote_real_base_noop_when_base_referenced():
+    sql = ("INSERT INTO O.T (A)\nSELECT TXN.col AS A\nFROM S.TXN TXN\n"
+           "    LEFT JOIN S.SRCTBL SRC ON 1=1\n")
+    out, base = _promote_real_base(sql)
+    assert base is None and out == sql
+
+
+def test_promote_real_base_noop_when_a_join_has_a_real_key():
+    # base unreferenced BUT a join has a real key -> base may define grain -> no-op
+    sql = ("INSERT INTO O.T (A)\nSELECT D.col AS A\nFROM S.TXN TXN\n"
+           "    LEFT JOIN S.D D ON D.txn_id = TXN.txn_id\n")
+    out, base = _promote_real_base(sql)
+    assert base is None and out == sql
+
+
+@_needs_v18
+@pytest.mark.skipif(not IMP_OTSND_DRD.exists(), reason="IMP_OTSND DRD fixture absent")
+def test_build_v18_imp_otsnd_collapses_to_simple_one_to_one_insert():
+    # 142 ON-1=1 self-joins to one table -> a clean 1:1 insert from the real source.
+    import tempfile, shutil, gc
+    td = Path(tempfile.mkdtemp(prefix="t_v18imp_"))
+    try:
+        res = build_v18_insert_to_dir(
+            IMP_OTSND_DRD, td / "out", target_schema="TRANSACTIONS_OWNER",
+            target_table="IMP_OTSND_AVY_FACT", profile="auto", control_schema="IKOROSTELEV",
+        )
+        sql = res["generated_sql"]
+        assert res["promoted_base"] == "IMP_OTSND_AVY"
+        assert "ON 1=1" not in sql.upper().replace("ON  1=1", "ON 1=1")
+        assert sql.upper().count(" JOIN ") == 0          # no joins -> pure 1:1
+        assert "FROM CCAL_REPL_OWNER.IMP_OTSND_AVY" in sql.upper()
+        assert "INSERT INTO IKOROSTELEV.IMP_OTSND_AVY_FACT" in sql.upper()
+        assert sql.rstrip().endswith(";")                 # terminator preserved
+    finally:
+        gc.collect()
+        shutil.rmtree(td, ignore_errors=True)
 
 
 def test_build_v18_rejects_non_excel():

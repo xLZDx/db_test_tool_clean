@@ -249,6 +249,52 @@ def _drop_unreferenced_cross_joins(sql: str) -> tuple[str, list]:
     return "\n".join(out_lines), dropped
 
 
+def _promote_real_base(sql: str) -> tuple[str, Optional[str]]:
+    """V12 (table-level, not alias-level): when v18 picks a base table that the
+    projection never uses and self-joins the REAL source ``ON 1=1`` (e.g. IMP_OTSND:
+    base TXN unreferenced + 142 ``ON 1=1`` joins to one table, a 1:1 DRD), promote the
+    real source table to the FROM and drop the bogus base + the cartesian joins.
+
+    Tightly gated so it only fires for that defect: the FROM-base alias must be
+    referenced NOWHERE (``base.col`` absent), AND every join must be ``ON 1=1`` (no
+    real key -> the base contributes no grain). Then the single referenced ON-1=1
+    table becomes the base and all those joins are dropped. If the base is used, or
+    any join has a real key, this is a no-op (AVY/CLOSE/OPEN untouched). Returns
+    (sql, new_base_alias_or_None).
+    """
+    lines = sql.split("\n")
+    base_idx = base_alias = None
+    base_re = re.compile(r"^(\s*)FROM\s+\S+\s+([A-Za-z0-9_$#]+)\s*$", re.I)
+    for i, ln in enumerate(lines):
+        m = base_re.match(ln)
+        if m and not re.search(r"\bJOIN\b", ln, re.I):
+            base_idx, base_alias = i, m.group(2)
+            break
+    if base_idx is None:
+        return sql, None
+    # base must be referenced NOWHERE (projection + ON clauses) to be promotable
+    if re.search(r"(?<![.\w])" + re.escape(base_alias) + r"\.[A-Za-z0-9_$#]+", sql):
+        return sql, None
+    join_idxs = [i for i, ln in enumerate(lines)
+                 if re.match(r"^\s*(?:(?:LEFT|RIGHT|INNER|FULL|CROSS)\s+)*JOIN\b", ln, re.I)]
+    if not join_idxs:
+        return sql, None
+    # every join must be ON 1=1 (a real-key join means the base may define grain)
+    new_base = None
+    for i in join_idxs:
+        m = re.search(r"\bJOIN\s+(\S+)\s+([A-Za-z0-9_$#]+)\s+ON\s+(.*\S)\s*$", lines[i], re.I)
+        if not m or not re.fullmatch(r"1\s*=\s*1", m.group(3).strip()):
+            return sql, None
+        if new_base is None and re.search(r"(?<![.\w])" + re.escape(m.group(2)) + r"\.[A-Za-z0-9_$#]+", sql):
+            new_base = (m.group(1), m.group(2))
+    if new_base is None:
+        return sql, None
+    indent = re.match(r"^(\s*)", lines[base_idx]).group(1)
+    lines[base_idx] = f"{indent}FROM {new_base[0]} {new_base[1]}"
+    out = [ln for i, ln in enumerate(lines) if i not in set(join_idxs)]
+    return "\n".join(out), new_base[1]
+
+
 def _inject_parallel_hint(sql: str, degree=None) -> str:
     """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
     scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
@@ -518,6 +564,15 @@ def build_v18_insert_to_dir(
             "resolved; check sheet/header/columns, --profile, or the target owner)."
         )
 
+    # Normalize the trailing statement terminator ONCE: v18 ends the last JOIN line
+    # with " ;", which otherwise hides that join from the ON-1=1 join transforms
+    # (V11/V12) and leaves a stray ';' mid-line after edits. Strip here; re-append at
+    # the very end so the emitted SQL still terminates cleanly.
+    _stripped = sql.rstrip()
+    _had_semi = _stripped.endswith(";")
+    if _had_semi:
+        sql = _stripped[:-1].rstrip()
+
     # Fix v18's alias-in-ON ORA-00904 (SELECT alias used in a JOIN ON predicate).
     # Done on the raw SQL before any retarget (ON clauses are unaffected by retarget).
     sql, on_alias_fixes = _fix_alias_in_on(sql)
@@ -527,6 +582,11 @@ def build_v18_insert_to_dir(
     # V11: drop unreferenced ON-1=1 cross-joins (v18 over-self-joins; pure cartesian
     # multipliers -> removed for correctness + to kill the row/parse explosion).
     sql, dropped_cross_joins = _drop_unreferenced_cross_joins(sql)
+    # V12: if v18 chose a base table the projection never uses and self-joined the
+    # REAL source ON 1=1 (IMP_OTSND: 1:1 DRD over-generated as 142 cross-joins),
+    # promote the real source to the base + drop the cartesian joins (table-level,
+    # not alias-level). No-op when the base is used / any join has a real key.
+    sql, promoted_base = _promote_real_base(sql)
     # V10: widen bare/INNER joins to LEFT (fact-load grain preservation; an INNER
     # dimension lookup silently drops fact rows -> 0-row loads). Done before staging
     # so the staged join block carries the corrected join types.
@@ -564,6 +624,10 @@ def build_v18_insert_to_dir(
     elif parallel:
         # Monolith path: PARALLEL hint on the single SELECT (execution DOP).
         sql = _inject_parallel_hint(sql)
+
+    # re-append the terminator stripped above so the emitted SQL ends cleanly
+    if _had_semi:
+        sql = sql.rstrip() + ";\n"
 
     gate_report: Dict[str, Any] = {}
     gate_path = out_dir / "hardcode_gate_report.json"
@@ -608,6 +672,7 @@ def build_v18_insert_to_dir(
         "join_reorder": join_reorder,
         "widened_inner_joins": widened_inner_joins,
         "dropped_cross_joins": dropped_cross_joins,
+        "promoted_base": promoted_base,
         "parallel_hint": bool(parallel),
         "staged": staged,
         "stage_source_cols": stage_source_cols,
