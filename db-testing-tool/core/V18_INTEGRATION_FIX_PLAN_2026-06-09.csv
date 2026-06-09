@@ -10,4 +10,10 @@ cert,AVY,IKOROSTELEV.AVY_FACT,KNOWN_MISMATCH,business_stubs=1 (missing prod view
 cert,CLOSE,IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT,PASS,business_stubs=8 clean 0-ORA
 cert,OPEN,IKOROSTELEV.OPN_TAX_LOTS_NON_BKR_FACT,PASS,business_stubs=7 clean 0-ORA
 comment,C1,ODI-vs-DRD compare showed AVY_FACT cols for IMP_OTSND upload,V5,stale-state/sheet-autodetect/fallback; fresh-compare guarantee violated
-comment,C2,AVY missing view,V4-note,ENTITY_DIM_V exists but RISK_DIMENSION_V missing (real mirror gap; KNOWN_MISMATCH correct)
+comment,C2,AVY missing view,V6-done,created SSDS_DAL_OWNER.ENTERPRISE_ENTITY_RISK_DIMENSION_V (42 cols from KB); view gap resolved
+gate,V6.0,bootstrap GRANT DBA + UNLIMITED TABLESPACE to IKOROSTELEV (as SYS),DONE,reversible REVOKE
+gate,V6.1,AVY-scoped create-missing: 1 view created; view gap resolved,DONE,tools/rebuild_freepdb1_from_kb.py
+gate,V7,v18 join uses SELECT alias inside JOIN ON -> ORA-00904 (OWN_FA_NUM),PENDING,fix v18 join builder emit source expr in ON; blocks AVY clean
+cert2,AVY,after view create,FAIL_SQL,ORA-00904 OWN_FA_NUM (v18 join-alias bug = V7)
+cert2,CLOSE,IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT,PASS,clean 0-ORA
+cert2,OPEN,IKOROSTELEV.OPN_TAX_LOTS_NON_BKR_FACT,PASS,clean 0-ORA
