@@ -1,6 +1,7 @@
 """TFS / Azure DevOps integration endpoints."""
 import asyncio
 import html
+import logging
 import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -9,7 +10,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.test_case import TestCase, TestFolder, TestCaseFolder
 from app.models.tfs_workitem import TfsWorkItem
-from app.models.tfs_test_management import TfsTestRun, TfsTestResult, TfsTestPoint
+from app.models.tfs_test_management import TfsTestRun, TfsTestResult, TfsTestPoint, TfsTestPlan
 from app.models.datasource import DataSource
 from app.connectors.factory import get_connector_from_model
 from app.services.tfs_service import (
@@ -26,13 +27,14 @@ from app.services.tfs_test_management_service import (
     get_test_case_details, get_test_plan,
     create_test_plan_record, create_test_suite_record,
     create_test_case_work_item, add_test_cases_to_suite,
-    get_classification_nodes, resolve_plan_project,
+    get_classification_nodes, resolve_plan_project, TfsServiceError,
 )
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import json
 
 router = APIRouter(prefix="/api/tfs", tags=["tfs"])
+logger = logging.getLogger(__name__)
 
 
 class CreateBugRequest(BaseModel):
@@ -421,7 +423,7 @@ async def list_classification_nodes(project: str, structure_group: str, depth: i
 async def list_test_plans(project: str, db: AsyncSession = Depends(get_db)):
     """List all active test plans for a project."""
     try:
-        plans_data = await get_test_plans(project)
+        plans_data = await get_test_plans(project, strict=True)
         
         # Cache plans locally
         cached_plans = []
@@ -442,7 +444,35 @@ async def list_test_plans(project: str, db: AsyncSession = Depends(get_db)):
             reverse=True,
         )
         
-        return {"plans": cached_plans, "count": len(cached_plans)}
+        return {"plans": cached_plans, "count": len(cached_plans), "source": "tfs"}
+    except TfsServiceError as e:
+        logger.warning("Falling back to cached TFS plans for %s: %s", project, e)
+        cached_rows = await db.execute(
+            select(TfsTestPlan)
+            .where(TfsTestPlan.project == project)
+            .order_by(TfsTestPlan.created_date.desc(), TfsTestPlan.plan_id.desc())
+        )
+        cached_items = cached_rows.scalars().all()
+        cached_plans = [
+            {
+                "id": p.plan_id,
+                "name": p.name,
+                "state": p.state,
+                "description": p.description,
+                "owner": p.owner or "",
+                "created_date": str(p.created_date) if p.created_date else None,
+                "root_suite_id": p.root_suite_id,
+            }
+            for p in cached_items
+        ]
+        if cached_plans:
+            return {
+                "plans": cached_plans,
+                "count": len(cached_plans),
+                "source": "cache",
+                "warning": str(e),
+            }
+        raise HTTPException(e.status_code, str(e))
     except Exception as e:
         raise HTTPException(500, f"Error listing test plans: {str(e)}")
 

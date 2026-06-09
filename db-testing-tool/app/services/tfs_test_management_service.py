@@ -15,6 +15,12 @@ from app.models.tfs_test_management import (
 logger = logging.getLogger(__name__)
 
 
+class TfsServiceError(RuntimeError):
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = int(status_code)
+
+
 def _headers() -> dict:
     """Generate Azure DevOps REST API headers with PAT auth."""
     token = base64.b64encode(f":{settings.TFS_PAT}".encode()).decode()
@@ -52,14 +58,37 @@ def _get_projects() -> list:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
-async def get_test_plans(project: str) -> List[Dict]:
+def _normalize_tfs_plan_error(status_code: int, text: str) -> str:
+    payload = (text or "").strip()
+    low = payload.lower()
+    if "personal access token used has expired" in low or "access denied" in low:
+        return "TFS PAT expired or invalid. Update TFS_PAT in .env and restart the app."
+    if status_code == 401:
+        return "TFS authentication failed (401). Check TFS_PAT in .env."
+    if status_code == 403:
+        return "TFS access forbidden (403). Verify PAT scope and project permissions."
+    return f"Failed to fetch TFS test plans ({status_code})."
+
+
+def _map_tfs_plan_status(status_code: int) -> int:
+    if status_code == 401:
+        return 401
+    if status_code == 403:
+        return 403
+    return 502
+
+
+async def get_test_plans(project: str, strict: bool = False) -> List[Dict]:
     """Fetch all test plans for a project from Azure DevOps.
     
     Returns:
         List of dicts: {id, name, description, state, areaPath, createdDate, ...}
     """
     if not settings.TFS_BASE_URL or not settings.TFS_PAT:
-        logger.warning("TFS not configured - cannot fetch test plans")
+        msg = "TFS not configured - cannot fetch test plans"
+        logger.warning(msg)
+        if strict:
+            raise TfsServiceError(msg, status_code=503)
         return []
     
     try:
@@ -71,6 +100,11 @@ async def get_test_plans(project: str) -> List[Dict]:
                 if resp.status != 200:
                     text = await resp.text()
                     logger.error(f"Failed to fetch test plans ({resp.status}): {text}")
+                    if strict:
+                        raise TfsServiceError(
+                            _normalize_tfs_plan_error(resp.status, text),
+                            status_code=_map_tfs_plan_status(resp.status),
+                        )
                     return []
                 
                 data = await resp.json()
@@ -90,8 +124,12 @@ async def get_test_plans(project: str) -> List[Dict]:
                 logger.info(f"Enriched {len(assigned_to_map)} plan owners for project {project}")
                 return plans
     
+    except TfsServiceError:
+        raise
     except Exception as e:
         logger.exception(f"Error fetching test plans: {e}")
+        if strict:
+            raise TfsServiceError(f"Error fetching test plans: {e}", status_code=502) from e
         return []
 
 

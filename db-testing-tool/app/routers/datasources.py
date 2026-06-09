@@ -3,14 +3,14 @@ import asyncio
 import json
 import threading
 import time
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
 from app.models.datasource import DataSource
 from app.connectors.factory import get_connector
 from app.config import settings
-from app.security import require_api_key
+from app.security import require_api_key, require_api_key_request
 from app.secret_store import (
     SecretStoreConfigError,
     encrypt_secret,
@@ -273,6 +273,18 @@ def _enforce_query_statement_allowed(stmt_type: str, runs_as_resultset: bool, bo
             "Set the matching allow_* flag and provide X-DBTOOL-API-Key."
         ),
     )
+
+
+def _requires_api_key_for_statement(stmt_type: str, runs_as_resultset: bool, body: QueryInput) -> bool:
+    if runs_as_resultset:
+        return False
+    if stmt_type in _DATA_WRITE_STATEMENTS and body.allow_writes:
+        return True
+    if stmt_type in _DDL_STATEMENTS and body.allow_ddl:
+        return True
+    if stmt_type in _ADMIN_STATEMENTS and body.allow_admin:
+        return True
+    return False
 
 
 def _oracle_q_literal_end(text: str, start: int) -> Optional[int]:
@@ -673,7 +685,7 @@ async def update_datasource(ds_id: int, body: DataSourceCreate, db: AsyncSession
 
 
 @router.post("/{ds_id}/query")
-async def query_datasource(ds_id: int, body: QueryInput, db: AsyncSession = Depends(get_db), _auth: None = Depends(require_api_key)):
+async def query_datasource(ds_id: int, body: QueryInput, request: Request, db: AsyncSession = Depends(get_db)):
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(404, "DataSource not found")
@@ -717,6 +729,8 @@ async def query_datasource(ds_id: int, body: QueryInput, db: AsyncSession = Depe
                 stmt_type = _statement_type(stmt_sql)
                 runs_as_resultset = _is_resultset_sql(stmt_sql)
                 _enforce_query_statement_allowed(stmt_type, runs_as_resultset, body)
+                if _requires_api_key_for_statement(stmt_type, runs_as_resultset, body):
+                    require_api_key_request(request)
                 use_oracle_native_cap = db_kind == "oracle" and runs_as_resultset
                 exec_sql = _apply_row_cap(ds.db_type, stmt_sql, row_cap) if (runs_as_resultset and not use_oracle_native_cap) else stmt_sql
 

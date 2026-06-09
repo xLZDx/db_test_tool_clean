@@ -5,13 +5,47 @@ $appDir = Split-Path -Parent $scriptPath
 $repoRoot = Split-Path -Parent $appDir
 $localVenvPython = Join-Path $appDir '.venv\Scripts\python.exe'
 $venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
-# Prefer the app-local venv (db-testing-tool dedicated) over the repo-root one
-$pyExe = if (Test-Path $localVenvPython) {
-    $localVenvPython
-} elseif (Test-Path $venvPython) {
-    $venvPython
-} else {
-    'python'
+
+function Test-PythonExecutable([string]$candidateFile, [string[]]$candidateArgs = @()) {
+    if (-not $candidateFile) {
+        return $false
+    }
+
+    if (Test-Path -LiteralPath $candidateFile -PathType Leaf) {
+        # Valid filesystem path candidate.
+    } elseif ($candidateFile -like '*\*' -or $candidateFile -like '*/*' -or $candidateFile -match '^[A-Za-z]:') {
+        # Looks like a path but does not exist.
+        return $false
+    }
+
+    try {
+        $null = & $candidateFile @candidateArgs --version 2>$null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+# Prefer the app-local venv (db-testing-tool dedicated) over the repo-root one,
+# but only when the interpreter is actually runnable.
+$pyExe = $null
+$pyPrefixArgs = @()
+foreach ($candidate in @(
+    @{ File = $localVenvPython; Args = @() },
+    @{ File = $venvPython; Args = @() },
+    @{ File = 'python'; Args = @() },
+    @{ File = 'py'; Args = @('-3') }
+)) {
+    if (Test-PythonExecutable $candidate.File $candidate.Args) {
+        $pyExe = $candidate.File
+        $pyPrefixArgs = $candidate.Args
+        break
+    }
+}
+
+if (-not $pyExe) {
+    Write-Host "No working Python interpreter found (checked app venv, repo venv, and system python)."
+    exit 1
 }
 
 $mainPort = 8550
@@ -41,6 +75,8 @@ function Write-ActionCache([string]$msg) {
     $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
     Add-Content -Path $actionCache -Value "[$stamp] RESTART :: $msg"
 }
+
+Write-ActionCache "Using Python executable: $pyExe"
 
 function Test-AppUp([string]$url) {
     try {
@@ -140,6 +176,9 @@ function Stop-ToolProcesses {
 
 function Start-UvicornInstance([int]$port, [string]$label, [string]$stdoutLog, [string]$stderrLog, [bool]$useReload) {
     $uvArgs = @('-u', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', [string]$port, '--log-level', 'debug', '--access-log')
+    if ($pyPrefixArgs.Count -gt 0) {
+        $uvArgs = @($pyPrefixArgs) + $uvArgs
+    }
     if ($useReload) {
         $uvArgs += @('--reload', '--reload-dir', $reloadDir)
     }

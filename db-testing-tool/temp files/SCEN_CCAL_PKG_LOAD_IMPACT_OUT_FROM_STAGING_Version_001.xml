@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<SunopsisExport>
+<Admin RepositoryVersion="05.02.02.11" IsLegacyIdCompatible="false" />
+<Encryption algorithm="AES" keyLength="128" exportKeyHash="6wncFhw6S6nGDG1fHXGohiP/QGw+GVSXFr6ferKKBWs=" keyVect="puNwupLXVzjh2oIrUOJdFw==" exportKeySalt="98be5a14-cb3b-4f89-9b55-bb5720b485a9" containsCipherText="false"/>
+<Object class="com.sunopsis.dwg.dbobj.SnpScen">
+		<Field name="CecSessBehavior" type="java.lang.String">null</Field>
+	<Field name="CecSessPollIntv" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ExtVersion" type="java.lang.String">null</Field>
+	<Field name="FirstDate" type="java.sql.Timestamp"><![CDATA[2026-06-09 04:47:11.0]]></Field>
+	<Field name="FirstUser" type="java.lang.String"><![CDATA[kraveendran]]></Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[4e47639b-5c87-4367-b288-56253b36c69a]]></Field>
+	<Field name="IndChange" type="java.lang.String"><![CDATA[U]]></Field>
+	<Field name="IndPromptParam" type="java.lang.String"><![CDATA[1]]></Field>
+	<Field name="IntVersion" type="com.sunopsis.sql.DbInt"><![CDATA[5]]></Field>
+	<Field name="IsMaterialized" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IDeploySpec" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="IMapping" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="IPackage" type="com.sunopsis.sql.DbInt"><![CDATA[30792]]></Field>
+	<Field name="IPop" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="IScenFolder" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ITrt" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ITxtScen" type="com.sunopsis.sql.DbInt"><![CDATA[204793]]></Field>
+	<Field name="IVar" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="LastDate" type="java.sql.Timestamp"><![CDATA[2026-06-09 04:47:14.0]]></Field>
+	<Field name="LastUser" type="java.lang.String"><![CDATA[kraveendran]]></Field>
+	<Field name="MaxCecSess" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="RepGuid" type="java.lang.String">null</Field>
+	<Field name="RepVersion" type="java.lang.String">null</Field>
+	<Field name="RestartType" type="java.lang.String">null</Field>
+	<Field name="ScenName" type="java.lang.String"><![CDATA[CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="ScenSnapshotNo" type="com.sunopsis.sql.DbInt"><![CDATA[13]]></Field>
+	<Field name="ScenVersion" type="java.lang.String"><![CDATA[001]]></Field>
+	<Field name="VLastDate" type="java.sql.Timestamp">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpExpTxtHeader">
+		<Field name="GlobalId" type="java.lang.String"><![CDATA[810e9cb8-f642-44fe-b669-50ef0169f605]]></Field>
+	<Field name="ITxt" type="com.sunopsis.sql.DbInt"><![CDATA[204793]]></Field>
+	<Field name="Txt" type="java.lang.String"><![CDATA[-SCEN_STATUS=VALID]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenStep">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="CleanupOnError" type="java.lang.String">null</Field>
+	<Field name="ContextCode" type="java.lang.String">null</Field>
+	<Field name="FContextCode" type="java.lang.String">null</Field>
+	<Field name="GenInfo" type="java.lang.String"><![CDATA[<map-generation-info>
+   <node name="IMP_OTSND_AVY" type="IKM" km="IKM Oracle Insert.GLOBAL">
+      <option name="CREATE_TARGET_TABLE" value="false" default="true"/>
+      <option name="INSERT_HINT" value="APPEND PARALLEL" default="true"/>
+      <option name="SELECT_HINT" value=" " default="true"/>
+      <option name="CONSTRAINTS" value="None" default="true"/>
+      <option name="TRUNCATE_TARGET_TABLE" value="false" default="true"/>
+      <option name="DELETE_ALL" value="false" default="true"/>
+      <option name="INDEXES" value="None" default="true"/>
+      <option name="DROP_AND_CREATE_TARGET_TABLE" value="false" default="true"/>
+   </node>
+   <node name="IMP_OTSND_AVY" type="CKM" km="CKM Oracle RJ with Suffix.CDS">
+      <option name="CREATE_ERROR_INDEX" value="true" default="true"/>
+      <option name="COMPATIBLE" value="9" default="true"/>
+      <option name="VALIDATE" value="false" default="true"/>
+      <option name="E$_TABLENAME_SUFFIX" value=" " default="true"/>
+      <option name="E$_TABLENAME_STATIC" value="true" default="true"/>
+   </node>
+   <node name="IMPACT_OUTSTANDING_AVY" type="XKM" km="XKM Oracle Extract.GLOBAL">
+      <option name="CUSTOM_TEMPLATE" value=" " default="true"/>
+      <option name="SELECT_HINT" value=" " default="true"/>
+   </node>
+   <target name="IMP_OTSND_AVY" resource="IMP_OTSND_AVY" model="CCAL_OWNER" logicalSchema="CCAL_OWNER" forcedContext=""/>
+</map-generation-info>]]></Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[78a2ff72-f146-4320-a5f2-75aebba58b70]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String"><![CDATA[Y]]></Field>
+	<Field name="ITxtVarValue" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="JagentLschemaName" type="java.lang.String">null</Field>
+	<Field name="KoExit" type="java.lang.String"><![CDATA[1]]></Field>
+	<Field name="KoExitCode" type="java.lang.String">null</Field>
+	<Field name="KoNextStep" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="KoRetry" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="KoRetryInterv" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="LschemaName" type="java.lang.String"><![CDATA[CCAL_OWNER]]></Field>
+	<Field name="MaxErr" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="MaxErrPrct" type="java.lang.String">null</Field>
+	<Field name="ModCode" type="java.lang.String"><![CDATA[CCAL_OWNER]]></Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OkExit" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="OkExitCode" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="OkNextStep" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="ResName" type="java.lang.String"><![CDATA[IMP_OTSND_AVY]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="StepName" type="java.lang.String"><![CDATA[CCAL_MAP_LOAD_IMPACT_OUT_FROM_STAGING]]></Field>
+	<Field name="StepType" type="java.lang.String"><![CDATA[M]]></Field>
+	<Field name="TableName" type="java.lang.String"><![CDATA[IMP_OTSND_AVY]]></Field>
+	<Field name="VarIncr" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="VarLongValue" type="java.lang.String">null</Field>
+	<Field name="VarName" type="java.lang.String">null</Field>
+	<Field name="VarOp" type="java.lang.String">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenTask">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ColConnectId" type="java.lang.String">null</Field>
+	<Field name="ColContextCode" type="java.lang.String">null</Field>
+	<Field name="ColEncKey" type="java.lang.String">null</Field>
+	<Field name="ColEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="ColIndCommit" type="java.lang.String">null</Field>
+	<Field name="ColIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="ColIsolLevel" type="java.lang.String">null</Field>
+	<Field name="ColLschemaName" type="java.lang.String">null</Field>
+	<Field name="ColTechIntName" type="java.lang.String">null</Field>
+	<Field name="ColTxt" type="java.lang.String">null</Field>
+	<Field name="DefConnectId" type="java.lang.String">null</Field>
+	<Field name="DefContextCode" type="java.lang.String">null</Field>
+	<Field name="DefEncKey" type="java.lang.String">null</Field>
+	<Field name="DefEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="DefIndCommit" type="java.lang.String">null</Field>
+	<Field name="DefIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="DefIsolLevel" type="java.lang.String">null</Field>
+	<Field name="DefLschemaName" type="java.lang.String">null</Field>
+	<Field name="DefTechIntName" type="java.lang.String">null</Field>
+	<Field name="DefTxt" type="java.lang.String">null</Field>
+	<Field name="ExeChannel" type="java.lang.String">null</Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[52953e35-d2fd-41ce-a278-8547a4ffe364]]></Field>
+	<Field name="IndErr" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogFinalCmd" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String">null</Field>
+	<Field name="IndLogNb" type="java.lang.String">null</Field>
+	<Field name="LogLevDet" type="java.lang.String"><![CDATA[5]]></Field>
+	<Field name="MapTaskType" type="java.lang.String"><![CDATA[EB]]></Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OrdTrt" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="ParScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="ScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[10]]></Field>
+	<Field name="TaskName1" type="java.lang.String"><![CDATA[SERIAL]]></Field>
+	<Field name="TaskName2" type="java.lang.String"><![CDATA[MAP_MAIN]]></Field>
+	<Field name="TaskName3" type="java.lang.String">null</Field>
+	<Field name="TaskType" type="java.lang.String"><![CDATA[L]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenTask">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ColConnectId" type="java.lang.String">null</Field>
+	<Field name="ColContextCode" type="java.lang.String">null</Field>
+	<Field name="ColEncKey" type="java.lang.String">null</Field>
+	<Field name="ColEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="ColIndCommit" type="java.lang.String">null</Field>
+	<Field name="ColIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="ColIsolLevel" type="java.lang.String">null</Field>
+	<Field name="ColLschemaName" type="java.lang.String">null</Field>
+	<Field name="ColTechIntName" type="java.lang.String">null</Field>
+	<Field name="ColTxt" type="java.lang.String">null</Field>
+	<Field name="DefConnectId" type="java.lang.String">null</Field>
+	<Field name="DefContextCode" type="java.lang.String">null</Field>
+	<Field name="DefEncKey" type="java.lang.String">null</Field>
+	<Field name="DefEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="DefIndCommit" type="java.lang.String">null</Field>
+	<Field name="DefIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="DefIsolLevel" type="java.lang.String">null</Field>
+	<Field name="DefLschemaName" type="java.lang.String">null</Field>
+	<Field name="DefTechIntName" type="java.lang.String">null</Field>
+	<Field name="DefTxt" type="java.lang.String">null</Field>
+	<Field name="ExeChannel" type="java.lang.String">null</Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[500c4762-2e3b-43ab-ada1-06f0d1123bbf]]></Field>
+	<Field name="IndErr" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogFinalCmd" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String">null</Field>
+	<Field name="IndLogNb" type="java.lang.String">null</Field>
+	<Field name="LogLevDet" type="java.lang.String"><![CDATA[5]]></Field>
+	<Field name="MapTaskType" type="java.lang.String"><![CDATA[EB]]></Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OrdTrt" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="ParScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[10]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="ScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[20]]></Field>
+	<Field name="TaskName1" type="java.lang.String"><![CDATA[SERIAL]]></Field>
+	<Field name="TaskName2" type="java.lang.String"><![CDATA[EU]]></Field>
+	<Field name="TaskName3" type="java.lang.String"><![CDATA[CCAL_OWNER_UNIT]]></Field>
+	<Field name="TaskType" type="java.lang.String"><![CDATA[L]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenTask">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ColConnectId" type="java.lang.String">null</Field>
+	<Field name="ColContextCode" type="java.lang.String">null</Field>
+	<Field name="ColEncKey" type="java.lang.String">null</Field>
+	<Field name="ColEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="ColIndCommit" type="java.lang.String">null</Field>
+	<Field name="ColIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="ColIsolLevel" type="java.lang.String"><![CDATA[D]]></Field>
+	<Field name="ColLschemaName" type="java.lang.String"><![CDATA[CCAL_OWNER]]></Field>
+	<Field name="ColTechIntName" type="java.lang.String">null</Field>
+	<Field name="ColTxt" type="java.lang.String">null</Field>
+	<Field name="DefConnectId" type="java.lang.String">null</Field>
+	<Field name="DefContextCode" type="java.lang.String">null</Field>
+	<Field name="DefEncKey" type="java.lang.String">null</Field>
+	<Field name="DefEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="DefIndCommit" type="java.lang.String">null</Field>
+	<Field name="DefIndEnc" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="DefIsolLevel" type="java.lang.String"><![CDATA[D]]></Field>
+	<Field name="DefLschemaName" type="java.lang.String"><![CDATA[CCAL_OWNER]]></Field>
+	<Field name="DefTechIntName" type="java.lang.String"><![CDATA[ORACLE]]></Field>
+	<Field name="DefTxt" type="java.lang.String"><![CDATA[
+INSERT 
+  /*+  APPEND PARALLEL  */ 
+  INTO <?= odiRef.getObjectName("L", "IMP_OTSND_AVY", "CCAL_OWNER", "D") ?>
+  (
+    IMP_OTSND_AVY_ID ,
+    RCV_DLV_TP_CODE ,
+    ACR_INT_AMT ,
+    ARB_NUM ,
+    CST_AC_NUM ,
+    TXN_PRC ,
+    GRP_CST_AC_NUM ,
+    GRP_CST_NM ,
+    SCR_CPN_STRK_PRC_AMT ,
+    SCR_PRIM_CMDTY_CODE ,
+    MAT_DT ,
+    MKT_CODE ,
+    POOL_NUM ,
+    IMT_TP_CODE ,
+    PNP_AMT ,
+    SD ,
+    RET_DT ,
+    TRDR_ID ,
+    TXN_DT ,
+    TXN_AMT ,
+    TXN_NUM ,
+    SCR_PRC ,
+    CNCL_X_REV_CODE ,
+    FNC_RATE ,
+    IMP_NUM_FA ,
+    CST_IMP_NUM_FA ,
+    OTSND_AVY_SORT_CODE ,
+    CLRD_AMT ,
+    EFF_STRT_OF_DAY_FAIL_AMT ,
+    FAIL_ADJ_AMT ,
+    TXN_RSN_CODE ,
+    JRNL_INSR_OVRD_F ,
+    TXN_CMSN_AMT ,
+    DEPST_AC_NUM ,
+    CST_AC_NM ,
+    SCR_NM ,
+    OTSND_DT ,
+    FNC_INT_TO_DT_AMT ,
+    OPN_F ,
+    USD_MRGN_AMT ,
+    MRGN_PCT ,
+    ACR_INT_TO_DT_AMT ,
+    TRD_PNP_W_ACR_INT_AMT ,
+    CLR_VAL ,
+    MKT_VAL ,
+    FNC_EXS_X_DEF_F ,
+    FRGN_CST_CTRY_CODE ,
+    BD_SORT_TP_CODE ,
+    PNP_PYDN_F ,
+    RCV_DLV_DRC_CODE ,
+    RET_DT_SORT_F ,
+    BKR_AC_NUM ,
+    EXP_DT ,
+    CTR_FACE_VAL ,
+    CRN_POOL_FCTR_RATE ,
+    MRGN_PNP_AMT ,
+    MTD_FNC_INT_AMT ,
+    FNC_INT_DRC_CODE ,
+    FNC_TOT_TP_CODE ,
+    FILE_CODE ,
+    FNC_GRP_TP_C_ODE ,
+    TDY_MARK_TO_MKT_VAL ,
+    ACG_TP_CODE ,
+    SCR_CCY_CODE ,
+    SETL_CCY_CODE ,
+    SPOT_EXG_RATE ,
+    FNC_ACR_CODE ,
+    PHYS_WIRE_F ,
+    ITNL_X_DMST_CODE ,
+    BWR_X_LOAN_FEE_FRQ_CODE ,
+    FAIL_PNP_AMT ,
+    FAIL_INT_AMT ,
+    CRN_FAIL_USD_AMT ,
+    CLRD_FAIL_USD_AMT ,
+    STRT_OF_DAY_FAIL_USD_AMT ,
+    FAIL_ADJ_USD_AMT ,
+    SBC_EXG_RATE ,
+    EX_DVDN_F ,
+    CUSIP_NUM ,
+    ISIN ,
+    FIRM_TRD_CPCTY_CODE ,
+    CST_TRD_CPCTY_CODE ,
+    CLR_VAL_W_HRCT_AMT ,
+    MRGN_W_HRCT_USD_AMT ,
+    MRGN_PCT_W_HRCT_RATE ,
+    CLC_HRCT_F ,
+    HRCT_RATE ,
+    AS_OF_TD ,
+    SFAS_123_RPT_INCL_F ,
+    SRC_CRT_TM ,
+    AVY_NUM_LINK ,
+    FNC_BKR_CHRG_AMT ,
+    TXN_FEE_AMT ,
+    RATE_EFF_DT ,
+    FIRM_CMSN_AMT ,
+    PNDG_ACR_INT_TO_DT_AMT ,
+    FIRM_MNY_DEPST_AC ,
+    PYMT_MODE_CODE ,
+    BKR_OTHR_CODE_DEALER ,
+    FNC_TP_CODE ,
+    NORMD_TXN_AMT ,
+    EXT_TRD_SRC_CODE ,
+    PNP_TRDR_NM ,
+    ENT_X_COST_CNTR_CODE ,
+    TP_CODE_SBO ,
+    NORMD_TD_OTSND_AMT ,
+    NORMD_ALCT_TBA_AMT ,
+    NORMD_TBA_OFF_AMT_PAIR ,
+    USR_PRFL_NM ,
+    OFF_CNTL_AMT_PAIR ,
+    RPRCH_CTR_W_HRCT_VAL ,
+    RPRCH_DDCN_AMT ,
+    HRCT_EXS_AMT ,
+    HRCT_DEF_AMT ,
+    HRCT_VAL ,
+    CLS_ASK_PRC ,
+    BID_PRC ,
+    TXN_FEE_2_AMT ,
+    DLV_DT ,
+    CTRY_CODE ,
+    PCS_F ,
+    NUM_SEDOL ,
+    NORMD_LNKD_TRD_TOT_AMT ,
+    PRC_DIRTY ,
+    ORIG_FNC_TENOR_TP_CODE ,
+    TAX_WHLD_AMT ,
+    TAX_TP_CODE ,
+    TAX_RATE ,
+    DFLT_FATCA_WHLD_PCT ,
+    FATCA_TAX_WHLD_AMT ,
+    NRA_TAX_WHLD_AMT ,
+    DROP_THR_BOND_RATE ,
+    NRA_TAX_DROP_THR_WHLD_AMT ,
+    FATCA_TAX_CR_AMT ,
+    MBS_POOL_TXN_TP_CODE ,
+    CST_TBA_MRGN_CODE ,
+    EXT_VRSN_NUM ,
+    PREV_TXN_ID ,
+    THEO_LOAN_VAL ,
+    REPO_MARK_TO_MKT_VAL ,
+    REPO_MARK_TO_MKT_PRC ,
+    CRT_DTM ,
+    CRT_USR_NM ,
+    LAST_UDT_DTM ,
+    LAST_UDT_USR_NM ,
+    CALC_PAR_TXN_PRC_AMT 
+  ) 
+SELECT 
+  CDS_STG_OWNER.SEQ_IMPACT_OUTSTANDING_AVY.NEXTVAL ,
+  IMPACT_OUTSTANDING_AVY.RCV_DELIVER_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.ACCRUED_INT_AMT ,
+  IMPACT_OUTSTANDING_AVY.ARBITRAGE_NUM ,
+  IMPACT_OUTSTANDING_AVY.CUST_ACCT_NUM ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_TRANS_PRICE_AMT ,
+  IMPACT_OUTSTANDING_AVY.GRP_CUST_ACCT_NUM ,
+  IMPACT_OUTSTANDING_AVY.GRP_CUST_ACCT_NAME ,
+  IMPACT_OUTSTANDING_AVY.SEC_COUPON_STRIKE_PRICE_AMT ,
+  IMPACT_OUTSTANDING_AVY.SEC_PRI_COMMODITY_CODE ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.SEC_MATURITY_DT='00000000' THEN NULL
+when substr(IMPACT_OUTSTANDING_AVY.SEC_MATURITY_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.SEC_MATURITY_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.MKT_CODE ,
+  IMPACT_OUTSTANDING_AVY.SEC_SUFFIX_NUM ,
+  IMPACT_OUTSTANDING_AVY.INSTRUMENT_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.PRINCIPAL_AMT ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.TRANS_SD_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.TRANS_SD_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.TRANS_SD_DT,'YYYYMMDD') END ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.RETURN_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.RETURN_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.RETURN_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.TRADER_ID ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.TRANS_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.TRANS_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.TRANS_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.TRANS_AMT ,
+  IMPACT_OUTSTANDING_AVY.TRANS_NUM ,
+  IMPACT_OUTSTANDING_AVY.TRANS_PRICE_AMT ,
+  IMPACT_OUTSTANDING_AVY.CXL_REVISE_CODE ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_FINANCE_RATE ,
+  IMPACT_OUTSTANDING_AVY.SALESPRSN_CODE ,
+  IMPACT_OUTSTANDING_AVY.CUSTS_SALESPRSN_CODE ,
+  IMPACT_OUTSTANDING_AVY.OUTSTANDING_ACTY_SORT_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.CLEARED_AMT ,
+  IMPACT_OUTSTANDING_AVY.EFF_START_OF_DY_FAIL_AMT ,
+  IMPACT_OUTSTANDING_AVY.FAIL_ADJ_AMT ,
+  IMPACT_OUTSTANDING_AVY.REASON_CODE ,
+  IMPACT_OUTSTANDING_AVY.JOURNAL_INSTR_OVERRIDE_FLAG ,
+  IMPACT_OUTSTANDING_AVY.TRANS_COMM_AMT ,
+  IMPACT_OUTSTANDING_AVY.DEPOSITORY_ACCT_NUM ,
+  IMPACT_OUTSTANDING_AVY.CUST_ACCT_NAME ,
+  IMPACT_OUTSTANDING_AVY.SEC_NAME ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.OUTSTANDING_ACTY_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.OUTSTANDING_ACTY_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.OUTSTANDING_ACTY_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_INT_TO_DT_AMT ,
+  IMPACT_OUTSTANDING_AVY.OPEN_CLOSE_CODE ,
+  IMPACT_OUTSTANDING_AVY.MARGIN_MONEY_AMT ,
+  IMPACT_OUTSTANDING_AVY.MARGIN_PCT_RATE ,
+  IMPACT_OUTSTANDING_AVY.ACCRUED_INT_TO_DT_AMT ,
+  IMPACT_OUTSTANDING_AVY.TRADE_MONEY_AMT ,
+  IMPACT_OUTSTANDING_AVY.COLLATERAL_VAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.MKT_VAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_EXCESS_DEFICIT_FLAG ,
+  IMPACT_OUTSTANDING_AVY.FRGN_CUST_CODE ,
+  IMPACT_OUTSTANDING_AVY.BROKER_DEALER_SORT_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.PRINCIPAL_PAYDOWN_FLAG ,
+  IMPACT_OUTSTANDING_AVY.RCV_DELIVER_DIRECTION_CODE ,
+  IMPACT_OUTSTANDING_AVY.RETURN_DT_SORT_FLAG ,
+  IMPACT_OUTSTANDING_AVY.BROKER_ACCT_NUM ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.EXP_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.EXP_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.EXP_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.FACE_VAL_CONTRACT_AMT ,
+  IMPACT_OUTSTANDING_AVY.CURR_POOL_FACTOR_RATE ,
+  IMPACT_OUTSTANDING_AVY.MARGIN_PRINCIPAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_INT_MO_TO_DT_AMT ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_INT_DIRECTION_CODE ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_TOTS_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.FILE_CODE ,
+  IMPACT_OUTSTANDING_AVY.FINANCING_GRP_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.TODY_MARK_TO_MKT_AMT ,
+  IMPACT_OUTSTANDING_AVY.ACCTING_CODE ,
+  IMPACT_OUTSTANDING_AVY.SEC_CURRENCY_CODE ,
+  IMPACT_OUTSTANDING_AVY.SETTLEMENT_CURRENCY_CODE ,
+  IMPACT_OUTSTANDING_AVY.EXCHG_RATE ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_ACCRUAL_CODE ,
+  IMPACT_OUTSTANDING_AVY.PHYS_WIREABLE_FLAG ,
+  IMPACT_OUTSTANDING_AVY.INTL_DOMESTIC_CODE ,
+  IMPACT_OUTSTANDING_AVY.BORROW_LOAN_FEE_DAILY_FEE_FLAG ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_FAIL_PRINCIPAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_FAIL_INT_AMT ,
+  IMPACT_OUTSTANDING_AVY.CURR_FAIL_DOLLAR_AMT ,
+  IMPACT_OUTSTANDING_AVY.CLEARED_FAIL_DOLLAR_AMT ,
+  IMPACT_OUTSTANDING_AVY.START_OF_DY_FAIL_DOLLAR_AMT ,
+  IMPACT_OUTSTANDING_AVY.FAIL_ADJUSTMENT_DOLLAR_AMT ,
+  IMPACT_OUTSTANDING_AVY.BASE_EXCHG_RATE ,
+  IMPACT_OUTSTANDING_AVY.EX_DIV_FLAG ,
+  IMPACT_OUTSTANDING_AVY.CUSIP_NUM ,
+  IMPACT_OUTSTANDING_AVY.ISIN_NUM ,
+  IMPACT_OUTSTANDING_AVY.PRINCIPAL_AGENT_ROLE_CODE ,
+  IMPACT_OUTSTANDING_AVY.CUST_PRINCIPAL_AGENT_FLAG ,
+  IMPACT_OUTSTANDING_AVY.COLLATERAL_VAL_WITH_HAIRCUT_AMT ,
+  IMPACT_OUTSTANDING_AVY.MARGIN_MONEY_WITH_HAIRCUT_AMT ,
+  IMPACT_OUTSTANDING_AVY.MARGIN_PCT_WITH_HAIRCUT_RATE ,
+  IMPACT_OUTSTANDING_AVY.HAIRCUT_CALCULATED_FLAG ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_HAIRCUT_RATE ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.AS_OF_TD_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.AS_OF_TD_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.AS_OF_TD_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.SFAS_125_INCLUSION_FLAG ,
+  IMPACT_OUTSTANDING_AVY.SYST_TM ,
+  IMPACT_OUTSTANDING_AVY.LINK_NUM ,
+  IMPACT_OUTSTANDING_AVY.FINANCING_BROKER_CHG_AMT ,
+  IMPACT_OUTSTANDING_AVY.TRANS_FEE_AMT ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.CURR_REPO_RATE_EFF_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.CURR_REPO_RATE_EFF_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.CURR_REPO_RATE_EFF_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_FIRM_COMM_AMT ,
+  IMPACT_OUTSTANDING_AVY.PENDING_ACCRUED_INT_TO_DT_AMT ,
+  IMPACT_OUTSTANDING_AVY.FIRM_MONEY_DEPOSITORY_ACCOUNT ,
+  IMPACT_OUTSTANDING_AVY.PYMT_MODE_CODE ,
+  IMPACT_OUTSTANDING_AVY.DEALER_BROKER_OTHER_CODE ,
+  IMPACT_OUTSTANDING_AVY.FINANCE_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_NORMALIZED_TRANS_AMT ,
+  IMPACT_OUTSTANDING_AVY.EXTERNAL_TRADE_SRC_CODE ,
+  IMPACT_OUTSTANDING_AVY.PRINCIPAL_TRADER_NAME ,
+  IMPACT_OUTSTANDING_AVY.LEGAL_ETY_COST_CENTER_NAME ,
+  IMPACT_OUTSTANDING_AVY.SBO_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.NORMALIZED_TRADE_OUTSTANDING_AMT ,
+  IMPACT_OUTSTANDING_AVY.NORMALIZED_TBA_AMT ,
+  IMPACT_OUTSTANDING_AVY.NORMALIZED_TBA_PAIR_OFF_AMT ,
+  IMPACT_OUTSTANDING_AVY.USER_PROFILE_NAME ,
+  IMPACT_OUTSTANDING_AVY.PAIR_OFF_CNTL_AMT ,
+  IMPACT_OUTSTANDING_AVY.REPURCHASE_CONTRACT_AT_HAIRCUT_VAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.REPURCHASE_DEDUCTION_AMT ,
+  IMPACT_OUTSTANDING_AVY.HAIRCUT_EXCESS_AMT ,
+  IMPACT_OUTSTANDING_AVY.HAIRCUT_DEFICIT_AMT ,
+  IMPACT_OUTSTANDING_AVY.HAIRCUT_VAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.CLOSING_ASK_PRICE_AMT ,
+  IMPACT_OUTSTANDING_AVY.BID_PRICE_AMT ,
+  IMPACT_OUTSTANDING_AVY.TRANSACTION_FEE_2_AMT ,
+  CASE WHEN IMPACT_OUTSTANDING_AVY.DELIVERY_DT='00000000' THEN NULL 
+when substr(IMPACT_OUTSTANDING_AVY.DELIVERY_DT,7,2)='00' then null ELSE
+TO_DATE(IMPACT_OUTSTANDING_AVY.DELIVERY_DT,'YYYYMMDD')  END ,
+  IMPACT_OUTSTANDING_AVY.COUNTRY_CODE ,
+  IMPACT_OUTSTANDING_AVY.PROCESSING_FLAG ,
+  IMPACT_OUTSTANDING_AVY.SEDOL_NUM ,
+  IMPACT_OUTSTANDING_AVY.CALC_NORMALIZED_LINKED_TRD_TOTAL_AMT ,
+  IMPACT_OUTSTANDING_AVY.CALC_DIRTY_PRICE ,
+  IMPACT_OUTSTANDING_AVY.ORIGINAL_FINANCE_TENOR_TYPE ,
+  IMPACT_OUTSTANDING_AVY.TAX_WITHHOLD_AMT ,
+  IMPACT_OUTSTANDING_AVY.TAX_TYPE_CODE ,
+  IMPACT_OUTSTANDING_AVY.TAX_RATE ,
+  IMPACT_OUTSTANDING_AVY.DEFAULT_FATCA_RATE ,
+  IMPACT_OUTSTANDING_AVY.FATCA_TAX_WITHHOLDING_AMT ,
+  IMPACT_OUTSTANDING_AVY.NON_RESIDENT_ALIEN_RATE ,
+  IMPACT_OUTSTANDING_AVY.DROP_THROUGH_BOND_RATE ,
+  IMPACT_OUTSTANDING_AVY.NRA_TAX_DROP_THROUGH_WITHHOLDING_AMT ,
+  IMPACT_OUTSTANDING_AVY.FATCA_TAX_CREDIT_AMT ,
+  IMPACT_OUTSTANDING_AVY.MBS_POOL_TRANSACTION_CODE ,
+  IMPACT_OUTSTANDING_AVY.CUSTOMER_TBA_MARGIN_CODE ,
+  SUBSTR(IMPACT_OUTSTANDING_AVY.BIG_FIELD,1,9) ,
+  SUBSTR(IMPACT_OUTSTANDING_AVY.BIG_FIELD,10,15) ,
+  SUBSTR(IMPACT_OUTSTANDING_AVY.BIG_FIELD,25,19) ,
+  SUBSTR(IMPACT_OUTSTANDING_AVY.BIG_FIELD,44,19) ,
+  SUBSTR(IMPACT_OUTSTANDING_AVY.BIG_FIELD,63,17) ,
+  sysdate ,
+  'CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING' ,
+  sysdate ,
+  'CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING' ,
+  IMPACT_OUTSTANDING_AVY.CALCULABLE_PAR_TRANS_PRICE_AMT  
+FROM 
+  <?= odiRef.getObjectName("L", "IMPACT_OUTSTANDING_AVY", "CCAL_FILL_OWNER", "D") ?> IMPACT_OUTSTANDING_AVY  
+      ]]></Field>
+	<Field name="ExeChannel" type="java.lang.String"><![CDATA[J]]></Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[94ed76a4-f8f9-47a2-8d6c-e12df2f66f46]]></Field>
+	<Field name="IndErr" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogFinalCmd" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String">null</Field>
+	<Field name="IndLogNb" type="java.lang.String"><![CDATA[I]]></Field>
+	<Field name="LogLevDet" type="java.lang.String"><![CDATA[5]]></Field>
+	<Field name="MapTaskType" type="java.lang.String"><![CDATA[EM]]></Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OrdTrt" type="com.sunopsis.sql.DbInt"><![CDATA[10]]></Field>
+	<Field name="ParScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[20]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="ScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[30]]></Field>
+	<Field name="TaskName1" type="java.lang.String"><![CDATA[Insert new rows]]></Field>
+	<Field name="TaskName2" type="java.lang.String"><![CDATA[IKM Oracle Insert]]></Field>
+	<Field name="TaskName3" type="java.lang.String"><![CDATA[Load IMP_OTSND_AVY]]></Field>
+	<Field name="TaskType" type="java.lang.String"><![CDATA[J]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenStep">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="CleanupOnError" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="ContextCode" type="java.lang.String">null</Field>
+	<Field name="FContextCode" type="java.lang.String">null</Field>
+	<Field name="GenInfo" type="java.lang.String">null</Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[798c8ffc-87d3-4281-971e-b8a4c57dd8c8]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String"><![CDATA[Y]]></Field>
+	<Field name="ITxtVarValue" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="JagentLschemaName" type="java.lang.String">null</Field>
+	<Field name="KoExit" type="java.lang.String"><![CDATA[1]]></Field>
+	<Field name="KoExitCode" type="java.lang.String">null</Field>
+	<Field name="KoNextStep" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="KoRetry" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="KoRetryInterv" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="LschemaName" type="java.lang.String">null</Field>
+	<Field name="MaxErr" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="MaxErrPrct" type="java.lang.String">null</Field>
+	<Field name="ModCode" type="java.lang.String">null</Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="OkExit" type="java.lang.String"><![CDATA[1]]></Field>
+	<Field name="OkExitCode" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="OkNextStep" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ResName" type="java.lang.String">null</Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="StepName" type="java.lang.String"><![CDATA[PURGING_TARGET_TABLE]]></Field>
+	<Field name="StepType" type="java.lang.String"><![CDATA[T]]></Field>
+	<Field name="TableName" type="java.lang.String">null</Field>
+	<Field name="VarIncr" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="VarLongValue" type="java.lang.String">null</Field>
+	<Field name="VarName" type="java.lang.String">null</Field>
+	<Field name="VarOp" type="java.lang.String">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenTask">
+		<Field name="BrpId" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ColConnectId" type="java.lang.String">null</Field>
+	<Field name="ColContextCode" type="java.lang.String">null</Field>
+	<Field name="ColEncKey" type="java.lang.String">null</Field>
+	<Field name="ColEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="ColIndCommit" type="java.lang.String">null</Field>
+	<Field name="ColIndEnc" type="java.lang.String">null</Field>
+	<Field name="ColIsolLevel" type="java.lang.String">null</Field>
+	<Field name="ColLschemaName" type="java.lang.String"><![CDATA[CCAL_OWNER]]></Field>
+	<Field name="ColTechIntName" type="java.lang.String"><![CDATA[ORACLE]]></Field>
+	<Field name="ColTxt" type="java.lang.String"><![CDATA[DELETE  FROM CCAL_OWNER.IMP_OTSND_AVY WHERE LAST_UDT_DTM < SYSDATE-30]]></Field>
+	<Field name="DefConnectId" type="java.lang.String">null</Field>
+	<Field name="DefContextCode" type="java.lang.String">null</Field>
+	<Field name="DefEncKey" type="java.lang.String">null</Field>
+	<Field name="DefEncKeyVect" type="java.lang.String">null</Field>
+	<Field name="DefIndCommit" type="java.lang.String">null</Field>
+	<Field name="DefIndEnc" type="java.lang.String">null</Field>
+	<Field name="DefIsolLevel" type="java.lang.String">null</Field>
+	<Field name="DefLschemaName" type="java.lang.String">null</Field>
+	<Field name="DefTechIntName" type="java.lang.String">null</Field>
+	<Field name="DefTxt" type="java.lang.String">null</Field>
+	<Field name="ExeChannel" type="java.lang.String"><![CDATA[J]]></Field>
+	<Field name="GlobalId" type="java.lang.String"><![CDATA[94e97090-109c-441b-b010-38ddb2a2a8e9]]></Field>
+	<Field name="IndErr" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogFinalCmd" type="java.lang.String"><![CDATA[0]]></Field>
+	<Field name="IndLogMethod" type="java.lang.String">null</Field>
+	<Field name="IndLogNb" type="java.lang.String">null</Field>
+	<Field name="LogLevDet" type="java.lang.String"><![CDATA[3]]></Field>
+	<Field name="MapTaskType" type="java.lang.String"><![CDATA[EM]]></Field>
+	<Field name="Nno" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="OrdTrt" type="com.sunopsis.sql.DbInt"><![CDATA[10]]></Field>
+	<Field name="ParScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[null]]></Field>
+	<Field name="ScenNo" type="com.sunopsis.sql.DbInt"><![CDATA[49575]]></Field>
+	<Field name="ScenTaskNo" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="TaskName1" type="java.lang.String"><![CDATA[Procedure]]></Field>
+	<Field name="TaskName2" type="java.lang.String"><![CDATA[PURGING_TARGET_TABLE]]></Field>
+	<Field name="TaskName3" type="java.lang.String"><![CDATA[PURGING_TARGET]]></Field>
+	<Field name="TaskType" type="java.lang.String"><![CDATA[S]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpFKXRef">
+		<Field name="RefKey" type="java.lang.String"><![CDATA[SNP_EXPTXTHEADER.204793]]></Field>
+	<Field name="RefObjGlobalId" type="java.lang.String"><![CDATA[810e9cb8-f642-44fe-b669-50ef0169f605]]></Field>
+ <Field name="RefObjFQName" type="java.lang.String">null</Field>
+ <Field name="RefObjFQType" type="java.lang.String">null</Field>
+ <Field name="RefObjFQNameLengths" type="java.lang.String">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpFKXRef">
+		<Field name="RefKey" type="java.lang.String"><![CDATA[SNP_PACKAGE.30792]]></Field>
+	<Field name="RefObjGlobalId" type="java.lang.String"><![CDATA[6d563ae7-26e9-4001-9bc0-e877ee3cc8f9]]></Field>
+ <Field name="RefObjFQName" type="java.lang.String"><![CDATA[CDS.TRANSACTIONS.CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING]]></Field>
+ <Field name="RefObjFQType" type="java.lang.String"><![CDATA[SNP_PROJECT.SNP_FOLDER.SNP_PACKAGE]]></Field>
+ <Field name="RefObjFQNameLengths" type="java.lang.String"><![CDATA[3.12.37]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpFKXRef">
+		<Field name="RefKey" type="java.lang.String"><![CDATA[SNP_SCEN.49575]]></Field>
+	<Field name="RefObjGlobalId" type="java.lang.String"><![CDATA[4e47639b-5c87-4367-b288-56253b36c69a]]></Field>
+ <Field name="RefObjFQName" type="java.lang.String"><![CDATA[CDS.TRANSACTIONS.CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING.CCAL_PKG_LOAD_IMPACT_OUT_FROM_STAGING Version 001]]></Field>
+ <Field name="RefObjFQType" type="java.lang.String"><![CDATA[SNP_PROJECT.SNP_FOLDER.SNP_PACKAGE.SNP_SCEN]]></Field>
+ <Field name="RefObjFQNameLengths" type="java.lang.String"><![CDATA[3.12.37.49]]></Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpFKXRef">
+		<Field name="RefKey" type="java.lang.String"><![CDATA[SNP_SCENSTEP.49575.0]]></Field>
+	<Field name="RefObjGlobalId" type="java.lang.String"><![CDATA[78a2ff72-f146-4320-a5f2-75aebba58b70]]></Field>
+ <Field name="RefObjFQName" type="java.lang.String">null</Field>
+ <Field name="RefObjFQType" type="java.lang.String">null</Field>
+ <Field name="RefObjFQNameLengths" type="java.lang.String">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpFKXRef">
+		<Field name="RefKey" type="java.lang.String"><![CDATA[SNP_SCENSTEP.49575.1]]></Field>
+	<Field name="RefObjGlobalId" type="java.lang.String"><![CDATA[798c8ffc-87d3-4281-971e-b8a4c57dd8c8]]></Field>
+ <Field name="RefObjFQName" type="java.lang.String">null</Field>
+ <Field name="RefObjFQType" type="java.lang.String">null</Field>
+ <Field name="RefObjFQNameLengths" type="java.lang.String">null</Field>
+</Object>
+<Object class="com.sunopsis.dwg.DwgExportSummary">
+		<Field name="ExpTxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="InstObjNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="JoinColNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="JoinNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="KeyColNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="KeyNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="LinkDiagNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="MorigTxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="MtxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OrigTxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OtherObjectsNb" type="com.sunopsis.sql.DbInt"><![CDATA[9]]></Field>
+	<Field name="PlanAgentNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="StepNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="TxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="UeOrigNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="UeUsedNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="VarPlanAgentNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="ScenTxtNb" type="com.sunopsis.sql.DbInt"><![CDATA[0]]></Field>
+	<Field name="OdiVersion" type="java.lang.String"><![CDATA[12.2.1]]></Field>
+	<Field name="OriginRepositoryID" type="com.sunopsis.sql.DbInt"><![CDATA[1]]></Field>
+	<Field name="RepositoryVersion" type="java.lang.String"><![CDATA[05.02.02.11]]></Field>
+</Object>
+</SunopsisExport>
