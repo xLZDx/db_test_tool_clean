@@ -22,9 +22,11 @@ from app.services.v18_insert import (
     V18_TOOL_ROOT,
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
+    _STAGE_JOIN_THRESHOLD,
     _fix_alias_in_on,
     _inject_parallel_hint,
     _reorder_joins_by_dependency,
+    _stage_projection_over_join,
     build_v18_insert_to_dir,
 )
 
@@ -195,6 +197,94 @@ def test_inject_parallel_hint_noop_when_already_hinted():
     out = _inject_parallel_hint(sql)
     assert out.count("/*+") == 1
     assert out == sql
+
+
+# --- V9: stage wide-projection-over-many-joins into a MATERIALIZE'd CTE --------
+
+def _synth_wide_insert(n_joins: int) -> str:
+    cols = [f"OUT_{i}" for i in range(n_joins)]
+    sel = ",\n    ".join(f"J{i}.VAL AS OUT_{i}" for i in range(n_joins))
+    joins = "\n    ".join(f"LEFT JOIN S.T{i} J{i} ON J{i}.ID = TXN.K{i}" for i in range(n_joins))
+    return ("INSERT INTO O.TGT (\n    " + ",\n    ".join(cols) + "\n)\n"
+            f"SELECT\n    {sel}\nFROM S.TXN TXN\n    {joins}")
+
+
+def test_stage_projection_rewrites_wide_join_into_materialized_cte():
+    n = _STAGE_JOIN_THRESHOLD + 5
+    sql = _synth_wide_insert(n)
+    staged, src_cols, reason = _stage_projection_over_join(sql)
+    assert reason is None and staged != sql
+    # one materialized CTE, PARALLEL on BOTH selects (operator: "max parallel per select")
+    assert "WITH stg AS (" in staged
+    assert "/*+ MATERIALIZE PARALLEL */" in staged
+    assert "SELECT /*+ PARALLEL */" in staged
+    assert staged.rstrip().endswith("FROM stg")
+    # INSERT target preserved verbatim (so control-schema retarget still matched it)
+    assert "INSERT INTO O.TGT (" in staged
+    # every projection ref rebased to the staged flat table; no raw alias.col left in outer
+    assert "stg.J0__VAL AS OUT_0" in staged
+    assert "stg.J{}__VAL AS OUT_{}".format(n - 1, n - 1) in staged
+    assert src_cols == n
+
+
+def test_stage_projection_noop_below_threshold():
+    sql = _synth_wide_insert(_STAGE_JOIN_THRESHOLD - 1)
+    staged, src_cols, reason = _stage_projection_over_join(sql)
+    assert staged == sql and src_cols is None and reason == "below_threshold"
+
+
+def test_stage_projection_case_insensitive_rebase():
+    # a lowercase alias.col ref (v18 mixes case) must still be rebased -- this was the
+    # OWN_FA_ENT bug; IGNORECASE fixes the whole class.
+    n = _STAGE_JOIN_THRESHOLD + 1
+    sql = _synth_wide_insert(n).replace("J3.VAL AS OUT_3", "j3.val AS OUT_3")
+    staged, _src, reason = _stage_projection_over_join(sql)
+    # reason is None proves the unrebased-ref guard passed -> the lowercase ref WAS
+    # rebased (an escaped j3.val in the outer projection would set reason != None).
+    assert reason is None
+    # the lowercase ref is rebased to the staged flat column (uppercased name)
+    assert "stg.J3__VAL AS OUT_3" in staged
+    # the staged source projection (inside the CTE) legitimately keeps J3.VAL AS J3__VAL
+    assert "J3.VAL AS J3__VAL" in staged
+
+
+def test_stage_projection_fail_safe_on_col_count_mismatch():
+    # 3 target cols but 2 projection exprs -> never emit; return the monolith.
+    sql = ("INSERT INTO O.T (A, B, C)\nSELECT J0.X AS A, J1.Y AS B\n"
+           "FROM S.TXN TXN\n    " +
+           "\n    ".join(f"LEFT JOIN S.T{i} J{i} ON J{i}.ID = TXN.K{i}" for i in range(_STAGE_JOIN_THRESHOLD + 2)))
+    staged, src_cols, reason = _stage_projection_over_join(sql)
+    assert staged == sql and src_cols is None and reason.startswith("col_count_mismatch")
+
+
+@_needs_v18
+@pytest.mark.skipif(not AVY_DRD.exists(), reason="AVY DRD fixture absent")
+def test_build_v18_stages_avy_but_not_close():
+    import tempfile, shutil, gc
+    td = Path(tempfile.mkdtemp(prefix="t_v18stage_"))
+    try:
+        avy = build_v18_insert_to_dir(
+            AVY_DRD, td / "avy", target_schema="TRANSACTIONS_OWNER",
+            target_table="AVY_FACT", profile="avy", control_schema="IKOROSTELEV",
+        )
+        assert avy["staged"] is True
+        assert avy["stage_skip_reason"] is None
+        assert avy["stage_source_cols"] and avy["stage_source_cols"] > 0
+        assert "WITH stg AS (" in avy["generated_sql"]
+        assert "INSERT INTO IKOROSTELEV.AVY_FACT" in avy["generated_sql"].upper()
+        if CLOSE_DRD.exists():
+            close = build_v18_insert_to_dir(
+                CLOSE_DRD, td / "close", target_schema="TAXLOT_OWNER",
+                target_table="CLS_TAX_LOTS_NON_BKR_FACT", profile="taxlot",
+                control_schema="IKOROSTELEV",
+            )
+            # CLOSE has ~7 joins -> below threshold -> stays a monolith
+            assert close["staged"] is False
+            assert close["stage_skip_reason"] == "below_threshold"
+            assert "WITH stg AS (" not in close["generated_sql"]
+    finally:
+        gc.collect()
+        shutil.rmtree(td, ignore_errors=True)
 
 
 def test_build_v18_rejects_non_excel():

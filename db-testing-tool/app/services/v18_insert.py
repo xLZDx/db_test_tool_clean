@@ -172,6 +172,162 @@ def _inject_parallel_hint(sql: str, degree=None) -> str:
     return sql[:pos] + " " + hint + sql[pos:]
 
 
+# V9: when v18 emits a wide projection over many joins (AVY: 369 columns over 110
+# joins), Oracle cannot plan the single INSERT...SELECT -- EXPLAIN + capped INSERT
+# both time out. Probe (tools/v9_parse_wall_probe2) proved the wall is the
+# projection-over-join-graph, not the joins (NO_ELIMINATE_OJ + trivial projection
+# plans the full 110-join graph in 3.5s). The cure (ODI's staging principle) is to
+# separate the join from the projection: stage the JOIN result (raw source columns
+# only) in a MATERIALIZE'd CTE, then run the CASE projection over that single flat
+# table. Proven on FREEPDB1: EXPLAIN 18.6s / capped execute 35.7s vs >90s timeout.
+_STAGE_JOIN_THRESHOLD = 25  # AVY (110) stages; CLOSE (7) / OPEN (6) stay monolithic
+_IDENT_RE = r"[A-Za-z0-9_$#]+"
+_MAX_ORACLE_IDENT = 128  # 12.2+ identifier limit; stg colname must fit
+
+
+def _scan_top_level(s: str):
+    """Yield (index, char) at paren depth 0, skipping single-quote string literals
+    (with '' escape). Used to split a SELECT list / locate the top-level FROM
+    without being fooled by a scalar subquery's own FROM or by commas in CASE/func
+    argument lists."""
+    depth = 0
+    in_str = False
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if in_str:
+            if ch == "'":
+                if i + 1 < n and s[i + 1] == "'":
+                    i += 2
+                    continue
+                in_str = False
+        elif ch == "'":
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0:
+            yield i, ch
+        i += 1
+
+
+def _stage_projection_over_join(sql: str) -> tuple[str, Optional[int], Optional[str]]:
+    """Rewrite a wide-projection-over-many-joins INSERT into a staged
+    MATERIALIZE'd-CTE form so Oracle can plan it (V9). Returns
+    ``(new_sql, source_col_count, None)`` on success, or
+    ``(original_sql, None, skip_reason)`` on ANY uncertainty -- the monolith is
+    always a safe fallback (it is what shipped pre-V9), so this never emits SQL it
+    is not confident about. No-op below the join threshold."""
+    try:
+        if len(re.findall(r"\bJOIN\b", sql, re.I)) < _STAGE_JOIN_THRESHOLD:
+            return sql, None, "below_threshold"
+        work = sql.strip().rstrip(";").rstrip()
+        m = re.search(r"\bINSERT\s+INTO\s+(" + _IDENT_RE + r"\." + _IDENT_RE + r")\s*\(", work, re.I)
+        if not m:
+            return sql, None, "no_insert"
+        target = m.group(1)
+        # balanced INSERT column list
+        p = work.find("(", m.end() - 1)
+        depth, col_end = 0, -1
+        for i in range(p, len(work)):
+            if work[i] == "(":
+                depth += 1
+            elif work[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    col_end = i
+                    break
+        if col_end < 0:
+            return sql, None, "unbalanced_col_list"
+        target_cols = [c.strip() for c in work[p + 1:col_end].split(",") if c.strip()]
+        rest = work[col_end + 1:]
+        ms = re.search(r"\bSELECT\b", rest, re.I)
+        if not ms:
+            return sql, None, "no_select"
+        proj_and_from = rest[ms.end():]
+        from_at = None
+        for idx, ch in _scan_top_level(proj_and_from):
+            if ch in "Ff" and re.match(r"FROM\b", proj_and_from[idx:idx + 5], re.I):
+                from_at = idx
+                break
+        if from_at is None:
+            return sql, None, "no_top_level_from"
+        projection = proj_and_from[:from_at].strip()
+        from_block = proj_and_from[from_at:].strip()
+        # split projection on top-level commas
+        exprs, start = [], 0
+        for idx, ch in _scan_top_level(projection):
+            if ch == ",":
+                exprs.append(projection[start:idx].strip())
+                start = idx + 1
+        exprs.append(projection[start:].strip())
+        if len(exprs) != len(target_cols):
+            return sql, None, f"col_count_mismatch_{len(target_cols)}_vs_{len(exprs)}"
+
+        # known FROM/JOIN aliases (base + each JOIN's alias), longest-first
+        aliases = []
+        fm = re.search(r"\bFROM\s+" + _IDENT_RE + r"\." + _IDENT_RE + r"\s+(" + _IDENT_RE + r")", from_block, re.I)
+        if fm:
+            aliases.append(fm.group(1))
+        for jm in re.finditer(r"\bJOIN\s+" + _IDENT_RE + r"\." + _IDENT_RE + r"\s+(" + _IDENT_RE + r")\b",
+                              from_block, re.I):
+            aliases.append(jm.group(1))
+        seen, uniq = set(), []
+        for a in aliases:
+            if a.upper() not in seen:
+                seen.add(a.upper())
+                uniq.append(a)
+        if not uniq:
+            return sql, None, "no_aliases"
+        aliases = sorted(uniq, key=len, reverse=True)
+        ref_re = re.compile(r"(?<![.\w])(" + "|".join(re.escape(a) for a in aliases) + r")\.(" + _IDENT_RE + r")",
+                            re.IGNORECASE)
+
+        refs: Dict[tuple, str] = {}
+
+        def _sub(mm):
+            a, c = mm.group(1).upper(), mm.group(2).upper()
+            name = f"{a}__{c}"
+            refs[(a, c)] = name
+            return f"stg.{name}"
+
+        rebased = []
+        for expr in exprs:
+            # split value-expr from output alias at the LAST top-level ' AS '
+            last = None
+            for i, ch in _scan_top_level(expr):
+                if expr[i:i + 4].upper() == " AS ":
+                    last = i
+            if last is not None:
+                val, out_col = expr[:last].strip(), expr[last + 4:].strip()
+            else:
+                toks = expr.strip().split()
+                val, out_col = expr, (toks[-1] if toks else expr)
+            rebased.append((ref_re.sub(_sub, val), out_col))
+
+        # guard: every known-alias ref in the OUTER projection must now be stg.*
+        for val, _oc in rebased:
+            if ref_re.search(val):
+                return sql, None, "unrebased_ref"
+        # guard: stg identifiers fit Oracle's limit
+        if any(len(name) > _MAX_ORACLE_IDENT for name in refs.values()):
+            return sql, None, "identifier_too_long"
+        if not refs:
+            return sql, None, "no_source_refs"
+
+        stg_cols = ",\n           ".join(f"{a}.{c} AS {name}" for (a, c), name in sorted(refs.items()))
+        proj = ",\n       ".join(f"{v} AS {oc}" for v, oc in rebased)
+        staged = (
+            f"INSERT INTO {target} (\n    " + ",\n    ".join(target_cols) + "\n)\n"
+            f"WITH stg AS (\n    SELECT /*+ MATERIALIZE PARALLEL */\n           {stg_cols}\n    {from_block}\n)\n"
+            f"SELECT /*+ PARALLEL */\n       {proj}\nFROM stg"
+        )
+        return staged, len(refs), None
+    except Exception as exc:  # noqa: BLE001 -- never break the build; fall back to monolith
+        return sql, None, f"exception_{type(exc).__name__}"
+
+
 def build_v18_insert_to_dir(
     drd_path: Path,
     out_dir: Path,
@@ -196,7 +352,10 @@ def build_v18_insert_to_dir(
 
     Returns a dict with: engine, generated_sql, returncode, stub_columns,
     stub_count, business_stub_columns, audit_stub_columns, hardcode_gate,
-    hardcode_gate_failed, target (effective), production_target, control_schema.
+    hardcode_gate_failed, target (effective), production_target, control_schema,
+    on_alias_fixes (V7), join_reorder (V8), parallel_hint, staged (V9 bool),
+    stage_source_cols (staged CTE source-column count or None),
+    stage_skip_reason (why staging was skipped, or None when it staged).
 
     Raises V18BuildError if the tool is missing, times out, fails to start, or
     produces no INSERT statement (fail-loud -- never returns a stub silently).
@@ -261,9 +420,6 @@ def build_v18_insert_to_dir(
     # Then fix forward-referenced JOIN aliases (reorder joins by ON-dependency).
     # After the alias-in-ON fix so dependencies reflect the inlined source columns.
     sql, join_reorder = _reorder_joins_by_dependency(sql)
-    # Default PARALLEL hint -> use all CPU on the scan/join at execution time.
-    if parallel:
-        sql = _inject_parallel_hint(sql)
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -271,7 +427,8 @@ def build_v18_insert_to_dir(
     # control schema is given we retarget INSERT INTO <owner>.<table> ->
     # <control_schema>.<table> so the row lands in the user's own control table
     # (where they hold full privileges; no GRANT/DBA needed). The SELECT side is
-    # untouched. Empty/None => keep the production target (back-compat).
+    # untouched. Empty/None => keep the production target (back-compat). Done
+    # BEFORE V9 staging so the staged form carries the final INSERT target.
     production_target = f"{str(target_schema).strip()}.{str(target_table).strip()}"
     effective_target = production_target
     cs = (control_schema or "").strip()
@@ -284,6 +441,18 @@ def build_v18_insert_to_dir(
             flags=re.I,
         )
         effective_target = f"{cs}.{str(target_table).strip()}"
+
+    # V9: stage wide-projection-over-many-joins into a MATERIALIZE'd CTE so Oracle
+    # can plan it (AVY: 110 joins). Self-guarded -- returns the monolith unchanged
+    # on any uncertainty or below the join threshold (CLOSE/OPEN untouched). When
+    # it stages, PARALLEL is already on BOTH selects, so skip the simple hint.
+    staged_sql, stage_source_cols, stage_skip = _stage_projection_over_join(sql)
+    staged = stage_skip is None
+    if staged:
+        sql = staged_sql
+    elif parallel:
+        # Monolith path: PARALLEL hint on the single SELECT (execution DOP).
+        sql = _inject_parallel_hint(sql)
 
     gate_report: Dict[str, Any] = {}
     gate_path = out_dir / "hardcode_gate_report.json"
@@ -318,4 +487,7 @@ def build_v18_insert_to_dir(
         "on_alias_fixes": on_alias_fixes,
         "join_reorder": join_reorder,
         "parallel_hint": bool(parallel),
+        "staged": staged,
+        "stage_source_cols": stage_source_cols,
+        "stage_skip_reason": stage_skip,
     }
