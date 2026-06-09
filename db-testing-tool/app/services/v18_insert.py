@@ -97,6 +97,66 @@ def _fix_alias_in_on(sql: str) -> tuple[str, list]:
     return "\n".join(out_lines), fixed
 
 
+def _reorder_joins_by_dependency(sql: str) -> tuple[str, list]:
+    """Fix v18's forward-reference ORA-00904: a JOIN's ON references an alias that
+    is introduced by a LATER join. Reorder the join list so each join appears AFTER
+    the aliases its ON predicate references (stable topological sort, base table
+    first). Each join keeps its own ON, so outer-join results are unchanged; only
+    the textual order moves to satisfy alias scope. No-op when already ordered.
+    Returns (reordered_sql, [relocated_aliases]).
+    """
+    lines = sql.split("\n")
+    join_re = re.compile(r"^\s*((?:LEFT|RIGHT|INNER|FULL|CROSS|OUTER)\s+)*JOIN\s+", re.I)
+    # main FROM = a FROM line (no JOIN on it) immediately followed by a JOIN line
+    from_idx = None
+    for i in range(len(lines) - 1):
+        if (re.match(r"^\s*FROM\s+\S+", lines[i], re.I) and "JOIN" not in lines[i].upper()
+                and join_re.match(lines[i + 1])):
+            from_idx = i
+            break
+    if from_idx is None:
+        return sql, []
+    fm = re.match(r"^\s*FROM\s+(\S+)\s+(\S+)", lines[from_idx], re.I)
+    base_alias = fm.group(2).upper() if fm else ""
+
+    j = from_idx + 1
+    join_lines = []
+    while j < len(lines) and join_re.match(lines[j]):
+        join_lines.append(lines[j])
+        j += 1
+    if len(join_lines) < 2:
+        return sql, []
+
+    parsed, aliases = [], set()
+    for ln in join_lines:
+        m = re.search(r"JOIN\s+(\S+)\s+(\S+?)(?:\s+ON\s+(.*))?$", ln, re.I)
+        alias = m.group(2).upper() if m else ""
+        on_pred = (m.group(3) or "") if m else ""
+        deps = {x.upper() for x in re.findall(r"([A-Za-z0-9_$#]+)\.[A-Za-z0-9_$#]+", on_pred)}
+        parsed.append({"line": ln, "alias": alias, "deps": deps})
+        aliases.add(alias)
+    all_aliases = aliases | {base_alias}
+
+    defined = {base_alias}
+    remaining, ordered = parsed[:], []
+    while remaining:
+        placed = False
+        for k, jn in enumerate(remaining):
+            real_deps = (jn["deps"] & all_aliases) - {jn["alias"]}
+            if real_deps <= defined:
+                ordered.append(jn); defined.add(jn["alias"]); remaining.pop(k); placed = True
+                break
+        if not placed:  # cycle / external dep -> keep original order, break the stall
+            jn = remaining.pop(0); ordered.append(jn); defined.add(jn["alias"])
+
+    new_join_lines = [jn["line"] for jn in ordered]
+    if new_join_lines == join_lines:
+        return sql, []
+    relocated = [ordered[i]["alias"] for i in range(len(ordered)) if ordered[i]["line"] != join_lines[i]]
+    new_lines = lines[:from_idx + 1] + new_join_lines + lines[j:]
+    return "\n".join(new_lines), relocated
+
+
 def build_v18_insert_to_dir(
     drd_path: Path,
     out_dir: Path,
@@ -182,6 +242,9 @@ def build_v18_insert_to_dir(
     # Fix v18's alias-in-ON ORA-00904 (SELECT alias used in a JOIN ON predicate).
     # Done on the raw SQL before any retarget (ON clauses are unaffected by retarget).
     sql, on_alias_fixes = _fix_alias_in_on(sql)
+    # Then fix forward-referenced JOIN aliases (reorder joins by ON-dependency).
+    # After the alias-in-ON fix so dependencies reflect the inlined source columns.
+    sql, join_reorder = _reorder_joins_by_dependency(sql)
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -234,4 +297,5 @@ def build_v18_insert_to_dir(
         "production_target": production_target,
         "control_schema": cs or None,
         "on_alias_fixes": on_alias_fixes,
+        "join_reorder": join_reorder,
     }

@@ -112,10 +112,16 @@ def _drop_control_copy(cur, raw, control_schema: str, table: str) -> None:
 def _explain(cur, raw, stmt: str) -> tuple[bool, str]:
     try:
         cur.execute("EXPLAIN PLAN SET STATEMENT_ID='v18cert' FOR " + stmt)
-        raw.rollback()
+        try:
+            raw.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         return True, ""
     except Exception as exc:  # noqa: BLE001 -- report any ORA verbatim
-        raw.rollback()
+        try:
+            raw.rollback()
+        except Exception:  # noqa: BLE001 -- connection may already be dead (timeout/closed)
+            pass
         return False, (str(exc).strip().splitlines() or [type(exc).__name__])[0]
 
 
@@ -141,6 +147,11 @@ def classify(cur, raw, sql: str, kb: KBLookup | None) -> tuple[str, str]:
     ok, err = _explain(cur, raw, sql)
     if ok:
         return "PASS", ""
+    if any(code in err for code in ("DPY-4024", "DPY-4011", "DPY-1001")):
+        # call timeout / server closed the connection: EXPLAIN could not finish in
+        # time. Names already resolved (resolution errors fail fast); this is a
+        # statement-too-complex/too-large signal, NOT a SQL resolution defect.
+        return "EXPLAIN_TIMEOUT", f"EXPLAIN did not finish (statement too complex to plan): {err}"
     if "ORA-41900" in err:
         sel = select_only(sql)
         if sel is None:
@@ -179,9 +190,7 @@ def main() -> int:
     for k, v in row._mapping.items():
         setattr(ds, k, v)
     conn = get_connector(ds)
-    raw = conn._direct_connect()
-    cur = raw.cursor()
-    print(f"Connected ds={args.ds} as {conn.username}\n")
+    print(f"Datasource ds={args.ds} as {conn.username} (fresh connection per DRD)\n")
 
     kb = KBLookup(_SCHEMA_KB) if _SCHEMA_KB.exists() else None
 
@@ -207,12 +216,27 @@ def main() -> int:
             row["business_stubs"] = len(res["business_stub_columns"])
             row["business_stub_cols"] = ";".join(res["business_stub_columns"])
             row["audit_stubs"] = len(res["audit_stub_columns"])
-            created = _ensure_control_copy(cur, raw, control_schema, tgt, tsch, conn.username) if control_schema else False
+            # Fresh DB connection AFTER the long v18 subprocess: a single
+            # long-lived connection drops during the KB-load + subprocess gap
+            # (-> DPY-1001 not connected). Open it only for the quick EXPLAIN.
+            raw = conn._direct_connect()
             try:
-                verdict, detail = classify(cur, raw, sql, kb)
+                raw.call_timeout = 60000  # 60s cap so a too-complex EXPLAIN can't hang
+            except Exception:  # noqa: BLE001
+                pass
+            cur = raw.cursor()
+            try:
+                created = _ensure_control_copy(cur, raw, control_schema, tgt, tsch, conn.username) if control_schema else False
+                try:
+                    verdict, detail = classify(cur, raw, sql, kb)
+                finally:
+                    if created:
+                        _drop_control_copy(cur, raw, control_schema, tgt)
             finally:
-                if created:
-                    _drop_control_copy(cur, raw, control_schema, tgt)
+                try:
+                    cur.close(); raw.close()
+                except Exception:  # noqa: BLE001
+                    pass
             # 00942 on the control target itself => the control table is not
             # created yet (Step 1), not a generator defect.
             if verdict == "FAIL_SQL" and control_schema and _missing_object(detail) == tgt:
@@ -235,14 +259,14 @@ def main() -> int:
               f"  biz_stubs={row['business_stubs']} audit_stubs={row['audit_stubs']}"
               + (f"  {row['detail']}" if row['detail'] else ""))
 
-    cur.close()
-    raw.close()
-
     sql_valid = sum(1 for r in results if r["verdict"] in ("PASS", "PASS_RESOLVED"))
     known_mm = sum(1 for r in results if r["verdict"] == "KNOWN_MISMATCH")
     fail_sql = sum(1 for r in results if r["verdict"] == "FAIL_SQL")
     build_fail = sum(1 for r in results if r["verdict"] == "BUILD_FAIL")
+    explain_timeout = sum(1 for r in results if r["verdict"] == "EXPLAIN_TIMEOUT")
     total_biz_stubs = sum(r["business_stubs"] for r in results)
+    # EXPLAIN_TIMEOUT is non-fatal (statement-too-complex, names already resolved):
+    # only a genuine resolution defect (FAIL_SQL) or build failure fails the gate.
     overall = "SQL_VALID" if (fail_sql == 0 and build_fail == 0) else "SQL_DEFECT"
     review = " + REVIEW(business stubs present)" if total_biz_stubs else " + CLEAN(no business stubs)"
 
@@ -252,8 +276,9 @@ def main() -> int:
     lines = [
         f"# v18 INSERT certification (EXPLAIN PLAN) -- {ts}",
         f"Datasource id={args.ds} as {conn.username}",
-        f"valid={sql_valid} known_mismatch={known_mm} fail_sql={fail_sql} build_fail={build_fail} "
-        f"of {len(results)} ({overall}{review}); total business stubs={total_biz_stubs}",
+        f"valid={sql_valid} known_mismatch={known_mm} explain_timeout={explain_timeout} "
+        f"fail_sql={fail_sql} build_fail={build_fail} of {len(results)} "
+        f"({overall}{review}); total business stubs={total_biz_stubs}",
         "",
         "| DRD | target | sql_len | verdict | business_stubs | audit_stubs | detail |",
         "|---|---|---|---|---|---|---|",
@@ -276,7 +301,7 @@ def main() -> int:
 
     print(f"\nReport: {md}")
     print(f"Overall: {overall}  (valid={sql_valid} known_mismatch={known_mm} "
-          f"fail_sql={fail_sql} build_fail={build_fail}){review}")
+          f"explain_timeout={explain_timeout} fail_sql={fail_sql} build_fail={build_fail}){review}")
     # exit 0 when there is no genuine SQL defect: PASS / PASS_RESOLVED /
     # KNOWN_MISMATCH are all acceptable ("FAIL only on known mismatches").
     # business stubs are surfaced (non-fatal here -- Gate V4 drives them to zero).

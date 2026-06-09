@@ -23,6 +23,7 @@ from app.services.v18_insert import (
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
     _fix_alias_in_on,
+    _reorder_joins_by_dependency,
     build_v18_insert_to_dir,
 )
 
@@ -149,6 +150,35 @@ def test_fix_alias_in_on_protects_qualified_refs():
     fixed, names = _fix_alias_in_on(sql)
     assert "A.OWN_FA_NUM" in fixed
     assert names == []
+
+
+# --- V8: join dependency reorder (pure logic, no DB) ---------------------------
+
+def test_reorder_joins_fixes_forward_reference():
+    # B's ON references C, but C is defined AFTER B -> Oracle ORA-00904.
+    sql = (
+        "INSERT INTO O.T (A)\n"
+        "SELECT B.x AS A\n"
+        "FROM S.BASE BASE\n"
+        "    LEFT JOIN S.B B ON B.id = C.fk\n"
+        "    LEFT JOIN S.C C ON C.id = BASE.cid\n"
+    )
+    fixed, relocated = _reorder_joins_by_dependency(sql)
+    assert fixed.index(" S.C C ") < fixed.index(" S.B B "), "C must be ordered before B"
+    assert relocated, "relocation recorded"
+
+
+def test_reorder_joins_noop_when_already_ordered():
+    sql = (
+        "INSERT INTO O.T (A)\n"
+        "SELECT BASE.x AS A\n"
+        "FROM S.BASE BASE\n"
+        "    LEFT JOIN S.B B ON B.id = BASE.id\n"
+        "    LEFT JOIN S.C C ON C.id = B.id\n"
+    )
+    fixed, relocated = _reorder_joins_by_dependency(sql)
+    assert relocated == []
+    assert fixed == sql
 
 
 def test_build_v18_rejects_non_excel():
