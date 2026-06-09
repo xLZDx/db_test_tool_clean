@@ -23,6 +23,7 @@ from app.services.v18_insert import (
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
     _STAGE_JOIN_THRESHOLD,
+    _coerce_number_varchar_joins,
     _drop_unreferenced_cross_joins,
     _fix_alias_in_on,
     _inject_parallel_hint,
@@ -466,6 +467,40 @@ def test_build_v18_imp_otsnd_collapses_to_simple_one_to_one_insert():
     finally:
         gc.collect()
         shutil.rmtree(td, ignore_errors=True)
+
+
+# --- V13: NUMBER = VARCHAR join -> LPAD(TO_CHAR(num), len, '0') (generic) -----------
+
+_CCY_SQL = (
+    "INSERT INTO O.T (A)\nSELECT CCY.CCY_CODE AS A\n"
+    "FROM CCAL_REPL_OWNER.TXN TXN\n"
+    "    LEFT JOIN CCAL_REPL_OWNER.APA APA ON APA.exec_id = TXN.txn_id\n"
+    "    LEFT JOIN REFERENCE_REPL_OWNER.CCY CCY ON APA.ORIG_CCY_ID = CCY.CCY_ISO_NUM_CODE\n"
+)
+
+
+@_needs_v18  # uses the real KB for column types (APA.ORIG_CCY_ID NUMBER, CCY_ISO_NUM_CODE VARCHAR2)
+def test_coerce_number_varchar_join_emits_lpad():
+    from app.sql_model.static_validator import KBLookup
+    kb = KBLookup(_DEFAULT_SCHEMA_KB)
+    out, coerced = _coerce_number_varchar_joins(_CCY_SQL, kb, lambda o, t, c: 3)
+    assert "LPAD(TO_CHAR(APA.ORIG_CCY_ID), 3, '0') = CCY.CCY_ISO_NUM_CODE" in out
+    assert "APA.ORIG_CCY_ID" in coerced
+    # the matched-type join (NUMBER exec_id = NUMBER txn_id) is untouched
+    assert "APA.exec_id = TXN.txn_id" in out
+
+
+@_needs_v18
+def test_coerce_noop_when_resolver_returns_no_length():
+    from app.sql_model.static_validator import KBLookup
+    kb = KBLookup(_DEFAULT_SCHEMA_KB)
+    out, coerced = _coerce_number_varchar_joins(_CCY_SQL, kb, lambda o, t, c: None)
+    assert out == _CCY_SQL and coerced == []
+
+
+def test_coerce_noop_without_resolver_or_kb():
+    out, coerced = _coerce_number_varchar_joins(_CCY_SQL, None, None)
+    assert out == _CCY_SQL and coerced == []
 
 
 def test_build_v18_rejects_non_excel():

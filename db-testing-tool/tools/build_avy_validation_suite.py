@@ -30,6 +30,8 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app.database import sync_engine
+from app.connectors.factory import get_connector
+from app.models.datasource import DataSource
 from app.services.v18_insert import build_v18_insert_to_dir, V18BuildError
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -129,12 +131,55 @@ _COLS = ("name", "test_type", "source_datasource_id", "target_datasource_id",
          "description", "is_active", "is_ai_generated", "mapping_table")
 
 
+def _make_len_resolver(ds_id: int):
+    """DB-backed VARCHAR pad-width resolver: MAX(LENGTH) over the column's
+    numeric-only values (the ISO-code width), ignoring junk. Returns a cached
+    callable; None on any failure so V13 stays a no-op rather than emit a bad width."""
+    try:
+        with sync_engine.begin() as c:
+            row = c.execute(text("SELECT * FROM datasources WHERE id=:i"), {"i": ds_id}).fetchone()
+        if row is None:
+            return None
+        ds = DataSource()
+        for k, v in row._mapping.items():
+            setattr(ds, k, v)
+        raw = get_connector(ds)._direct_connect()
+    except Exception:  # noqa: BLE001
+        return None
+    cache: dict = {}
+    ident = re.compile(r"^[A-Za-z0-9_$#]+$")
+
+    def resolve(owner: str, table: str, col: str):
+        key = (owner.upper(), table.upper(), col.upper())
+        if key in cache:
+            return cache[key]
+        val = None
+        if all(ident.match(x) for x in key):
+            try:
+                cur = raw.cursor()
+                cur.execute(f'SELECT MAX(LENGTH("{key[2]}")) FROM "{key[0]}"."{key[1]}" '
+                            f'WHERE REGEXP_LIKE("{key[2]}", \'^[0-9]+$\')')
+                r = cur.fetchone()
+                cur.close()
+                val = int(r[0]) if r and r[0] else None
+            except Exception:  # noqa: BLE001
+                val = None
+        cache[key] = val
+        return val
+
+    return resolve
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ds", type=int, default=2)
     ap.add_argument("--control-schema", default="IKOROSTELEV")
     args = ap.parse_args()
     cschema = args.control_schema.strip().upper()
+
+    # V13 length resolver (pad width from the VARCHAR column's numeric-value width;
+    # correct against clean data, no-op on the dev mirror's garbage CCY).
+    len_resolver = _make_len_resolver(args.ds)
 
     all_rows, summary = [], []
     for label, rel, owner, table, prof, key in TARGETS:
@@ -148,7 +193,8 @@ def main() -> int:
         try:
             res = build_v18_insert_to_dir(drd, td / "o", target_schema=owner,
                                           target_table=table, profile=prof,
-                                          control_schema=cschema)
+                                          control_schema=cschema,
+                                          varchar_len_resolver=len_resolver)
             insert_sql = res["generated_sql"]
             staged = bool(res.get("staged"))
             select_sql = _select_only(insert_sql) or insert_sql

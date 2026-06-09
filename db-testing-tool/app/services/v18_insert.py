@@ -295,6 +295,81 @@ def _promote_real_base(sql: str) -> tuple[str, Optional[str]]:
     return "\n".join(out), new_base[1]
 
 
+def _coerce_number_varchar_joins(sql: str, kb, len_resolver) -> tuple[str, list]:
+    """V13: when a JOIN equates a NUMBER column to a VARCHAR column, wrap the NUMBER
+    side as ``LPAD(TO_CHAR(num), <varchar_len>, '0')`` so the comparison is done in
+    the VARCHAR domain (operator-chosen). This (a) is robust to non-numeric junk in
+    the VARCHAR (no implicit string->number -> no ORA-01722), and (b) preserves
+    leading-zero codes (ISO `'064'` etc.) that a naive ``TO_CHAR`` would break.
+
+    GENERIC -- no hardcoded names: column types come from the schema KB; the pad
+    width is the VARCHAR column's length from ``len_resolver(owner, table, col)``
+    (DB-backed; supplied by the caller). When the KB lacks a type or the resolver
+    returns no length, the predicate is left untouched (ODI-faithful). Only simple
+    ``a.col = b.col`` equalities on JOIN lines are touched; >=, <, ranges, and
+    matched-type joins are no-ops. Returns (sql, [coerced "alias.col" number sides]).
+    """
+    if len_resolver is None or kb is None:
+        return sql, []
+    from app.sql_model.static_validator import TableRef  # lazy
+
+    alias_tbl: Dict[str, tuple] = {}
+    for m in re.finditer(r"\b(?:FROM|JOIN)\s+([A-Za-z0-9_$#]+)\.([A-Za-z0-9_$#]+)\s+([A-Za-z0-9_$#]+)\b",
+                         sql, re.I):
+        alias_tbl[m.group(3).upper()] = (m.group(1).upper(), m.group(2).upper())
+
+    _type_cache: Dict[tuple, Optional[str]] = {}
+
+    def col_type(alias: str, col: str) -> Optional[str]:
+        ot = alias_tbl.get(alias.upper())
+        if not ot:
+            return None
+        key = (ot[0], ot[1], col.upper())
+        if key in _type_cache:
+            return _type_cache[key]
+        try:
+            ref = TableRef(owner=ot[0], name=ot[1])
+        except TypeError:
+            ref = TableRef(ot[0], ot[1])
+        cols = kb.get_columns(ref) or {}
+        meta = cols.get(col.upper()) or cols.get(col) or {}
+        dt = (meta.get("data_type") or "").upper() or None
+        _type_cache[key] = dt
+        return dt
+
+    coerced: list = []
+
+    def _repl(m):
+        a1, c1, a2, c2 = m.group(1), m.group(2), m.group(3), m.group(4)
+        t1, t2 = col_type(a1, c1), col_type(a2, c2)
+        if not t1 or not t2:
+            return m.group(0)
+        if t1 == "NUMBER" and t2.startswith("VARCHAR"):
+            num, vc = (a1, c1), (a2, c2)
+        elif t2 == "NUMBER" and t1.startswith("VARCHAR"):
+            num, vc = (a2, c2), (a1, c1)
+        else:
+            return m.group(0)  # matched types (or both non-num/vc) -> leave alone
+        ot = alias_tbl.get(vc[0].upper())
+        ln = None
+        try:
+            ln = len_resolver(ot[0], ot[1], vc[1].upper()) if ot else None
+        except Exception:  # noqa: BLE001 -- resolver failure -> ODI-faithful no-op
+            ln = None
+        if not ln or ln <= 0:
+            return m.group(0)
+        coerced.append(f"{num[0]}.{num[1]}")
+        return f"LPAD(TO_CHAR({num[0]}.{num[1]}), {int(ln)}, '0') = {vc[0]}.{vc[1]}"
+
+    eq_re = re.compile(r"([A-Za-z0-9_$#]+)\.([A-Za-z0-9_$#]+)\s*=\s*([A-Za-z0-9_$#]+)\.([A-Za-z0-9_$#]+)")
+    out_lines = []
+    for line in sql.split("\n"):
+        if re.search(r"\bJOIN\b", line, re.I) and re.search(r"\bON\b", line, re.I):
+            line = eq_re.sub(_repl, line)
+        out_lines.append(line)
+    return "\n".join(out_lines), coerced
+
+
 def _inject_parallel_hint(sql: str, degree=None) -> str:
     """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
     scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
@@ -476,6 +551,7 @@ def build_v18_insert_to_dir(
     schema_kb: Optional[Path] = None,
     control_schema: Optional[str] = None,
     parallel: bool = True,
+    varchar_len_resolver=None,
     timeout_s: int = _DEFAULT_TIMEOUT_S,
 ) -> Dict[str, Any]:
     """Run the vendored v18 insert builder and return its result.
@@ -591,6 +667,17 @@ def build_v18_insert_to_dir(
     # dimension lookup silently drops fact rows -> 0-row loads). Done before staging
     # so the staged join block carries the corrected join types.
     sql, widened_inner_joins = _widen_inner_to_left(sql)
+    # V13: coerce NUMBER = VARCHAR join predicates to LPAD(TO_CHAR(num), len, '0') =
+    # varchar (robust + leading-zero-safe). Needs column types (KB) + the VARCHAR
+    # length (DB-backed resolver supplied by the caller); no-op without a resolver.
+    coerced_joins: List[str] = []
+    if varchar_len_resolver is not None:
+        try:
+            from app.sql_model.static_validator import KBLookup  # lazy
+            _kb = KBLookup(kb) if Path(kb).exists() else None
+            sql, coerced_joins = _coerce_number_varchar_joins(sql, _kb, varchar_len_resolver)
+        except Exception:  # noqa: BLE001 -- never break the build over coercion
+            coerced_joins = []
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -673,6 +760,7 @@ def build_v18_insert_to_dir(
         "widened_inner_joins": widened_inner_joins,
         "dropped_cross_joins": dropped_cross_joins,
         "promoted_base": promoted_base,
+        "coerced_joins": coerced_joins,
         "parallel_hint": bool(parallel),
         "staged": staged,
         "stage_source_cols": stage_source_cols,

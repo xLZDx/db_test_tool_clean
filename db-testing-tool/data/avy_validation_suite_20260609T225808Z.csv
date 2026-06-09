@@ -1,0 +1,13 @@
+name,test_type,severity,mapping_table,description
+AVY :: 1. DDL create control table,custom_sql,high,AVY_FACT,Step 1 (DDL) -- create the empty control table IKOROSTELEV.AVY_FACT (structural copy of TRANSACTIONS_OWNER.AVY_FACT). Idempotent: re-run swallows ORA-00955.
+"AVY :: 2. INSERT (v18 KB-resolved, V9-staged)",custom_sql,high,AVY_FACT,Step 2 (DML loader) -- load IKOROSTELEV.AVY_FACT via the v18 KB-resolved INSERT (V9 MATERIALIZE CTE staging).
+AVY :: 3. row_count source==target,row_count,high,AVY_FACT,Validation (row_count) -- staged-join row count must equal the loaded control-table count.
+AVY :: 4. schema_match control==production,custom_sql,medium,AVY_FACT,Validation (schema_match) -- control table column set must equal production (MINUS both ways = 0 differences).
+AVY :: 5. null_check key TXN_ID,null_check,high,AVY_FACT,Validation (null_check) -- key column TXN_ID must have no NULLs in the control table.
+AVY :: 6. uniqueness key TXN_ID,uniqueness,high,AVY_FACT,Validation (uniqueness) -- key column TXN_ID must be unique (zero duplicate groups).
+IMP_OTSND :: 1. DDL create control table,custom_sql,high,IMP_OTSND_AVY_FACT,Step 1 (DDL) -- create the empty control table IKOROSTELEV.IMP_OTSND_AVY_FACT (structural copy of TRANSACTIONS_OWNER.IMP_OTSND_AVY_FACT). Idempotent: re-run swallows ORA-00955.
+IMP_OTSND :: 2. INSERT (v18 KB-resolved),custom_sql,high,IMP_OTSND_AVY_FACT,Step 2 (DML loader) -- load IKOROSTELEV.IMP_OTSND_AVY_FACT via the v18 KB-resolved INSERT.
+IMP_OTSND :: 3. row_count source==target,row_count,high,IMP_OTSND_AVY_FACT,Validation (row_count) -- staged-join row count must equal the loaded control-table count.
+IMP_OTSND :: 4. schema_match control==production,custom_sql,medium,IMP_OTSND_AVY_FACT,Validation (schema_match) -- control table column set must equal production (MINUS both ways = 0 differences).
+IMP_OTSND :: 5. null_check key IMP_OTSND_AVY_FACT_ID,null_check,high,IMP_OTSND_AVY_FACT,Validation (null_check) -- key column IMP_OTSND_AVY_FACT_ID must have no NULLs in the control table.
+IMP_OTSND :: 6. uniqueness key IMP_OTSND_AVY_FACT_ID,uniqueness,high,IMP_OTSND_AVY_FACT,Validation (uniqueness) -- key column IMP_OTSND_AVY_FACT_ID must be unique (zero duplicate groups).

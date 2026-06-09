@@ -193,6 +193,33 @@ def main() -> int:
     conn = get_connector(ds)
     print(f"Datasource ds={args.ds} as {conn.username} (fresh connection per DRD)\n")
 
+    # V13 length resolver: the pad width must match the VARCHAR column's *value*
+    # width (e.g. 3-digit ISO codes), NOT its declared size -- the mirror over-types
+    # CCY_ISO_NUM_CODE as VARCHAR2(100) while real is VARCHAR2(3). Derive it from the
+    # data: MAX(LENGTH) over the numeric-only values (ignores junk like 'L011').
+    # Cached; identifiers are regex-validated [A-Za-z0-9_$#]+ before interpolation.
+    _len_raw = conn._direct_connect()
+    _len_cache: dict = {}
+    _ident = re.compile(r"^[A-Za-z0-9_$#]+$")
+
+    def len_resolver(owner: str, table: str, col: str):
+        key = (owner.upper(), table.upper(), col.upper())
+        if key in _len_cache:
+            return _len_cache[key]
+        val = None
+        if all(_ident.match(x) for x in key):
+            try:
+                cur = _len_raw.cursor()
+                cur.execute(f'SELECT MAX(LENGTH("{key[2]}")) FROM "{key[0]}"."{key[1]}" '
+                            f'WHERE REGEXP_LIKE("{key[2]}", \'^[0-9]+$\')')
+                row = cur.fetchone()
+                cur.close()
+                val = int(row[0]) if row and row[0] else None
+            except Exception:  # noqa: BLE001
+                val = None
+        _len_cache[key] = val
+        return val
+
     kb = KBLookup(_SCHEMA_KB) if _SCHEMA_KB.exists() else None
 
     results = []
@@ -210,7 +237,8 @@ def main() -> int:
         td = Path(tempfile.mkdtemp(prefix=f"v18cert_{label}_"))
         try:
             res = build_v18_insert_to_dir(p, td / "out", target_schema=tsch, target_table=tgt,
-                                          profile=prof, control_schema=(control_schema or None))
+                                          profile=prof, control_schema=(control_schema or None),
+                                          varchar_len_resolver=len_resolver)
             sql = res["generated_sql"]
             row["target"] = res["target"]
             row["sql_len"] = len(sql)
