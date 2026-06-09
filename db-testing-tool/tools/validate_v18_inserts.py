@@ -52,6 +52,7 @@ DEFAULT_DRDS = [
     ("AVY", "data/taxlot/DRD_Activity_Fact.xlsx", "TRANSACTIONS_OWNER", "AVY_FACT", "avy"),
     ("CLOSE", "data/taxlot/DRD_Closed_Tax_Lots_non_bkr_Fact (3).xlsx", "TAXLOT_OWNER", "CLS_TAX_LOTS_NON_BKR_FACT", "taxlot"),
     ("OPEN", "data/taxlot/DRD_Open_Tax_Lots_non_bkr_Fact (2).xlsx", "TAXLOT_OWNER", "OPN_TAX_LOTS_NON_BKR_FACT", "taxlot"),
+    ("IMP_OTSND", "temp files/DRD_IMPACT_Outstanding_Activity_FACT (1).xlsx", "TRANSACTIONS_OWNER", "IMP_OTSND_AVY_FACT", "auto"),
 ]
 
 # ORA codes that mean a genuine SQL/resolution defect (NOT a privilege/env issue)
