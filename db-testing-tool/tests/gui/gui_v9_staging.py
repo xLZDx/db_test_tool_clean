@@ -54,12 +54,16 @@ def run():
                         fd.append('control_schema', 'IKOROSTELEV');
                         const r = await fetch('/api/tests/control-table/build-v18', {method:'POST', body: fd});
                         let d = {}; try { d = await r.json(); } catch(_) {}
-                        const sql = (d.generated_sql || '').toUpperCase();
+                        const rawSql = d.generated_sql || '';
+                        const sql = rawSql.toUpperCase();
                         return {status: r.status, staged: d.staged,
                                 skip: d.stage_skip_reason, srcCols: d.stage_source_cols,
                                 hasCte: sql.includes('WITH STG AS ('),
                                 biz: (d.business_stub_columns||[]).length,
                                 nullDrd: (d.null_per_drd_columns||[]).length,
+                                widened: (d.widened_inner_joins||[]).length,
+                                noBareInner: !(/\\n\\s*(INNER\\s+)?JOIN\\s/i.test(rawSql)),
+                                noOnTrue: !(/\\bON\\s+1\\s*=\\s*1\\b/i.test(rawSql)),
                                 target: d.target, len: sql.length};
                     }""", [tsch, ttbl, prof])
                 chk(f"V9.{label}.status", res.get("status") == 200, f"HTTP {res.get('status')} target={res.get('target')}")
@@ -75,6 +79,11 @@ def run():
                     f"business_stub_columns={res.get('biz')} (expected 0)")
                 chk(f"V4.{label}.null_per_drd", res.get("nullDrd") and res.get("nullDrd") > 0,
                     f"null_per_drd_columns={res.get('nullDrd')} (expected >0)")
+                # V10/V11: no row-killer INNER joins, no unkeyed cross-joins
+                chk(f"V10.{label}.no_bare_inner", res.get("noBareInner") is True,
+                    f"no bare/INNER joins in SQL = {res.get('noBareInner')} (widened={res.get('widened')})")
+                chk(f"V11.{label}.no_on_1eq1", res.get("noOnTrue") is True,
+                    f"no ON 1=1 cross-joins = {res.get('noOnTrue')}")
             except Exception as e:
                 chk(f"V9.{label}", False, f"exception {type(e).__name__}: {str(e)[:160]}")
 

@@ -23,11 +23,13 @@ from app.services.v18_insert import (
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
     _STAGE_JOIN_THRESHOLD,
+    _drop_unreferenced_cross_joins,
     _fix_alias_in_on,
     _inject_parallel_hint,
     _read_impl_null_status,
     _reorder_joins_by_dependency,
     _stage_projection_over_join,
+    _widen_inner_to_left,
     build_v18_insert_to_dir,
 )
 
@@ -357,6 +359,55 @@ def test_build_v18_reclassifies_drd_null_out_of_business_stubs():
     finally:
         gc.collect()
         shutil.rmtree(td, ignore_errors=True)
+
+
+# --- V10: widen bare/INNER joins to LEFT (fact-load grain preservation) ------------
+
+def test_widen_inner_to_left_converts_bare_and_inner_only():
+    sql = (
+        "INSERT INTO O.T (A)\nSELECT X.c AS A\n"
+        "FROM S.BASE BASE\n"
+        "    JOIN S.A A ON A.id = BASE.id\n"              # bare INNER -> LEFT
+        "    INNER JOIN S.B B ON B.id = A.id\n"           # explicit INNER -> LEFT
+        "    LEFT JOIN S.C C ON C.id = B.id\n"            # already LEFT -> untouched
+    )
+    out, widened = _widen_inner_to_left(sql)
+    assert "    LEFT JOIN S.A A ON" in out
+    assert "    LEFT JOIN S.B B ON" in out
+    assert "INNER JOIN" not in out
+    assert out.count("LEFT JOIN") == 3
+    assert {"A", "B"} == {w.upper() for w in widened}
+
+
+def test_widen_inner_to_left_noop_when_all_left():
+    sql = "INSERT INTO O.T (A)\nSELECT X.c AS A\nFROM S.X X\n    LEFT JOIN S.Y Y ON Y.id = X.id\n"
+    out, widened = _widen_inner_to_left(sql)
+    assert out == sql and widened == []
+
+
+# --- V11: drop unreferenced ON 1=1 cross-joins -------------------------------------
+
+def test_drop_unreferenced_cross_joins_removes_only_unreferenced():
+    sql = (
+        "INSERT INTO O.T (A, B)\n"
+        "SELECT SRC.col1 AS A, SRC.col2 AS B\n"           # SRC referenced
+        "FROM S.TXN TXN\n"
+        "    LEFT JOIN S.SRCTBL SRC ON 1=1\n"             # referenced (SRC.col*) -> keep
+        "    LEFT JOIN S.SRCTBL SRC_2 ON 1=1\n"           # unreferenced cross-join -> drop
+        "    LEFT JOIN S.SRCTBL SRC_3 ON 1=1\n"           # unreferenced cross-join -> drop
+        "    LEFT JOIN S.DIM D ON D.id = TXN.id\n"        # real join -> keep
+    )
+    out, dropped = _drop_unreferenced_cross_joins(sql)
+    assert {"SRC_2", "SRC_3"} == {d.upper() for d in dropped}
+    assert " SRC_2 " not in out and " SRC_3 " not in out
+    assert "LEFT JOIN S.SRCTBL SRC ON 1=1" in out          # referenced cross-join kept
+    assert "LEFT JOIN S.DIM D ON D.id = TXN.id" in out     # real join kept
+
+
+def test_drop_unreferenced_cross_joins_noop_without_cross_joins():
+    sql = "INSERT INTO O.T (A)\nSELECT Y.c AS A\nFROM S.X X\n    LEFT JOIN S.Y Y ON Y.id = X.id\n"
+    out, dropped = _drop_unreferenced_cross_joins(sql)
+    assert out == sql and dropped == []
 
 
 def test_build_v18_rejects_non_excel():

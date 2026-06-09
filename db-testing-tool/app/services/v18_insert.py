@@ -192,6 +192,63 @@ def _reorder_joins_by_dependency(sql: str) -> tuple[str, list]:
     return "\n".join(new_lines), relocated
 
 
+_JOIN_LINE_RE = re.compile(r"^(\s*)((?:LEFT|RIGHT|INNER|FULL|CROSS)\s+)*JOIN\b", re.I)
+
+
+def _widen_inner_to_left(sql: str) -> tuple[str, list]:
+    """V10: convert bare/INNER JOINs to LEFT JOINs (fact-load grain preservation).
+
+    v18 sometimes emits a dimension lookup as a bare ``JOIN`` (INNER). In a
+    DRD-driven FACT-table load that silently DROPS fact rows whenever the optional
+    dimension does not match -- and an INNER join downstream of a LEFT-joined alias
+    also cancels the upstream LEFT. The fix is the standard fact-load rule: every
+    join after the base preserves the grain, i.e. is a LEFT join. Filters belong in
+    WHERE, not in the join type. (Operator-approved; verified by the row-production
+    cert: AVY went 0 rows -> rows after this.) LEFT/RIGHT/FULL/CROSS are untouched.
+    Returns (sql, [aliases_widened]).
+    """
+    widened, out_lines = [], []
+    for line in sql.split("\n"):
+        # only a BARE 'JOIN' or 'INNER JOIN' at line start (not LEFT/RIGHT/FULL/CROSS)
+        if re.match(r"^\s*(INNER\s+)?JOIN\b", line, re.I):
+            m = re.search(r"\bJOIN\s+\S+\s+([A-Za-z0-9_$#]+)\b", line, re.I)
+            new = re.sub(r"^(\s*)(?:INNER\s+)?JOIN\b", r"\1LEFT JOIN", line, count=1, flags=re.I)
+            if new != line:
+                out_lines.append(new)
+                if m:
+                    widened.append(m.group(1))
+                continue
+        out_lines.append(line)
+    return "\n".join(out_lines), widened
+
+
+def _drop_unreferenced_cross_joins(sql: str) -> tuple[str, list]:
+    """V11: drop ``JOIN <table> <alias> ON 1=1`` lines whose alias is never
+    referenced (``alias.col``) anywhere in the statement.
+
+    v18 can emit one self-join per source column with ``ON 1=1`` instead of reusing
+    a single join + a real key (e.g. IMP_OTSND: 142 self-joins to one table, only 1
+    referenced). An unreferenced ``ON 1=1`` join is a pure cartesian multiplier
+    (left_rows x table_rows) contributing nothing -> removing it is correctness-
+    preserving AND kills the row explosion / parse blow-up. Referenced ON-1=1 joins
+    are left alone (their missing key is a separate, deeper issue). Returns
+    (sql, [dropped_aliases]).
+    """
+    # aliases referenced as <alias>.<col> anywhere in the SQL
+    refs = {m.group(1).upper() for m in re.finditer(r"(?<![.\w])([A-Za-z0-9_$#]+)\.[A-Za-z0-9_$#]+", sql)}
+    dropped, out_lines = [], []
+    for line in sql.split("\n"):
+        m = re.match(r"^\s*(?:(?:LEFT|RIGHT|INNER|FULL|CROSS)\s+)*JOIN\s+\S+\s+([A-Za-z0-9_$#]+)\s+ON\s+(.*\S)\s*$",
+                     line, re.I)
+        if m:
+            alias, on = m.group(1), m.group(2).strip()
+            if re.fullmatch(r"1\s*=\s*1", on) and alias.upper() not in refs:
+                dropped.append(alias)
+                continue  # drop the line
+        out_lines.append(line)
+    return "\n".join(out_lines), dropped
+
+
 def _inject_parallel_hint(sql: str, degree=None) -> str:
     """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
     scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
@@ -467,6 +524,13 @@ def build_v18_insert_to_dir(
     # Then fix forward-referenced JOIN aliases (reorder joins by ON-dependency).
     # After the alias-in-ON fix so dependencies reflect the inlined source columns.
     sql, join_reorder = _reorder_joins_by_dependency(sql)
+    # V11: drop unreferenced ON-1=1 cross-joins (v18 over-self-joins; pure cartesian
+    # multipliers -> removed for correctness + to kill the row/parse explosion).
+    sql, dropped_cross_joins = _drop_unreferenced_cross_joins(sql)
+    # V10: widen bare/INNER joins to LEFT (fact-load grain preservation; an INNER
+    # dimension lookup silently drops fact rows -> 0-row loads). Done before staging
+    # so the staged join block carries the corrected join types.
+    sql, widened_inner_joins = _widen_inner_to_left(sql)
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -542,6 +606,8 @@ def build_v18_insert_to_dir(
         "control_schema": cs or None,
         "on_alias_fixes": on_alias_fixes,
         "join_reorder": join_reorder,
+        "widened_inner_joins": widened_inner_joins,
+        "dropped_cross_joins": dropped_cross_joins,
         "parallel_hint": bool(parallel),
         "staged": staged,
         "stage_source_cols": stage_source_cols,
