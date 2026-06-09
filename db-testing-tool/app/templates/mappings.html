@@ -7151,9 +7151,13 @@ async function generateControlTableTests() {
         _ctState.compareChoices = {};
         document.getElementById('ct-ddl-sql').value = res.create_table_sql || document.getElementById('ct-ddl-sql').value;
         document.getElementById('ct-insert-sql').value = res.generated_insert_sql || '';
-        // Operator 2026-06-07: the control-table INSERT must be the v5.4 DRD-driven
-        // build, not the legacy emitter. Rebuild via v5.4 and use it as the generated
-        // insert so the Comparison Grid + Apply Fixes + suite all operate on v5.4.
+        // Gate V3 (2026-06-09): the control-table INSERT must be the v18 KB-resolved
+        // build (owner/column resolution; no prose-leak/wrong-owner), retargeted to
+        // the control schema (page field, like Data Source) so it lands in the user's
+        // own control table -> EXPLAIN-PLAN-clean. Default engine = v18; rollback to
+        // v5.4 via localStorage.setItem('ct_engine','v54'). FAIL LOUD on error --
+        // never silently keep the legacy/analyze SQL (the old bare-catch hid failures).
+        const _useV18 = (localStorage.getItem('ct_engine') || 'v18') !== 'v54';
         try {
             const _up = (targetTable || '').toUpperCase();
             let _prof = 'auto';
@@ -7166,16 +7170,42 @@ async function generateControlTableTests() {
             _fd.append('target_schema', targetSchema);
             _fd.append('target_table', targetTable);
             _fd.append('profile', _prof);
-            const _r = await fetch('/api/tests/control-table/build-v54', { method: 'POST', body: _fd });
+            const _engineUrl = _useV18 ? '/api/tests/control-table/build-v18'
+                                       : '/api/tests/control-table/build-v54';
+            if (_useV18) _fd.append('control_schema', controlSchema);  // page-driven, like Data Source
+            const _eng = _useV18 ? 'v18' : 'v5.4';
+            const _r = await fetch(_engineUrl, { method: 'POST', body: _fd });
             if (_r.ok) {
                 const _d = await _r.json();
                 if (_d.generated_sql && _d.generated_sql.toUpperCase().includes('INSERT INTO')) {
                     document.getElementById('ct-insert-sql').value = _d.generated_sql;
-                    _ctState.v54_active = true;
-                    if (typeof _renderV54Result === 'function') { try { _renderV54Result(_d); } catch (_e2) {} }
+                    if (_useV18) {
+                        _ctState.v18_active = true;
+                        _ctState.v18_result = _d;
+                        // Anti-false-green: surface unmapped BUSINESS NULL-stubs
+                        // (audit columns are excluded by the backend classifier).
+                        const _biz = _d.business_stub_columns || [];
+                        if (_biz.length) {
+                            showToast('v18 INSERT generated, but ' + _biz.length
+                                + ' business column(s) are unmapped (NULL stubs) and need review: '
+                                + _biz.slice(0, 8).join(', ') + (_biz.length > 8 ? '…' : ''), 'warning');
+                        }
+                    } else {
+                        _ctState.v54_active = true;
+                        if (typeof _renderV54Result === 'function') { try { _renderV54Result(_d); } catch (_e2) {} }
+                    }
+                } else {
+                    showToast(_eng + ' build returned no INSERT — check target/profile/sheet.', 'error');
                 }
+            } else {
+                // Gate V3 false-green fix: surface the server error; do NOT keep stale SQL.
+                let _msg = 'HTTP ' + _r.status;
+                try { const _j = await _r.json(); if (_j && _j.detail) _msg = _j.detail; } catch (_) {}
+                showToast(_eng + ' build failed: ' + _msg, 'error');
             }
-        } catch (_e) { console.warn('v5.4 build during generate failed:', _e); }
+        } catch (_e) {
+            showToast('Control-table build error: ' + (_e.message || _e), 'error');
+        }
         document.getElementById('ct-output').style.display = '';
         setControlTableStep3Tab('compare');
         resetMainJoinsFromGeneratedSql();
@@ -7199,9 +7229,10 @@ async function generateControlTableTests() {
         }
 
         _renderControlTableValidation(res);
-        if (_ctState.v54_active) {
-            // Re-run the comparison against the v5.4 insert (operator: the grid must
-            // look at the new insert, not the legacy one) so Apply Fixes works on v5.4.
+        if (_ctState.v54_active || _ctState.v18_active) {
+            // Re-run the comparison against the freshly generated insert (v18 or v5.4)
+            // so the Comparison Grid + Apply Fixes operate on the new SQL in the
+            // editor, not the legacy analyze output.
             try { await compareControlTableStatements('all'); }
             catch (_e) { _renderControlTableComparison(res.comparison || {}); }
         } else {

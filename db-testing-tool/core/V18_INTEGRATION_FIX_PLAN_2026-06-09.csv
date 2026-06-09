@@ -1,0 +1,13 @@
+section,id,scope,status,commit_or_detail
+gate,V0,KB/datasource fix,NO-OP,KBs equivalent; FREEPDB1=LH mirror ds2; proof v18>>v54
+gate,V1,safe v18 mount: helper + authed POST /build-v18,DONE,8af41e4
+gate,V2,EXPLAIN-PLAN cert harness + business-stub surfacing,DONE,0963a5d
+gate,V2+,configurable control-schema retarget (not hardcoded) -> clean PASS,DONE,5f2eb85
+gate,V3,wire Control Table UI Build -> /build-v18 + control_schema + stub banner + fix bare-catch,IN_PROGRESS,-
+gate,V4,drive business NULL-stubs to 0 + repoint Site A + full GUI regression,PENDING,-
+gate,V5,ODI-vs-DRD compare fresh/no-state-leak (operator C1),PENDING,new
+cert,AVY,IKOROSTELEV.AVY_FACT,KNOWN_MISMATCH,business_stubs=1 (missing prod view ENTERPRISE_ENTITY_RISK_DIMENSION_V)
+cert,CLOSE,IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT,PASS,business_stubs=8 clean 0-ORA
+cert,OPEN,IKOROSTELEV.OPN_TAX_LOTS_NON_BKR_FACT,PASS,business_stubs=7 clean 0-ORA
+comment,C1,ODI-vs-DRD compare showed AVY_FACT cols for IMP_OTSND upload,V5,stale-state/sheet-autodetect/fallback; fresh-compare guarantee violated
+comment,C2,AVY missing view,V4-note,ENTITY_DIM_V exists but RISK_DIMENSION_V missing (real mirror gap; KNOWN_MISMATCH correct)
