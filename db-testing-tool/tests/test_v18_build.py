@@ -22,6 +22,7 @@ from app.services.v18_insert import (
     V18_TOOL_ROOT,
     V18BuildError,
     _DEFAULT_SCHEMA_KB,
+    _fix_alias_in_on,
     build_v18_insert_to_dir,
 )
 
@@ -113,6 +114,41 @@ def test_build_v18_retargets_to_control_schema():
     finally:
         gc.collect()
         shutil.rmtree(td, ignore_errors=True)
+
+
+# --- V7: alias-in-ON post-fix (pure logic, no DB) ------------------------------
+
+def test_fix_alias_in_on_replaces_bare_alias_in_join_on():
+    sql = (
+        "INSERT INTO O.T (A, B)\n"
+        "SELECT AR_GRP_SUBDIM.FA_NUM AS OWN_FA_NUM,\n"
+        "  FA_NUMBER_V.FA_NUMBER_ENTITY_CODE AS OWN_FA_NUM_ENT_CD\n"
+        "FROM CCAL.TXN TXN\n"
+        "    LEFT JOIN SSDS.FA_NUMBER_V FA_NUMBER_V ON FA_NUMBER_V.FA_NUMBER = OWN_FA_NUM and TXN.td >= FA_NUMBER_V.EFFECTIVE_DATE\n"
+        "    LEFT JOIN SSDS.ENTERPRISE_ENTITY_DIM_V E ON E.Entity_code_long = OWN_FA_NUM_ENT_CD\n"
+    )
+    fixed, names = _fix_alias_in_on(sql)
+    assert "FA_NUMBER_V.FA_NUMBER = AR_GRP_SUBDIM.FA_NUM" in fixed   # OWN_FA_NUM inlined in ON
+    assert "E.Entity_code_long = FA_NUMBER_V.FA_NUMBER_ENTITY_CODE" in fixed
+    assert {"OWN_FA_NUM", "OWN_FA_NUM_ENT_CD"} <= {n.upper() for n in names}
+    # the SELECT-list alias DEFINITIONS are untouched
+    assert "AS OWN_FA_NUM," in fixed
+    assert "AS OWN_FA_NUM_ENT_CD" in fixed
+
+
+def test_fix_alias_in_on_noop_when_no_alias_in_on():
+    sql = ("INSERT INTO O.T (A)\nSELECT X.C AS A\nFROM S.X X\n    LEFT JOIN S.Y Y ON Y.id = X.id\n")
+    fixed, names = _fix_alias_in_on(sql)
+    assert names == []
+    assert fixed == sql
+
+
+def test_fix_alias_in_on_protects_qualified_refs():
+    # a QUALIFIED ref (A.OWN_FA_NUM) in ON must NOT be rewritten (only bare aliases)
+    sql = ("SELECT A.FA AS OWN_FA_NUM\nFROM S.A A\n    JOIN S.B B ON B.x = A.OWN_FA_NUM\n")
+    fixed, names = _fix_alias_in_on(sql)
+    assert "A.OWN_FA_NUM" in fixed
+    assert names == []
 
 
 def test_build_v18_rejects_non_excel():

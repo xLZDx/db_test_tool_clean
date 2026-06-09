@@ -60,6 +60,43 @@ class V18BuildError(RuntimeError):
     """
 
 
+def _fix_alias_in_on(sql: str) -> tuple[str, list]:
+    """Fix v18's ORA-00904: it sometimes puts a SELECT-list OUTPUT ALIAS inside a
+    JOIN ON predicate, e.g. ``ON FA_NUMBER_V.FA_NUMBER = OWN_FA_NUM`` where
+    ``AR_GRP_SUBDIM.FA_NUM AS OWN_FA_NUM`` is in the SELECT. Oracle does not expose
+    SELECT aliases in ON scope -> invalid identifier.
+
+    Generic + safe: build alias -> QUALIFIED source (``a.b AS ALIAS``); then, ONLY
+    inside JOIN-line ON predicates, replace a BARE identifier equal to such an alias
+    with its source. Qualified refs (``x.ALIAS``) are protected by the lookbehind, so
+    real join columns are never touched; tables without the pattern are a no-op.
+    Returns (fixed_sql, [aliases_fixed]).
+    """
+    alias_src = {}
+    # qualified-source aliases: "<a.b> AS ALIAS" terminated by comma / whitespace
+    # (e.g. newline before FROM, for the last SELECT item) / close-paren / end.
+    for m in re.finditer(r"(?<![.\w])([A-Za-z0-9_$#]+\.[A-Za-z0-9_$#]+)\s+AS\s+([A-Za-z0-9_$#]+)(?=[\s,)]|$)",
+                         sql, re.I):
+        alias_src[m.group(2).upper()] = m.group(1)
+    if not alias_src:
+        return sql, []
+    fixed, out_lines = [], []
+    for line in sql.split("\n"):  # split (not splitlines) -> exact identity when no change
+        if re.search(r"\bJOIN\b", line, re.I):
+            jm = re.search(r"\bON\b", line, re.I)
+            if jm:
+                head, tail = line[:jm.end()], line[jm.end():]
+                for cand, src in alias_src.items():
+                    new_tail = re.sub(r"(?<![.\w])" + re.escape(cand) + r"(?![.\w])", src, tail)
+                    if new_tail != tail:
+                        tail = new_tail
+                        if cand not in fixed:
+                            fixed.append(cand)
+                line = head + tail
+        out_lines.append(line)
+    return "\n".join(out_lines), fixed
+
+
 def build_v18_insert_to_dir(
     drd_path: Path,
     out_dir: Path,
@@ -142,6 +179,10 @@ def build_v18_insert_to_dir(
             "resolved; check sheet/header/columns, --profile, or the target owner)."
         )
 
+    # Fix v18's alias-in-ON ORA-00904 (SELECT alias used in a JOIN ON predicate).
+    # Done on the raw SQL before any retarget (ON clauses are unaffected by retarget).
+    sql, on_alias_fixes = _fix_alias_in_on(sql)
+
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
     # Control Schema") -- NOT hardcoded. v18 emits the production owner; when a
@@ -192,4 +233,5 @@ def build_v18_insert_to_dir(
         "target": effective_target,
         "production_target": production_target,
         "control_schema": cs or None,
+        "on_alias_fixes": on_alias_fixes,
     }
