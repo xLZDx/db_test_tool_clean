@@ -370,6 +370,106 @@ def _coerce_number_varchar_joins(sql: str, kb, len_resolver) -> tuple[str, list]
     return "\n".join(out_lines), coerced
 
 
+def _nvl_wrap_expr(val: str, dtype: Optional[str]) -> Optional[str]:
+    """Wrap a projection value in ``NVL(.., <type default>)`` for a target column
+    data type, or None when the type is unknown (-> leave it unwrapped).
+
+    For VARCHAR targets the value is run through ``TO_CHAR`` first so the NVL
+    operands are always strings -- this is a no-op on strings but converts a NUMBER
+    expr (a DRD type mismatch), avoiding ``NVL(number, ' ')`` -> ORA-01722."""
+    d = (dtype or "").strip().upper()
+    if not d:
+        return None
+    if d.startswith("TIMESTAMP"):
+        return f"NVL({val}, TIMESTAMP '1900-01-01 00:00:00')"
+    if d == "DATE":
+        return f"NVL({val}, DATE '1900-01-01')"
+    if d in ("NUMBER", "FLOAT", "INTEGER", "INT", "DECIMAL", "NUMERIC",
+             "BINARY_FLOAT", "BINARY_DOUBLE", "SMALLINT"):
+        return f"NVL({val}, 0)"
+    if d in ("VARCHAR2", "VARCHAR", "CHAR", "NVARCHAR2", "NCHAR"):
+        return f"NVL(TO_CHAR({val}), ' ')"
+    if d in ("CLOB", "NCLOB"):
+        return f"NVL({val}, ' ')"
+    return None
+
+
+def _wrap_projection_in_nvl(sql: str, prod_owner: str, prod_table: str, type_resolver) -> tuple[str, int]:
+    """V14: wrap every projected value in ``NVL(<value>, <type-default>)`` so NULLs
+    become a type-appropriate default -> the faithful (NOT NULL-preserving) control
+    table never gets ORA-01400, WITHOUT weakening the table to nullable (operator:
+    "we don't fit tests to results"). The default per the TARGET column's data type
+    (``type_resolver(owner, table, col)`` -- DB-backed, caller-supplied). No-op
+    without a resolver, on already-NVL'd values, or where the type is unknown.
+    Returns (sql, wrapped_count)."""
+    if type_resolver is None:
+        return sql, 0
+    try:
+        work = sql.rstrip()
+        trailing = ""
+        if work.endswith(";"):
+            work, trailing = work[:-1].rstrip(), ";"
+        m = re.search(r"\bINSERT\s+INTO\s+" + _IDENT_RE + r"\." + _IDENT_RE + r"\s*\(", work, re.I)
+        if not m:
+            return sql, 0
+        p = work.find("(", m.end() - 1)
+        depth, col_end = 0, -1
+        for i in range(p, len(work)):
+            if work[i] == "(":
+                depth += 1
+            elif work[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    col_end = i
+                    break
+        if col_end < 0:
+            return sql, 0
+        ms = re.search(r"\bSELECT\b", work[col_end + 1:], re.I)
+        if not ms:
+            return sql, 0
+        proj_start = col_end + 1 + ms.end()
+        proj_and_from = work[proj_start:]
+        from_at = None
+        for idx, ch in _scan_top_level(proj_and_from):
+            if ch in "Ff" and re.match(r"FROM\b", proj_and_from[idx:idx + 5], re.I):
+                from_at = idx
+                break
+        if from_at is None:
+            return sql, 0
+        projection = proj_and_from[:from_at]
+        head = work[:proj_start]            # INSERT INTO tgt (cols) ... SELECT [hint]
+        tail = proj_and_from[from_at:]       # FROM ...
+        # split projection on top-level commas
+        exprs, start = [], 0
+        for idx, ch in _scan_top_level(projection):
+            if ch == ",":
+                exprs.append(projection[start:idx])
+                start = idx + 1
+        exprs.append(projection[start:])
+        wrapped, count = [], 0
+        for expr in exprs:
+            # last top-level ' AS '
+            last = None
+            for i, ch in _scan_top_level(expr):
+                if expr[i:i + 4].upper() == " AS ":
+                    last = i
+            if last is None:
+                wrapped.append(expr)
+                continue
+            val, out_col = expr[:last].strip(), expr[last + 4:].strip()
+            if not val.upper().startswith("NVL("):
+                w = _nvl_wrap_expr(val, type_resolver(prod_owner, prod_table, out_col))
+                if w:
+                    val = w
+                    count += 1
+            wrapped.append(f"\n       {val} AS {out_col}")
+        if count == 0:
+            return sql, 0
+        return head + ",".join(wrapped) + "\n" + tail + trailing, count
+    except Exception:  # noqa: BLE001 -- never break the build
+        return sql, 0
+
+
 def _inject_parallel_hint(sql: str, degree=None) -> str:
     """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
     scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
@@ -552,6 +652,7 @@ def build_v18_insert_to_dir(
     control_schema: Optional[str] = None,
     parallel: bool = True,
     varchar_len_resolver=None,
+    target_type_resolver=None,
     timeout_s: int = _DEFAULT_TIMEOUT_S,
 ) -> Dict[str, Any]:
     """Run the vendored v18 insert builder and return its result.
@@ -678,6 +779,13 @@ def build_v18_insert_to_dir(
             sql, coerced_joins = _coerce_number_varchar_joins(sql, _kb, varchar_len_resolver)
         except Exception:  # noqa: BLE001 -- never break the build over coercion
             coerced_joins = []
+    # V14: NVL-wrap every projected value with a type-appropriate default so the
+    # faithful (NOT NULL) control table never gets ORA-01400 -- without weakening the
+    # schema. Done before staging so the staged projection carries the NVL wrappers.
+    nvl_wrapped = 0
+    if target_type_resolver is not None:
+        sql, nvl_wrapped = _wrap_projection_in_nvl(
+            sql, str(target_schema).strip(), str(target_table).strip(), target_type_resolver)
 
     # Optional control-schema retarget. The same config the rest of the
     # control-table flow uses (request `control_schema`, settings "Default
@@ -761,6 +869,7 @@ def build_v18_insert_to_dir(
         "dropped_cross_joins": dropped_cross_joins,
         "promoted_base": promoted_base,
         "coerced_joins": coerced_joins,
+        "nvl_wrapped": nvl_wrapped,
         "parallel_hint": bool(parallel),
         "staged": staged,
         "stage_source_cols": stage_source_cols,

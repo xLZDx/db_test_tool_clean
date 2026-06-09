@@ -26,6 +26,8 @@ from app.services.v18_insert import (
     _coerce_number_varchar_joins,
     _drop_unreferenced_cross_joins,
     _fix_alias_in_on,
+    _nvl_wrap_expr,
+    _wrap_projection_in_nvl,
     _inject_parallel_hint,
     _promote_real_base,
     _read_impl_null_status,
@@ -501,6 +503,39 @@ def test_coerce_noop_when_resolver_returns_no_length():
 def test_coerce_noop_without_resolver_or_kb():
     out, coerced = _coerce_number_varchar_joins(_CCY_SQL, None, None)
     assert out == _CCY_SQL and coerced == []
+
+
+# --- V14: NVL-wrap the projection by target type (avoid ORA-01400 on NOT NULL) -----
+
+def test_nvl_wrap_expr_by_type():
+    assert _nvl_wrap_expr("X.A", "NUMBER") == "NVL(X.A, 0)"
+    assert _nvl_wrap_expr("X.A", "VARCHAR2") == "NVL(TO_CHAR(X.A), ' ')"   # TO_CHAR avoids NVL(number,' ')
+    assert _nvl_wrap_expr("X.A", "CHAR") == "NVL(TO_CHAR(X.A), ' ')"
+    assert _nvl_wrap_expr("X.A", "DATE") == "NVL(X.A, DATE '1900-01-01')"
+    assert _nvl_wrap_expr("X.A", "TIMESTAMP(6)") == "NVL(X.A, TIMESTAMP '1900-01-01 00:00:00')"
+    assert _nvl_wrap_expr("X.A", None) is None
+    assert _nvl_wrap_expr("X.A", "RAW") is None
+
+
+def test_wrap_projection_in_nvl_wraps_each_column_by_target_type():
+    sql = ("INSERT INTO O.T (A, B, C)\n"
+           "SELECT AR_DIM.AR_DIM_ID AS A,\n    NULL AS B,\n    X.NAME AS C\n"
+           "FROM S.TXN TXN\n    LEFT JOIN S.AR_DIM AR_DIM ON AR_DIM.id = TXN.id;")
+    types = {"A": "NUMBER", "B": "NUMBER", "C": "VARCHAR2"}
+    out, n = _wrap_projection_in_nvl(sql, "O", "T", lambda o, t, c: types.get(c))
+    assert n == 3
+    assert "NVL(AR_DIM.AR_DIM_ID, 0) AS A" in out
+    assert "NVL(NULL, 0) AS B" in out
+    assert "NVL(TO_CHAR(X.NAME), ' ') AS C" in out
+    assert out.rstrip().endswith(";")            # terminator preserved
+    # the join (not the projection) is untouched
+    assert "ON AR_DIM.id = TXN.id" in out
+
+
+def test_wrap_projection_in_nvl_noop_without_resolver():
+    sql = "INSERT INTO O.T (A)\nSELECT X.A AS A\nFROM S.X X"
+    out, n = _wrap_projection_in_nvl(sql, "O", "T", None)
+    assert out == sql and n == 0
 
 
 def test_build_v18_rejects_non_excel():

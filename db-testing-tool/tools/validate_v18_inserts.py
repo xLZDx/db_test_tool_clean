@@ -220,6 +220,25 @@ def main() -> int:
         _len_cache[key] = val
         return val
 
+    # V14 type resolver: target column data type (for the NVL default), cached.
+    _type_cache: dict = {}
+
+    def type_resolver(owner: str, table: str, col: str):
+        key = (owner.upper(), table.upper(), col.upper())
+        if key in _type_cache:
+            return _type_cache[key]
+        try:
+            cur = _len_raw.cursor()
+            cur.execute("SELECT data_type FROM all_tab_columns WHERE owner=:o "
+                        "AND table_name=:t AND column_name=:c", {"o": key[0], "t": key[1], "c": key[2]})
+            row = cur.fetchone()
+            cur.close()
+            val = row[0] if row else None
+        except Exception:  # noqa: BLE001
+            val = None
+        _type_cache[key] = val
+        return val
+
     kb = KBLookup(_SCHEMA_KB) if _SCHEMA_KB.exists() else None
 
     results = []
@@ -238,7 +257,8 @@ def main() -> int:
         try:
             res = build_v18_insert_to_dir(p, td / "out", target_schema=tsch, target_table=tgt,
                                           profile=prof, control_schema=(control_schema or None),
-                                          varchar_len_resolver=len_resolver)
+                                          varchar_len_resolver=len_resolver,
+                                          target_type_resolver=type_resolver)
             sql = res["generated_sql"]
             row["target"] = res["target"]
             row["sql_len"] = len(sql)

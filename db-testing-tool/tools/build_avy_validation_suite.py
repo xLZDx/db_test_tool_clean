@@ -73,9 +73,14 @@ def _cases(label, owner, table, key, ds, cschema, insert_sql, select_sql, staged
     prod = f"{owner}.{table}"
     common = dict(source_datasource_id=ds, target_datasource_id=ds, is_active=1,
                   is_ai_generated=0, tolerance=0.0, mapping_table=table)
-    # idempotent DDL: create-if-not-exists (swallow ORA-00955 table-already-exists)
-    ddl = (f"BEGIN EXECUTE IMMEDIATE 'CREATE TABLE {ctrl} AS SELECT * FROM {prod} WHERE 1=0'; "
-           f"EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END;")
+    # idempotent DDL: create-if-not-exists (swallow ORA-00955) THEN truncate, so each
+    # run loads a FRESH empty control table (clean-and-load ETL -> no accumulation /
+    # double counts / false uniqueness violations across re-runs).
+    ddl = (f"BEGIN "
+           f"BEGIN EXECUTE IMMEDIATE 'CREATE TABLE {ctrl} AS SELECT * FROM {prod} WHERE 1=0'; "
+           f"EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END; "
+           f"EXECUTE IMMEDIATE 'TRUNCATE TABLE {ctrl}'; "
+           f"END;")
     # row-count source: count the staged JOIN (cheap) not the 369-col projection (the wall)
     inner = _inner_stg(insert_sql) if staged else None
     src_count = (f"WITH stg AS (\n{inner}\n) SELECT COUNT(*) AS CNT FROM stg"
@@ -170,19 +175,60 @@ def _make_len_resolver(ds_id: int):
     return resolve
 
 
+def _make_type_resolver(ds_id: int):
+    """DB-backed target-column data-type resolver (for the V14 NVL default)."""
+    try:
+        with sync_engine.begin() as c:
+            row = c.execute(text("SELECT * FROM datasources WHERE id=:i"), {"i": ds_id}).fetchone()
+        if row is None:
+            return None
+        ds = DataSource()
+        for k, v in row._mapping.items():
+            setattr(ds, k, v)
+        raw = get_connector(ds)._direct_connect()
+    except Exception:  # noqa: BLE001
+        return None
+    cache: dict = {}
+
+    def resolve(owner: str, table: str, col: str):
+        key = (owner.upper(), table.upper(), col.upper())
+        if key in cache:
+            return cache[key]
+        try:
+            cur = raw.cursor()
+            cur.execute("SELECT data_type FROM all_tab_columns WHERE owner=:o "
+                        "AND table_name=:t AND column_name=:c", {"o": key[0], "t": key[1], "c": key[2]})
+            r = cur.fetchone()
+            cur.close()
+            val = r[0] if r else None
+        except Exception:  # noqa: BLE001
+            val = None
+        cache[key] = val
+        return val
+
+    return resolve
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ds", type=int, default=2)
     ap.add_argument("--control-schema", default="IKOROSTELEV")
+    ap.add_argument("--only", default="", help="comma-separated target labels to include "
+                    "(e.g. AVY); default = all")
+    ap.add_argument("--folder", default=_FOLDER, help="Test Case Management folder name")
     args = ap.parse_args()
     cschema = args.control_schema.strip().upper()
+    folder_name = args.folder.strip() or _FOLDER
+    only = {x.strip().upper() for x in args.only.split(",") if x.strip()}
+    targets = [t for t in TARGETS if (not only or t[0].upper() in only)]
 
     # V13 length resolver (pad width from the VARCHAR column's numeric-value width;
     # correct against clean data, no-op on the dev mirror's garbage CCY).
     len_resolver = _make_len_resolver(args.ds)
+    type_resolver = _make_type_resolver(args.ds)
 
     all_rows, summary = [], []
-    for label, rel, owner, table, prof, key in TARGETS:
+    for label, rel, owner, table, prof, key in targets:
         drd = _REPO / rel
         note = ""
         staged = False
@@ -194,7 +240,8 @@ def main() -> int:
             res = build_v18_insert_to_dir(drd, td / "o", target_schema=owner,
                                           target_table=table, profile=prof,
                                           control_schema=cschema,
-                                          varchar_len_resolver=len_resolver)
+                                          varchar_len_resolver=len_resolver,
+                                          target_type_resolver=type_resolver)
             insert_sql = res["generated_sql"]
             staged = bool(res.get("staged"))
             select_sql = _select_only(insert_sql) or insert_sql
@@ -212,10 +259,10 @@ def main() -> int:
     # persist: get-or-create folder, clear its prior cases, insert fresh
     created = 0
     with sync_engine.begin() as c:
-        fid = c.execute(text("SELECT id FROM test_folders WHERE name=:n"), {"n": _FOLDER}).scalar()
+        fid = c.execute(text("SELECT id FROM test_folders WHERE name=:n"), {"n": folder_name}).scalar()
         if fid is None:
-            c.execute(text("INSERT INTO test_folders (name) VALUES (:n)"), {"n": _FOLDER})
-            fid = c.execute(text("SELECT id FROM test_folders WHERE name=:n"), {"n": _FOLDER}).scalar()
+            c.execute(text("INSERT INTO test_folders (name) VALUES (:n)"), {"n": folder_name})
+            fid = c.execute(text("SELECT id FROM test_folders WHERE name=:n"), {"n": folder_name}).scalar()
         old = [r[0] for r in c.execute(
             text("SELECT test_case_id FROM test_case_folders WHERE folder_id=:f"), {"f": fid}).fetchall()]
         for tcid in old:
@@ -237,7 +284,7 @@ def main() -> int:
     md = _REPO / "data" / f"avy_validation_suite_{ts}.md"
     csvp = _REPO / "data" / f"avy_validation_suite_{ts}.csv"
     lines = [f"# AVY validation test suite -- saved to Test Case Management ({ts})",
-             f"Folder: **{_FOLDER}**  |  datasource ds={args.ds}  |  control schema {cschema}",
+             f"Folder: **{folder_name}**  |  datasource ds={args.ds}  |  control schema {cschema}",
              f"Test cases created: **{created}**", "",
              "| target | table | build | cases |", "|---|---|---|---|"]
     for lbl, tbl, st, n in summary:
@@ -252,7 +299,7 @@ def main() -> int:
         for r in all_rows:
             w.writerow([r["name"], r["test_type"], r["severity"], r.get("mapping_table", ""), r["description"]])
 
-    print(f"Folder '{_FOLDER}' -> {created} test cases saved")
+    print(f"Folder '{folder_name}' -> {created} test cases saved")
     for lbl, tbl, st, n in summary:
         print(f"  [{lbl}] {tbl}: {st} ({n} cases)")
     print(f"Report: {md}")
