@@ -1,0 +1,854 @@
+# Universal DRD / ODI / Generated INSERT Tool v18.0 — Полная инструкция
+
+Дата: 2026-06-08  
+Версия: **v18.0**  
+Главный архив tool: `drd_odi_insert_universal_tool_v18_0.zip`
+
+---
+
+## 1. Назначение tool
+
+`v18.0` — это универсальный Hybrid/API-first tool для полного цикла:
+
+1. Сравнить **DRD Excel** с **ODI XML File 1**.
+2. Сравнить **DRD Excel** с **ODI XML File 2**.
+3. Сравнить **ODI File 1 vs ODI File 2**.
+4. Сгенерировать **INSERT/SELECT** на основании DRD.
+5. Проверить generated INSERT против DRD и ODI.
+6. Сформировать финальные отчёты:
+   - API JSON как canonical output.
+   - Excel как optional export.
+
+Главная архитектурная идея:
+
+```text
+existing backend/app = source of truth
+v18.0 universal core = compare + insert + API-first report contract
+Excel = optional export/rendering
+```
+
+---
+
+## 2. Что учтено в v18.0
+
+v18.0 учитывает последние замечания по v17.5/v17.6:
+
+### Исправлено API-first
+
+Раньше в v17.5 было неправильно:
+
+```text
+raw compare/insert outputs
+→ Excel workbook
+→ JSON через openpyxl.load_workbook(...)
+```
+
+Это был Excel-first pipeline с JSON-обёрткой.
+
+В v18.0 правильно:
+
+```text
+raw compare/insert outputs
+→ native API JSON model
+→ optional Excel rendering from JSON
+```
+
+То есть:
+
+```bash
+--report-mode api
+```
+
+**не создаёт внутренний Excel** и **не парсит Excel обратно в JSON**.
+
+### Исправлено false-green поведение
+
+Теперь `returncode=0` означает только:
+
+```text
+process_status = ARTIFACTS_GENERATED
+```
+
+Это значит: артефакты собраны.
+
+Но бизнес-ответ надо смотреть отдельно:
+
+```text
+business_status
+```
+
+Возможные значения:
+
+```text
+SOLVED_OR_NO_ACTIVE_REVIEW_ROWS
+REVIEW_REQUIRED
+INSERT_BLOCKER
+NOT_EVALUATED
+```
+
+### Добавлен CI/business gate
+
+Если нужно, чтобы pipeline падал при unresolved бизнес-статусе:
+
+```bash
+--fail-on-business-status REVIEW_REQUIRED,INSERT_BLOCKER
+```
+
+### Добавлены fail-loud gates
+
+v18.0 не должен молча создавать false-green пустой report, если:
+
+```text
+- отсутствуют обязательные raw compare files
+- отсутствуют обязательные insert files
+- non-summary report rows = 0
+```
+
+---
+
+## 3. Что внутри архива
+
+После распаковки `drd_odi_insert_universal_tool_v18_0.zip` будет папка:
+
+```text
+drd_odi_insert_universal_tool_v18_0/
+```
+
+Основные файлы:
+
+```text
+full_cycle_drd_odi_insert.py          # главный CLI runner
+api_first_report_builder.py           # native JSON/API report builder
+api_report_server.py                  # optional read-only API server
+universal_report_contracts.py         # process/business/report enums
+
+backend_integration/
+  service_adapter.py                  # adapter для текущего backend
+  fastapi_router.py                   # optional FastAPI router scaffold
+
+compare_engine/
+  compare_drd_odi_v16_6_generic_rule_proof.py
+  compare_drd_odi_v16_6_fast_generic_rule_proof.py
+  generate_independent_reports.py
+  ...
+
+insert_builder/
+  universal_insert_builder.py         # v6.2 config-driven insert builder wrapper
+  hardcode_gate.py
+  profiles/
+    lh_ds3_resolution_profile.json
+    no_hardcoded_business_tokens.json
+    rule_patterns.json
+    column_semantic_rules.json
+  engine_templates/
+    universal_insert_builder.py.tpl
+    compare_drd_odi_universal.py.tpl
+
+DREAM_TEAM_REVIEW_AND_PLAN.md
+README.md
+requirements.txt
+```
+
+---
+
+## 4. Установка
+
+### 4.1 Распаковать архив
+
+PowerShell:
+
+```powershell
+Expand-Archive -LiteralPath "drd_odi_insert_universal_tool_v18_0.zip" -DestinationPath "." -Force
+Set-Location ".\drd_odi_insert_universal_tool_v18_0"
+```
+
+### 4.2 Создать virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Если PowerShell не даёт активировать venv:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+### 4.3 Установить зависимости
+
+```powershell
+pip install -r requirements.txt
+```
+
+Минимально важная зависимость:
+
+```text
+openpyxl
+```
+
+---
+
+## 5. Главная команда полного цикла
+
+Пример для AVY:
+
+```powershell
+python full_cycle_drd_odi_insert.py ^
+  --xlsx "DRD_Activity_Fact.xlsx" ^
+  --original-xml "odi_file_1.xml" ^
+  --fixed-xml "odi_file_2.xml" ^
+  --schema-kb "schema_kb_ds_3.json" ^
+  --out "out_full_cycle" ^
+  --profile avy ^
+  --target-schema TRANSACTIONS_OWNER ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD ^
+  --report-mode both
+```
+
+---
+
+## 6. Параметры команды
+
+### Обязательные для полного from-scratch run
+
+```text
+--xlsx              DRD Excel file
+--original-xml      ODI XML File 1
+--fixed-xml         ODI XML File 2
+--out               output folder
+```
+
+### Очень желательные
+
+```text
+--schema-kb         schema KB json for SQL validation
+--profile           auto / generic / avy / taxlot
+--target-schema     target schema
+--target-table      target table
+--mapping-sheet     DRD sheet name, usually "Table-View"
+--target-col        target column in DRD, usually B
+--source-cols       source columns in DRD, usually Y,Z,AA
+--rule-col          transformation rule column, usually AD
+```
+
+### Report mode
+
+```text
+--report-mode api
+--report-mode excel
+--report-mode both
+```
+
+### CI/business gate
+
+```text
+--fail-on-business-status REVIEW_REQUIRED,INSERT_BLOCKER
+```
+
+### Reuse mode
+
+```text
+--existing-compare-out
+--existing-insert-out
+```
+
+---
+
+## 7. Report modes
+
+### 7.1 API-only mode
+
+```powershell
+python full_cycle_drd_odi_insert.py ^
+  --xlsx "DRD.xlsx" ^
+  --original-xml "odi1.xml" ^
+  --fixed-xml "odi2.xml" ^
+  --schema-kb "schema_kb_ds_3.json" ^
+  --out "out_api_only" ^
+  --profile avy ^
+  --target-schema TRANSACTIONS_OWNER ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD ^
+  --report-mode api
+```
+
+Создаёт:
+
+```text
+out_api_only/
+  final_reports/
+    api/
+      manifest.json
+      step1_compare_report.json
+      step4_full_cycle_report.json
+      openapi_contract.json
+      step1/
+        tabs/*.json
+      step4/
+        tabs/*.json
+  full_cycle_run_summary.json
+```
+
+В API-only режиме Excel reports не публикуются.
+
+---
+
+### 7.2 Excel-only mode
+
+```powershell
+python full_cycle_drd_odi_insert.py ^
+  --xlsx "DRD.xlsx" ^
+  --original-xml "odi1.xml" ^
+  --fixed-xml "odi2.xml" ^
+  --schema-kb "schema_kb_ds_3.json" ^
+  --out "out_excel_only" ^
+  --profile avy ^
+  --target-schema TRANSACTIONS_OWNER ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD ^
+  --report-mode excel
+```
+
+Создаёт:
+
+```text
+out_excel_only/
+  final_reports/
+    step1_compare_report.xlsx
+    step4_full_cycle_report.xlsx
+    final_full_cycle_report.xlsx
+  full_cycle_run_summary.json
+```
+
+---
+
+### 7.3 Both mode
+
+```powershell
+python full_cycle_drd_odi_insert.py ^
+  --xlsx "DRD.xlsx" ^
+  --original-xml "odi1.xml" ^
+  --fixed-xml "odi2.xml" ^
+  --schema-kb "schema_kb_ds_3.json" ^
+  --out "out_both" ^
+  --profile avy ^
+  --target-schema TRANSACTIONS_OWNER ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD ^
+  --report-mode both
+```
+
+Создаёт и API JSON, и Excel.
+
+---
+
+## 8. Output structure
+
+Типичный output:
+
+```text
+out_full_cycle/
+  odi_compare/
+    independent_reports/
+      independent_reports.xlsx
+    delta_report_v16_6_generic_rule_proof.csv
+    original_v15_mismatch_rows.csv
+    fixed_v15_mismatch_rows.csv
+    original_vs_fixed_resolved_xml_delta.csv
+    sql_block_differences.csv
+    ...
+
+  insert_builder/
+    generated_insert_select_candidate.sql
+    tri_compare_report.csv
+    implementation_map.csv
+    final_consistency_summary.json
+    hardcode_gate_report.json
+    .generated_profile_engine/
+    ...
+
+  final_reports/
+    api/
+      manifest.json
+      step1_compare_report.json
+      step4_full_cycle_report.json
+      openapi_contract.json
+      step1/tabs/*.json
+      step4/tabs/*.json
+
+    step1_compare_report.xlsx
+    step4_full_cycle_report.xlsx
+    final_full_cycle_report.xlsx
+    full_cycle_summary.json
+
+  full_cycle_run_summary.json
+```
+
+---
+
+## 9. Step reports
+
+Tool публикует reports в 2 ключевых момента:
+
+### После Step 1
+
+```text
+final_reports/api/step1_compare_report.json
+final_reports/step1_compare_report.xlsx   # если report-mode excel/both
+```
+
+Это DRD/ODI comparison.
+
+### После Step 4
+
+```text
+final_reports/api/step4_full_cycle_report.json
+final_reports/step4_full_cycle_report.xlsx
+final_reports/final_full_cycle_report.xlsx
+```
+
+Это DRD/ODI/generated INSERT full-cycle report.
+
+---
+
+## 10. Excel tabs
+
+Если включён Excel, финальный workbook содержит:
+
+```text
+Summary
+DRD vs ODI File 1
+DRD vs ODI File 2
+DRD vs ODI1 vs ODI2
+ODI1 vs ODI2 Columns
+ODI1 vs ODI2 SQL Blocks
+DRD vs ODI vs INSERT
+```
+
+Главный tab для финального бизнес-ответа:
+
+```text
+DRD vs ODI vs INSERT
+```
+
+Формат:
+
+```text
+Area / Columns
+Conclusion
+Difference Type
+DRD Mapping Logic
+ODI XML Logic
+Generated INSERT Logic
+Recommended Action
+```
+
+---
+
+## 11. API artifacts
+
+Главный API file:
+
+```text
+final_reports/api/manifest.json
+```
+
+В нём смотреть:
+
+```text
+process_status
+business_status
+reports.step1
+reports.step4
+generated_files
+```
+
+Step 1 full JSON:
+
+```text
+final_reports/api/step1_compare_report.json
+```
+
+Step 4 full JSON:
+
+```text
+final_reports/api/step4_full_cycle_report.json
+```
+
+Tabs отдельно:
+
+```text
+final_reports/api/step1/tabs/DRD_vs_ODI_File_1.json
+final_reports/api/step1/tabs/DRD_vs_ODI_File_2.json
+final_reports/api/step1/tabs/DRD_vs_ODI1_vs_ODI2.json
+final_reports/api/step1/tabs/ODI1_vs_ODI2_Columns.json
+final_reports/api/step1/tabs/ODI1_vs_ODI2_SQL_Blocks.json
+
+final_reports/api/step4/tabs/DRD_vs_ODI_vs_INSERT.json
+...
+```
+
+---
+
+## 12. Process status vs business status
+
+### process_status
+
+Говорит, успешно ли собраны артефакты.
+
+```text
+ARTIFACTS_GENERATED
+FAILED_INPUT_CONTRACT
+FAILED_ENGINE
+FAILED_REPORT_GENERATION
+```
+
+### business_status
+
+Говорит, решён ли бизнес-вопрос.
+
+```text
+SOLVED_OR_NO_ACTIVE_REVIEW_ROWS
+REVIEW_REQUIRED
+INSERT_BLOCKER
+NOT_EVALUATED
+```
+
+Важно:
+
+```text
+returncode=0 != business solved
+returncode=0 = artifacts generated
+```
+
+Если `business_status = REVIEW_REQUIRED`, это нормальный process success, но бизнес-review ещё нужен.
+
+---
+
+## 13. CI mode
+
+Обычный режим:
+
+```powershell
+python full_cycle_drd_odi_insert.py ... --report-mode api
+```
+
+Если review rows должны ломать CI:
+
+```powershell
+python full_cycle_drd_odi_insert.py ... ^
+  --report-mode api ^
+  --fail-on-business-status REVIEW_REQUIRED,INSERT_BLOCKER
+```
+
+Тогда:
+
+```text
+process success + REVIEW_REQUIRED -> non-zero return code
+process success + INSERT_BLOCKER  -> non-zero return code
+```
+
+---
+
+## 14. API server
+
+Запуск:
+
+```powershell
+python api_report_server.py ^
+  --api-dir out_full_cycle/final_reports/api ^
+  --host 127.0.0.1 ^
+  --port 8000
+```
+
+Endpoints:
+
+```text
+/health
+/manifest
+/step1
+/step1/tabs/{tab}
+/step4
+/step4/tabs/{tab}
+/openapi_contract
+```
+
+Примеры:
+
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/manifest
+http://127.0.0.1:8000/step4
+http://127.0.0.1:8000/step4/tabs/DRD_vs_ODI_vs_INSERT
+```
+
+---
+
+## 15. Backend integration
+
+В package есть:
+
+```text
+backend_integration/service_adapter.py
+backend_integration/fastapi_router.py
+```
+
+### service_adapter.py
+
+Использовать, если текущий backend уже есть и нужно просто вызвать tool из Python.
+
+Пример:
+
+```python
+from backend_integration.service_adapter import FullCycleRequest, run_full_cycle
+
+req = FullCycleRequest(
+    out="runs/avy_001",
+    xlsx="DRD_Activity_Fact.xlsx",
+    original_xml="odi_file_1.xml",
+    fixed_xml="odi_file_2.xml",
+    schema_kb="schema_kb_ds_3.json",
+    profile="avy",
+    target_schema="TRANSACTIONS_OWNER",
+    target_table="AVY_FACT",
+    mapping_sheet="Table-View",
+    target_col="B",
+    source_cols="Y,Z,AA",
+    rule_col="AD",
+    report_mode="api",
+)
+
+res = run_full_cycle(req)
+print(res.process_status)
+print(res.business_status)
+print(res.manifest_path)
+```
+
+### fastapi_router.py
+
+Если нужно быстро примонтировать router:
+
+```python
+from backend_integration.fastapi_router import router as drd_odi_router
+
+app.include_router(drd_odi_router, prefix="/drd-odi")
+```
+
+---
+
+## 16. Hardcode gate
+
+Insert builder v6.2 config-driven использует external profile config:
+
+```text
+insert_builder/profiles/lh_ds3_resolution_profile.json
+insert_builder/profiles/rule_patterns.json
+insert_builder/profiles/column_semantic_rules.json
+insert_builder/profiles/no_hardcoded_business_tokens.json
+```
+
+Hardcode gate:
+
+```powershell
+python insert_builder/hardcode_gate.py --root insert_builder
+```
+
+Ожидаемый результат:
+
+```text
+status: PASS
+finding_count: 0
+```
+
+Смысл:
+
+```text
+checked-in Python/templates не должны содержать бизнес-токены типа:
+SDIRA
+DB_CARD
+BKR_AR_ID
+MM_ALT_ID
+TRD_NUM
+CL_VAL_SDIRA
+...
+```
+
+Такие значения допустимы в:
+
+```text
+profiles/*.json
+generated runtime output
+reports
+user input/output
+```
+
+---
+
+## 17. Reuse mode
+
+Если compare и insert уже прогнаны отдельно:
+
+```powershell
+python full_cycle_drd_odi_insert.py ^
+  --out "out_reuse" ^
+  --existing-compare-out "path/to/odi_compare" ^
+  --existing-insert-out "path/to/insert_builder" ^
+  --report-mode both
+```
+
+Это удобно для быстрой регенерации финального report.
+
+---
+
+## 18. Separate insert run
+
+Можно отдельно запустить insert builder:
+
+```powershell
+python insert_builder/universal_insert_builder.py ^
+  --xlsx "DRD.xlsx" ^
+  --xml "odi_file_2.xml" ^
+  --out "out_insert_only" ^
+  --profile avy ^
+  --target-schema TRANSACTIONS_OWNER ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD ^
+  --schema-kb "schema_kb_ds_3.json"
+```
+
+Ожидаемые файлы:
+
+```text
+out_insert_only/generated_insert_select_candidate.sql
+out_insert_only/tri_compare_report.csv
+out_insert_only/implementation_map.csv
+out_insert_only/final_consistency_summary.json
+out_insert_only/hardcode_gate_report.json
+```
+
+---
+
+## 19. Separate compare run
+
+Можно отдельно запустить compare engine:
+
+```powershell
+python compare_engine/compare_drd_odi_v16_6_generic_rule_proof.py ^
+  --xlsx "DRD.xlsx" ^
+  --original-xml "odi_file_1.xml" ^
+  --fixed-xml "odi_file_2.xml" ^
+  --out "out_compare_only" ^
+  --profile avy ^
+  --target-table AVY_FACT ^
+  --mapping-sheet "Table-View" ^
+  --target-col B ^
+  --source-cols Y,Z,AA ^
+  --rule-col AD
+```
+
+Ожидаемые файлы:
+
+```text
+out_compare_only/independent_reports/independent_reports.xlsx
+out_compare_only/delta_report_v16_6_generic_rule_proof.csv
+out_compare_only/original_v15_mismatch_rows.csv
+out_compare_only/fixed_v15_mismatch_rows.csv
+out_compare_only/original_vs_fixed_resolved_xml_delta.csv
+out_compare_only/sql_block_differences.csv
+```
+
+---
+
+## 20. Recommended practical workflow
+
+### Для разработки
+
+```text
+1. Run compare separately
+2. Run insert separately
+3. Run full-cycle in reuse mode
+4. Inspect API manifest and DRD vs ODI vs INSERT tab
+5. Only then run from-scratch full-cycle
+```
+
+### Для CI
+
+```text
+1. --report-mode api
+2. parse final_reports/api/manifest.json
+3. check process_status
+4. check business_status
+5. optionally use --fail-on-business-status
+```
+
+### Для business review
+
+```text
+1. --report-mode both
+2. Review final_full_cycle_report.xlsx
+3. Focus on DRD vs ODI vs INSERT tab
+4. Use API JSON for automation / dashboard
+```
+
+---
+
+## 21. Dream Team verdict
+
+### Architect
+
+Use Hybrid architecture.
+
+```text
+existing backend/app = source of truth
+v18.0 = universal engine + report contract
+```
+
+Do not create a second production truth path.
+
+### QA
+
+Do not treat `returncode=0` as solved.
+
+Use:
+
+```text
+process_status
+business_status
+```
+
+### Risk reviewer
+
+False-green reports must fail loudly.
+
+### Code reviewer
+
+API JSON must be canonical. Excel must be export-only.
+
+### Final recommendation
+
+```text
+Use v18.0 as the working universal tool.
+Integrate it into existing backend via service_adapter.py.
+Expose manifest.json to UI/API.
+Keep Excel as optional export.
+```

@@ -1029,9 +1029,9 @@ async def compare_odi_vs_drd(
                 "unresolvable": 0,
                 "total": int(v16_mode1.get("mapping_rows") or 0),
                 "ok_count": int(b.get("matched", 0)),
-                "error_count": int(b.get("missing", 0))
-                + int(b.get("odi_extra", 0))
-                + int(b.get("logic_drift", 0))
+                # Keep v9 detail buckets, but align the headline count with
+                # v16 final review rows (still_open + fix_candidate + fixed_by_rule).
+                "error_count": int(b.get("logic_drift", 0))
                 + int(b.get("real_gap", 0))
                 + int(b.get("structural", 0)),
             }

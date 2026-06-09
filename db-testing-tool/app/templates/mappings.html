@@ -50,7 +50,91 @@
    full INSERT SQL is reachable. */
 #odi-sql-pre { resize: vertical; min-height: 60px; }
 #odi-val-card.odi-fs #odi-sql-pre { max-height: none; }
-#odi-v16-wrap { resize: vertical; min-height: 260px; }
+#odi-v15-result,
+#odi-v16-result {
+    resize: vertical;
+    min-height: 300px;
+    max-height: 78vh;
+    overflow: auto;
+}
+#odi-v15-diffwrap,
+#odi-v16-wrap {
+    resize: none;
+    min-height: 0;
+    max-width: 100%;
+    overflow: visible;
+    position: relative;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+#odi-v16-wrap { --odi-head-top: 0px; }
+#odi-v16-wrap .odi-v16-tabbar {
+    position: sticky;
+    top: 0;
+    z-index: 14;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+}
+.odi-grid-table thead {
+    position: sticky;
+    top: 0 !important;
+    z-index: 10;
+    background: var(--surface);
+}
+#odi-v16-wrap .odi-grid-table thead {
+    top: var(--odi-head-top, 0px) !important;
+}
+.odi-grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.odi-grid-th,
+.odi-grid-td {
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.odi-grid-th {
+    position: relative;
+    user-select: none;
+}
+.odi-grid-td-mono { font-family: monospace; font-size: 11px; }
+.odi-sort-btn {
+    all: unset;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 600;
+}
+.odi-col-resizer {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 2;
+}
+.odi-cell-pre {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    font-family: monospace;
+    font-size: 11px;
+}
 .tm-tfs-container { display:grid; grid-template-columns:1.15fr .95fr; gap:16px; }
 .tm-tfs-tree { border:1px solid var(--border); border-radius:8px; overflow:hidden; max-height:440px; overflow-y:auto; }
 .tm-tfs-tree-item { padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
@@ -8001,17 +8085,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span id="odi-v15-caption" style="font-size:12px;font-weight:600;color:var(--text-muted)">Differences</span>
                 <span id="odi-v15-shown" style="font-size:11px;color:var(--text-muted)"></span>
             </div>
-            <div id="odi-v15-diffwrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-                <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <div id="odi-v15-diffwrap" style="border:1px solid var(--border);border-radius:6px">
+                <table class="odi-grid-table" style="font-size:11px">
                     <thead style="position:sticky;top:0;background:var(--surface)">
                         <tr style="border-bottom:2px solid var(--border)">
-                            <th style="padding:6px 8px;text-align:left">#</th>
-                            <th style="padding:6px 8px;text-align:left">Area / Columns</th>
-                            <th style="padding:6px 8px;text-align:left">Difference Type</th>
-                            <th style="padding:6px 8px;text-align:left">Mapping Logic</th>
-                            <th style="padding:6px 8px;text-align:left">ODI XML Logic</th>
-                            <th style="padding:6px 8px;text-align:left">Conclusion</th>
-                            <th style="padding:6px 8px;text-align:left">Recommended Action</th>
+                            <th class="odi-grid-th">#</th>
+                            <th class="odi-grid-th">Area / Columns</th>
+                            <th class="odi-grid-th">Difference Type</th>
+                            <th class="odi-grid-th">Mapping Logic</th>
+                            <th class="odi-grid-th">ODI XML Logic</th>
+                            <th class="odi-grid-th">Conclusion</th>
+                            <th class="odi-grid-th">Recommended Action</th>
                         </tr>
                     </thead>
                     <tbody id="odi-v15-diffbody"></tbody>
@@ -8030,15 +8114,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span id="odi-v16-title" style="font-size:12px;font-weight:600;color:var(--text-muted)">Comparison result</span>
                 <span id="odi-v16-shown" style="font-size:11px;color:var(--text-muted)"></span>
             </div>
-            <div id="odi-v16-wrap" style="overflow-x:auto;max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-                <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <div id="odi-v16-wrap" style="border:1px solid var(--border);border-radius:6px">
+                <table class="odi-grid-table" style="font-size:11px">
                     <thead style="position:sticky;top:0;background:var(--surface)">
                         <tr style="border-bottom:2px solid var(--border)">
-                            <th style="padding:6px 8px;text-align:left">Target Column</th>
-                            <th style="padding:6px 8px;text-align:left">Delta Status</th>
-                            <th style="padding:6px 8px;text-align:left">XML Delta</th>
-                            <th style="padding:6px 8px;text-align:left">Proof</th>
-                            <th style="padding:6px 8px;text-align:left">Fixed Reason / Conclusion</th>
+                            <th class="odi-grid-th">Target Column</th>
+                            <th class="odi-grid-th">Delta Status</th>
+                            <th class="odi-grid-th">XML Delta</th>
+                            <th class="odi-grid-th">Proof</th>
+                            <th class="odi-grid-th">Fixed Reason / Conclusion</th>
                         </tr>
                     </thead>
                     <tbody id="odi-v16-body"></tbody>
@@ -8370,13 +8454,106 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    function _v16Grid(headers, rows, keyForCell) {
-        const head = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+    let _v16ActiveRenderer = null;
+    const _v16SortState = Object.create(null);
+
+    function _v16SortSlot(viewId) {
+        if (!_v16SortState[viewId]) _v16SortState[viewId] = { key: null, dir: 1 };
+        return _v16SortState[viewId];
+    }
+
+    function _v16SortIndicator(viewId, header) {
+        const s = _v16SortSlot(viewId);
+        if (s.key !== header) return '';
+        return s.dir > 0 ? '▲' : '▼';
+    }
+
+    function _v16SortRows(viewId, rows, headers, keyForCell) {
+        const s = _v16SortSlot(viewId);
+        if (!s.key) return rows.slice();
+        const key = s.key;
+        if (!headers.includes(key)) return rows.slice();
+        const cellKey = keyForCell(key);
+        const out = rows.slice();
+        out.sort((a, b) => {
+            const av = a && a[cellKey] != null ? String(a[cellKey]) : '';
+            const bv = b && b[cellKey] != null ? String(b[cellKey]) : '';
+            const an = Number(av);
+            const bn = Number(bv);
+            if (Number.isFinite(an) && Number.isFinite(bn) && av !== '' && bv !== '') {
+                return (an - bn) * s.dir;
+            }
+            return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' }) * s.dir;
+        });
+        return out;
+    }
+
+    window._v16SortBy = function(viewId, header) {
+        const s = _v16SortSlot(viewId);
+        if (s.key === header) s.dir = -s.dir;
+        else { s.key = header; s.dir = 1; }
+        if (typeof _v16ActiveRenderer === 'function') _v16ActiveRenderer();
+    };
+
+    function _odiEnableColumnResize(table) {
+        if (!table || !table.tHead || table.dataset.resizeWired === '1') return;
+        const headerRow = table.tHead.rows && table.tHead.rows[0];
+        if (!headerRow) return;
+        const ths = Array.from(headerRow.cells || []);
+        ths.forEach((th) => {
+            if (th.querySelector('.odi-col-resizer')) return;
+            const handle = document.createElement('span');
+            handle.className = 'odi-col-resizer';
+            handle.title = 'Drag to resize column';
+            handle.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const startX = ev.clientX;
+                const startW = th.getBoundingClientRect().width;
+                const minW = 90;
+                const onMove = (mv) => {
+                    const next = Math.max(minW, startW + (mv.clientX - startX));
+                    th.style.width = next + 'px';
+                    th.style.minWidth = next + 'px';
+                    th.style.maxWidth = next + 'px';
+                };
+                const onUp = () => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+            th.appendChild(handle);
+        });
+        table.dataset.resizeWired = '1';
+    }
+
+    function _odiEnhanceGrid(containerElOrId) {
+        const container = typeof containerElOrId === 'string'
+            ? document.getElementById(containerElOrId)
+            : containerElOrId;
+        if (!container) return;
+        const table = container.querySelector('table');
+        if (!table) return;
+        table.classList.add('odi-grid-table');
+        _odiEnableColumnResize(table);
+    }
+
+    function _v16Grid(headers, rows, keyForCell, viewId) {
+        const sortedRows = _v16SortRows(viewId, rows, headers, keyForCell);
+        const head = '<table class="odi-grid-table" style="font-size:11px">'
             + '<thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">'
-            + headers.map(h => '<th style="padding:6px 8px;text-align:left">' + escapeHtml(h) + '</th>').join('')
+            + headers.map(h => {
+                const marker = _v16SortIndicator(viewId, h);
+                const hAttr = String(h).replace(/'/g, '&#39;');
+                return '<th class="odi-grid-th">'
+                    + '<button type="button" class="odi-sort-btn" onclick="window._v16SortBy(\'' + viewId + '\',\'' + hAttr + '\')">'
+                    + escapeHtml(h) + (marker ? (' ' + marker) : '') + '</button></th>';
+            }).join('')
             + '</tr></thead><tbody>';
-        const body = rows.length
-            ? rows.map(r => '<tr style="border-bottom:1px solid var(--border)">'
+        const body = sortedRows.length
+            ? sortedRows.map(r => '<tr style="border-bottom:1px solid var(--border)">'
                 + headers.map(h => _v16Cell(r[keyForCell(h)] || '')).join('')
                 + '</tr>').join('')
             : '<tr><td colspan="' + headers.length + '" style="padding:10px;color:var(--success)">No rows</td></tr>';
@@ -8446,6 +8623,7 @@ document.addEventListener('DOMContentLoaded', function() {
             area: r['Area / Columns'] || r.target_column || '',
             conclusion: r['Conclusion'] || r.conclusion || '',
             dtype: r['Difference Type'] || r.status || '',
+            severity: r.severity || '',
             dtype_label: (function() {
                 const raw = r['Difference Type'] || r.status || '';
                 const ex = _v16DiffTypeExplain(raw);
@@ -8467,6 +8645,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 delta_status: deltaStatus,
                 issue_state: issueState,
                 dtype: r.difference_type || r['Difference Type'] || '',
+                severity: r.severity || '',
                 dtype_label: (function() {
                     const raw = r.difference_type || r['Difference Type'] || '';
                     const ex = _v16DiffTypeExplain(raw);
@@ -8507,13 +8686,25 @@ document.addEventListener('DOMContentLoaded', function() {
     // full-block cell: scrollable monospace pre (for code-vs-code blocks)
     function _v16Cell(txt) {
         const t = (txt == null) ? '' : String(txt);
-        if (!t) return '<td style="padding:6px 8px;color:var(--text-muted)">&mdash;</td>';
-        return '<td style="padding:6px 8px;vertical-align:top"><pre style="margin:0;max-height:240px;overflow:auto;'
-            + 'white-space:pre;word-break:normal;font-family:monospace;font-size:11px">' + escapeHtml(t) + '</pre></td>';
+        if (!t) return '<td class="odi-grid-td" style="color:var(--text-muted)">&mdash;</td>';
+        return '<td class="odi-grid-td"><pre class="odi-cell-pre">' + escapeHtml(t) + '</pre></td>';
+    }
+
+    function _v16ApplyStickyOffsets(wrapEl) {
+        if (!wrapEl) return;
+        const tabBar = wrapEl.querySelector('.odi-v16-tabbar');
+        const top = tabBar ? Math.ceil(tabBar.getBoundingClientRect().height) : 0;
+        wrapEl.style.setProperty('--odi-head-top', String(top) + 'px');
+        if (tabBar && !wrapEl.__odiStickyTabbarObserver && window.ResizeObserver) {
+            const observer = new ResizeObserver(() => _v16ApplyStickyOffsets(wrapEl));
+            observer.observe(tabBar);
+            wrapEl.__odiStickyTabbarObserver = observer;
+        }
     }
 
     // Mode: ODI #1 + ODI #2 + DRD -> delta + rule-proof (control-table view).
     function _v16RenderDeltaTable(data, tilesEl, shownEl, wrapEl) {
+        wrapEl.style.setProperty('--odi-head-top', '0px');
         const counts = (data.summary && data.summary.delta_status_counts) || {};
         const fixedCount = (counts.FIXED_BY_RESOLVED_RULE_PROOF || 0) + (counts.FIXED_BY_FINAL_COMPARE || 0);
         const tiles = [
@@ -8537,13 +8728,13 @@ document.addEventListener('DOMContentLoaded', function() {
         rows.sort((a, b) => (order[a.delta_status] - order[b.delta_status]) || a.target_column.localeCompare(b.target_column));
         shownEl.textContent = 'showing ' + rows.length + ' actionable of ' + (data.delta || []).length + ' columns';
 
-        const head = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+        const head = '<table class="odi-grid-table" style="font-size:11px">'
             + '<thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">'
-            + '<th style="padding:6px 8px;text-align:left">Target Column</th>'
-            + '<th style="padding:6px 8px;text-align:left">Delta Status</th>'
-            + '<th style="padding:6px 8px;text-align:left">XML Delta</th>'
-            + '<th style="padding:6px 8px;text-align:left">Proof</th>'
-            + '<th style="padding:6px 8px;text-align:left">Fixed Reason / Conclusion</th>'
+            + '<th class="odi-grid-th">Target Column</th>'
+            + '<th class="odi-grid-th">Delta Status</th>'
+            + '<th class="odi-grid-th">XML Delta</th>'
+            + '<th class="odi-grid-th">Proof</th>'
+            + '<th class="odi-grid-th">Fixed Reason / Conclusion</th>'
             + '</tr></thead><tbody>';
         const body = rows.length
             ? rows.map(r => {
@@ -8557,15 +8748,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     : '';
                 const reason = r.fixed_reason || r.original_reason || r.fixed_difference_type || '';
                 return '<tr style="border-bottom:1px solid var(--border)">'
-                    + '<td style="padding:6px 8px;font-family:monospace">' + escapeHtml(r.target_column || '') + '</td>'
-                    + '<td style="padding:6px 8px"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:' + c + ';border:1px solid ' + c + '">' + escapeHtml(r.delta_status || '') + '</span></td>'
-                    + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(r.xml_delta_status || '') + '</td>'
-                    + '<td style="padding:6px 8px">' + proofCell + '</td>'
-                    + '<td style="padding:6px 8px;color:var(--text-muted)">' + escapeHtml(reason) + '</td>'
+                    + '<td class="odi-grid-td odi-grid-td-mono">' + escapeHtml(r.target_column || '') + '</td>'
+                    + '<td class="odi-grid-td"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:' + c + ';border:1px solid ' + c + '">' + escapeHtml(r.delta_status || '') + '</span></td>'
+                    + '<td class="odi-grid-td" style="color:var(--text-muted)">' + escapeHtml(r.xml_delta_status || '') + '</td>'
+                    + '<td class="odi-grid-td">' + proofCell + '</td>'
+                    + '<td class="odi-grid-td" style="color:var(--text-muted)">' + escapeHtml(reason) + '</td>'
                     + '</tr>';
             }).join('')
             : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No actionable delta &mdash; nothing FIXED / STILL_OPEN / REGRESSION between these two ODIs.</td></tr>';
         wrapEl.innerHTML = head + body + '</tbody></table>';
+        _v16ApplyStickyOffsets(wrapEl);
+        _odiEnhanceGrid(wrapEl);
         showToast('v16.6: ' + fixedCount + ' proven-fixed, ' + (counts.STILL_OPEN || 0) + ' still open, ' + (counts.NEW_REGRESSION_BY_FINAL_COMPARE || 0) + ' regression', 'info');
     }
 
@@ -8575,18 +8768,45 @@ document.addEventListener('DOMContentLoaded', function() {
         const diffs = rawDiffs.filter(d => String((d && (d.status || d.dtype)) || '').toUpperCase() !== 'UNCHANGED');
         const isXml = (mode === 'odi1_vs_odi2' || mode === 'odi1_vs_odi2_with_drd');
         let activeSev = null;
+        function _v16NormalizeSeverityName(sev) {
+            const s = String(sev || '').toLowerCase();
+            if (!s) return '';
+            if (s === 'odi_only') return 'odi_extra';
+            return s;
+        }
+        function _v16RowSeverity(r, keyName) {
+            const explicit = _v16NormalizeSeverityName(r && r.severity);
+            if (explicit) return explicit;
+            return _v16SeverityByStatus((r && r[keyName]) || '');
+        }
+        function _v16BucketCountsForRows(rows, opts) {
+            const out = { matched: 0, missing: 0, real_gap: 0, logic_drift: 0, structural: 0, odi_extra: 0 };
+            const cfg = opts || {};
+            (Array.isArray(rows) ? rows : []).forEach(r => {
+                const sev = _v16RowSeverity(r, cfg.keyName || 'status');
+                if (sev && Object.prototype.hasOwnProperty.call(out, sev)) out[sev] += 1;
+            });
+            if (cfg.includeMatched) {
+                const mappingRows = Number(cfg.mappingRows || 0) || 0;
+                out.matched = Math.max(0, mappingRows - out.missing - out.real_gap - out.logic_drift - out.structural);
+            }
+            return out;
+        }
         const tileDiffs = (mode === 'odi1_vs_odi2_with_drd')
             ? diffs.filter(d => d && d.selected !== false)
             : diffs;
-        const bc = _v16BucketCountsFromDiffs(tileDiffs);
+        let currentCounts = _v16BucketCountsFromDiffs(tileDiffs);
         const shownTiles = [
-            { sev:'matched', label:'Matched', val:bc.matched || 0, fg:'#22c55e', bg:'rgba(34,197,94,.10)', bd:'rgba(34,197,94,.30)' },
-            { sev:'missing', label:'Missing', val:bc.missing || 0, fg:'#ef4444', bg:'rgba(239,68,68,.10)', bd:'rgba(239,68,68,.35)' },
-            { sev:'real_gap', label:'Real gap', val:bc.real_gap || 0, fg:'#fb923c', bg:'rgba(251,146,60,.12)', bd:'rgba(251,146,60,.40)' },
-            { sev:'logic_drift', label:'Logic drift', val:bc.logic_drift || 0, fg:'#eab308', bg:'rgba(234,179,8,.12)', bd:'rgba(234,179,8,.40)' },
-            { sev:'structural', label:'Structural', val:bc.structural || 0, fg:'#06b6d4', bg:'rgba(6,182,212,.12)', bd:'rgba(6,182,212,.40)' },
-            { sev:'odi_extra', label:'ODI Extra', val:bc.odi_extra || 0, fg:'#a855f7', bg:'rgba(168,85,247,.10)', bd:'rgba(168,85,247,.35)' },
+            { sev:'matched', label:'Matched', fg:'#22c55e', bg:'rgba(34,197,94,.10)', bd:'rgba(34,197,94,.30)' },
+            { sev:'missing', label:'Missing', fg:'#ef4444', bg:'rgba(239,68,68,.10)', bd:'rgba(239,68,68,.35)' },
+            { sev:'real_gap', label:'Real gap', fg:'#fb923c', bg:'rgba(251,146,60,.12)', bd:'rgba(251,146,60,.40)' },
+            { sev:'logic_drift', label:'Logic drift', fg:'#eab308', bg:'rgba(234,179,8,.12)', bd:'rgba(234,179,8,.40)' },
+            { sev:'structural', label:'Structural', fg:'#06b6d4', bg:'rgba(6,182,212,.12)', bd:'rgba(6,182,212,.40)' },
+            { sev:'odi_extra', label:'ODI Extra', fg:'#a855f7', bg:'rgba(168,85,247,.10)', bd:'rgba(168,85,247,.35)' },
         ];
+        function setTileCounts(nextCounts) {
+            currentCounts = nextCounts || { matched: 0, missing: 0, real_gap: 0, logic_drift: 0, structural: 0, odi_extra: 0 };
+        }
         function renderTiles() {
             tilesEl.style.gridTemplateColumns = 'repeat(' + Math.max(shownTiles.length, 1) + ',1fr)';
             tilesEl.innerHTML = shownTiles.map(t => {
@@ -8595,7 +8815,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const shadow = active ? ('box-shadow:0 0 0 1px ' + t.fg + ' inset;') : '';
                 return '<div class="v16-bigtile" data-v16sev="' + t.sev + '" style="cursor:pointer;padding:10px 12px;border-radius:8px;text-align:center;background:' + t.bg + ';border:1px solid ' + border + ';' + shadow + '">'
                     + '<div style="font-size:11px;color:' + t.fg + '">' + escapeHtml(t.label) + '</div>'
-                    + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + t.val + '</div></div>';
+                    + '<div style="font-size:22px;font-weight:700;color:' + t.fg + '">' + (currentCounts[t.sev] || 0) + '</div></div>';
             }).join('');
             tilesEl.querySelectorAll('.v16-bigtile').forEach(el => {
                 el.addEventListener('click', () => {
@@ -8610,7 +8830,7 @@ document.addEventListener('DOMContentLoaded', function() {
         function filterByActiveSeverity(rows, keyName) {
             const arr = Array.isArray(rows) ? rows.slice() : [];
             if (!activeSev) return arr;
-            return arr.filter(r => _v16SeverityByStatus((r && r[keyName]) || '') === activeSev);
+            return arr.filter(r => _v16RowSeverity(r, keyName) === activeSev);
         }
 
         shownEl.textContent = tileDiffs.length + ' ' + (isXml ? 'differing columns' : 'discrepancies')
@@ -8631,13 +8851,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 'Area / Columns':'area', 'Conclusion':'conclusion', 'Difference Type':'dtype_label',
                 'ODI File 1 XML Logic':'odi1', 'ODI File 2 XML Logic':'odi2', 'Recommended Action':'action'
             }[h]);
-            wrapEl.innerHTML = '<div style="display:flex;gap:8px;margin:0 0 8px 0">'
+            wrapEl.innerHTML = '<div class="odi-v16-tabbar" style="display:flex;gap:8px;margin:0 0 8px 0">'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-cols">ODI1 vs ODI2 Columns</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-sql">ODI1 vs ODI2 SQL Blocks</button>'
                 + '</div><div id="odi-v16-grid"></div>';
+            _v16ApplyStickyOffsets(wrapEl);
             const grid = document.getElementById('odi-v16-grid');
-            const renderCols = () => { grid.innerHTML = _v16Grid(headers, colsRows, key); };
-            const renderSql = () => { grid.innerHTML = _v16Grid(headers, sqlRows, key); };
+            const renderCols = () => {
+                _v16ActiveRenderer = renderCols;
+                setTileCounts(_v16BucketCountsForRows(colsRowsAll, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headers, colsRows, key, 'mode2_cols');
+                _odiEnhanceGrid(grid);
+            };
+            const renderSql = () => {
+                _v16ActiveRenderer = renderSql;
+                setTileCounts(_v16BucketCountsForRows(colsRowsAll, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headers, sqlRows, key, 'mode2_sql');
+                _odiEnhanceGrid(grid);
+            };
             document.getElementById('odi-v16-tab-cols').onclick = renderCols;
             document.getElementById('odi-v16-tab-sql').onclick = renderSql;
             renderCols();
@@ -8695,54 +8928,92 @@ document.addEventListener('DOMContentLoaded', function() {
                 'DRD Mapping Logic':'mapping', 'ODI XML Logic':'odi', 'Conclusion':'conclusion', 'Recommended Action':'action'
             }[h]);
 
-            wrapEl.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px 0">'
+            wrapEl.innerHTML = '<div class="odi-v16-tabbar" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px 0">'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-cols">ODI1 vs ODI2 Columns</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-sql">ODI1 vs ODI2 SQL Blocks</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-unified">Unified Active Issues</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-resolved">Resolved</button>'
                 + '<button class="btn btn-outline btn-sm" id="odi-v16-tab-drd1">DRD vs ODI File 1</button>'
                 + '</div><div id="odi-v16-grid"></div>';
+            _v16ApplyStickyOffsets(wrapEl);
             const grid = document.getElementById('odi-v16-grid');
-            const renderCols = () => { grid.innerHTML = _v16Grid(headersWithDrd, colsRows, keyWithDrd); };
-            const renderSql = () => { grid.innerHTML = _v16Grid(headersWithDrd, sqlRows, keyWithDrd); };
-            const renderUnified = () => { grid.innerHTML = _v16Grid(headersUnified, activeRows, keyUnified); };
-            const renderResolved = () => { grid.innerHTML = _v16Grid(headersUnified, resolvedRows, keyUnified); };
-            const renderDrd1 = () => { grid.innerHTML = _v16Grid(headersDrd, drd1Rows, keyDrd); };
+            const renderCols = () => {
+                _v16ActiveRenderer = renderCols;
+                setTileCounts(_v16BucketCountsForRows(colsRowsAll, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headersWithDrd, colsRows, keyWithDrd, 'mode3_cols');
+                _odiEnhanceGrid(grid);
+                shownEl.textContent = colsRows.length + ' differing columns' + (activeSev ? (' | filtered: ' + activeSev) : '');
+            };
+            const renderSql = () => {
+                _v16ActiveRenderer = renderSql;
+                setTileCounts(_v16BucketCountsForRows(colsRowsAll, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headersWithDrd, sqlRows, keyWithDrd, 'mode3_sql');
+                _odiEnhanceGrid(grid);
+                shownEl.textContent = sqlRows.length + ' differing SQL blocks' + (activeSev ? (' | filtered: ' + activeSev) : '');
+            };
+            const renderUnified = () => {
+                _v16ActiveRenderer = renderUnified;
+                setTileCounts(_v16BucketCountsForRows(activeRows, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headersUnified, activeRows, keyUnified, 'mode3_unified_active');
+                _odiEnhanceGrid(grid);
+                shownEl.textContent = activeRows.length + ' active unified issues' + (activeSev ? (' | filtered: ' + activeSev) : '');
+            };
+            const renderResolved = () => {
+                _v16ActiveRenderer = renderResolved;
+                setTileCounts(_v16BucketCountsForRows(resolvedRows, { keyName: 'dtype' }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headersUnified, resolvedRows, keyUnified, 'mode3_unified_resolved');
+                _odiEnhanceGrid(grid);
+                shownEl.textContent = resolvedRows.length + ' resolved issues' + (activeSev ? (' | filtered: ' + activeSev) : '');
+            };
+            const renderDrd1 = () => {
+                _v16ActiveRenderer = renderDrd1;
+                setTileCounts(_v16BucketCountsForRows(drd1Rows, { keyName: 'dtype', includeMatched: true, mappingRows: data.mapping_rows }));
+                renderTiles();
+                grid.innerHTML = _v16Grid(headersDrd, drd1Rows, keyDrd, 'mode3_drd1');
+                _odiEnhanceGrid(grid);
+                shownEl.textContent = drd1Rows.length + ' discrepancies / ' + (data.mapping_rows || 0) + ' DRD rows' + (activeSev ? (' | filtered: ' + activeSev) : '');
+            };
             document.getElementById('odi-v16-tab-cols').onclick = renderCols;
             document.getElementById('odi-v16-tab-sql').onclick = renderSql;
             document.getElementById('odi-v16-tab-unified').onclick = renderUnified;
             document.getElementById('odi-v16-tab-resolved').onclick = renderResolved;
             document.getElementById('odi-v16-tab-drd1').onclick = renderDrd1;
             renderUnified();
-            shownEl.textContent = colsRows.length + ' ' + (isXml ? 'differing columns' : 'discrepancies') + (activeSev ? (' | filtered: ' + activeSev) : '');
             showToast('v16.6: mode3 grids ready (unified active/resolved + ODI columns/sql + DRD vs ODI1)', 'info');
             return;
         }
 
+        wrapEl.style.setProperty('--odi-head-top', '0px');
         const mapLabel = diffs.length ? (diffs[0].mapping_logic_label || 'Mapping Logic') : 'DRD';
         const odiLabel = diffs.length ? (diffs[0].odi_logic_label || 'ODI Logic') : 'ODI';
-        const head = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+        const head = '<table class="odi-grid-table" style="font-size:11px">'
             + '<thead style="position:sticky;top:0;background:var(--surface)"><tr style="border-bottom:2px solid var(--border)">'
-            + '<th style="padding:6px 8px;text-align:left">Target Column</th>'
-            + '<th style="padding:6px 8px;text-align:left">Status</th>'
-            + '<th style="padding:6px 8px;text-align:left">' + escapeHtml(mapLabel) + '</th>'
-            + '<th style="padding:6px 8px;text-align:left">' + escapeHtml(odiLabel) + '</th>'
-            + '<th style="padding:6px 8px;text-align:left">Conclusion / Action</th>'
+            + '<th class="odi-grid-th">Target Column</th>'
+            + '<th class="odi-grid-th">Status</th>'
+            + '<th class="odi-grid-th">' + escapeHtml(mapLabel) + '</th>'
+            + '<th class="odi-grid-th">' + escapeHtml(odiLabel) + '</th>'
+            + '<th class="odi-grid-th">Conclusion / Action</th>'
             + '</tr></thead><tbody>';
         const filtered = filterByActiveSeverity(diffs, 'status');
         const body = filtered.length
             ? filtered.map(d => {
                 const concl = [d.conclusion, d.recommended_action].filter(Boolean).join(' — ');
                 return '<tr style="border-bottom:1px solid var(--border)">'
-                    + '<td style="padding:6px 8px;font-family:monospace;white-space:nowrap;vertical-align:top">' + escapeHtml(d.target_column || '') + '</td>'
-                    + '<td style="padding:6px 8px;vertical-align:top"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid var(--border)">' + escapeHtml(d.status || '') + '</span></td>'
+                    + '<td class="odi-grid-td odi-grid-td-mono">' + escapeHtml(d.target_column || '') + '</td>'
+                    + '<td class="odi-grid-td"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid var(--border)">' + escapeHtml(d.status || '') + '</span></td>'
                     + _v16Cell(d.mapping_logic)
                     + _v16Cell(d.odi_logic)
-                    + '<td style="padding:6px 8px;color:var(--text-muted);vertical-align:top">' + escapeHtml(concl) + '</td>'
+                    + '<td class="odi-grid-td" style="color:var(--text-muted)">' + escapeHtml(concl) + '</td>'
                     + '</tr>';
             }).join('')
             : '<tr><td colspan="5" style="padding:10px;color:var(--success)">No discrepancies found between these inputs.</td></tr>';
         wrapEl.innerHTML = head + body + '</tbody></table>';
+        _v16ApplyStickyOffsets(wrapEl);
+        _odiEnhanceGrid(wrapEl);
         shownEl.textContent = filtered.length + ' ' + (isXml ? 'differing columns' : 'discrepancies') + (activeSev ? (' | filtered: ' + activeSev) : '');
         showToast('v16.6: ' + filtered.length + ' discrepancies', 'info');
         }
@@ -8836,15 +9107,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         body.innerHTML = rows.map(function(r) {
             return '<tr style="border-bottom:1px solid var(--border)">'
-                + '<td style="padding:5px 8px;white-space:nowrap">' + escapeHtml(r['#'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-family:monospace;font-size:11px">' + escapeHtml(r['Area / Columns'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-size:11px;white-space:nowrap">' + escapeHtml(r['Difference Type'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Mapping Logic'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['ODI XML Logic'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Conclusion'] || '') + '</td>'
-                + '<td style="padding:5px 8px;font-size:11px">' + escapeHtml(r['Recommended Action'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['#'] || '') + '</td>'
+                + '<td class="odi-grid-td odi-grid-td-mono">' + escapeHtml(r['Area / Columns'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['Difference Type'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['Mapping Logic'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['ODI XML Logic'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['Conclusion'] || '') + '</td>'
+                + '<td class="odi-grid-td">' + escapeHtml(r['Recommended Action'] || '') + '</td>'
                 + '</tr>';
         }).join('');
+        _odiEnhanceGrid('odi-v15-diffwrap');
     }
 
     window.v15FilterSeverity = function(sev) {
