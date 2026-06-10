@@ -28,6 +28,7 @@ from app.services.v18_insert import (
     _fix_alias_in_on,
     _nvl_wrap_expr,
     _wrap_projection_in_nvl,
+    _inject_insert_dml_hint,
     _inject_parallel_hint,
     _promote_real_base,
     _read_impl_null_status,
@@ -69,7 +70,7 @@ def test_build_v18_endpoint_avy_clean_insert():
     d = resp.json()
     assert d["engine"] == "v18-insert-builder"
     sql = d["generated_sql"]
-    assert "INSERT INTO" in sql.upper()
+    assert "INSERT" in sql.upper() and "INTO" in sql.upper()
     # schema-qualified target (the schema_kb_sql_gate requires owner.table)
     assert "TRANSACTIONS_OWNER.AVY_FACT" in sql.upper()
     # classification keys present + consistent
@@ -89,7 +90,7 @@ def test_build_v18_helper_classifies_audit_vs_business_stubs():
             target_schema="TAXLOT_OWNER", target_table="CLS_TAX_LOTS_NON_BKR_FACT",
             profile="taxlot",
         )
-        assert "INSERT INTO" in res["generated_sql"].upper()
+        assert "INSERT" in res["generated_sql"].upper() and "INTO" in res["generated_sql"].upper()
         # audit columns must NOT be reported as business stubs; business stubs are
         # the real unresolved mappings Gate V2 must surface.
         audit = set(res["audit_stub_columns"])
@@ -118,8 +119,8 @@ def test_build_v18_retargets_to_control_schema():
             profile="taxlot", control_schema="IKOROSTELEV",
         )
         sql = res["generated_sql"].upper()
-        assert "INSERT INTO IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT" in sql
-        assert "INSERT INTO TAXLOT_OWNER.CLS_TAX_LOTS_NON_BKR_FACT" not in sql
+        assert "INTO IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT" in sql
+        assert "INTO TAXLOT_OWNER.CLS_TAX_LOTS_NON_BKR_FACT" not in sql
         assert res["target"] == "IKOROSTELEV.CLS_TAX_LOTS_NON_BKR_FACT"
         assert res["production_target"] == "TAXLOT_OWNER.CLS_TAX_LOTS_NON_BKR_FACT"
         assert res["control_schema"] == "IKOROSTELEV"
@@ -197,7 +198,7 @@ def test_reorder_joins_noop_when_already_ordered():
 def test_inject_parallel_hint_adds_to_insert_select():
     sql = "INSERT INTO O.T (A)\nSELECT X.c AS A FROM S.X X"
     out = _inject_parallel_hint(sql)
-    assert "SELECT /*+ PARALLEL */" in out
+    assert "SELECT /*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_QUERY */" in out
 
 
 def test_inject_parallel_hint_noop_when_already_hinted():
@@ -205,6 +206,15 @@ def test_inject_parallel_hint_noop_when_already_hinted():
     out = _inject_parallel_hint(sql)
     assert out.count("/*+") == 1
     assert out == sql
+
+
+def test_inject_insert_dml_hint():
+    out = _inject_insert_dml_hint("INSERT INTO O.T (A)\nSELECT X.c AS A FROM S.X X")
+    assert out.startswith("INSERT /*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_DML */ INTO O.T")
+    # MERGE too, and no double-hint
+    assert _inject_insert_dml_hint("MERGE INTO O.T USING S.X ON (1=1)").startswith(
+        "MERGE /*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_DML */ INTO")
+    assert _inject_insert_dml_hint(out) == out          # idempotent
 
 
 # --- V9: stage wide-projection-over-many-joins into a MATERIALIZE'd CTE --------
@@ -222,10 +232,10 @@ def test_stage_projection_rewrites_wide_join_into_materialized_cte():
     sql = _synth_wide_insert(n)
     staged, src_cols, reason = _stage_projection_over_join(sql)
     assert reason is None and staged != sql
-    # one materialized CTE, PARALLEL on BOTH selects (operator: "max parallel per select")
+    # one materialized CTE, parallel-QUERY on BOTH selects (operator hints)
     assert "WITH stg AS (" in staged
-    assert "/*+ MATERIALIZE PARALLEL */" in staged
-    assert "SELECT /*+ PARALLEL */" in staged
+    assert "/*+ MATERIALIZE PARALLEL(DEFAULT) ENABLE_PARALLEL_QUERY */" in staged
+    assert "SELECT /*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_QUERY */" in staged
     assert staged.rstrip().endswith("FROM stg")
     # INSERT target preserved verbatim (so control-schema retarget still matched it)
     assert "INSERT INTO O.TGT (" in staged
@@ -279,7 +289,7 @@ def test_build_v18_stages_avy_but_not_close():
         assert avy["stage_skip_reason"] is None
         assert avy["stage_source_cols"] and avy["stage_source_cols"] > 0
         assert "WITH stg AS (" in avy["generated_sql"]
-        assert "INSERT INTO IKOROSTELEV.AVY_FACT" in avy["generated_sql"].upper()
+        assert "INTO IKOROSTELEV.AVY_FACT" in avy["generated_sql"].upper()
         if CLOSE_DRD.exists():
             close = build_v18_insert_to_dir(
                 CLOSE_DRD, td / "close", target_schema="TAXLOT_OWNER",
@@ -312,7 +322,7 @@ def test_build_v18_resolves_relative_drd_path():
             rel, td / "out", target_schema="TAXLOT_OWNER",
             target_table="CLS_TAX_LOTS_NON_BKR_FACT", profile="taxlot",
         )
-        assert "INSERT INTO" in res["generated_sql"].upper()
+        assert "INSERT" in res["generated_sql"].upper() and "INTO" in res["generated_sql"].upper()
     finally:
         gc.collect()
         shutil.rmtree(td, ignore_errors=True)
@@ -464,7 +474,7 @@ def test_build_v18_imp_otsnd_collapses_to_simple_one_to_one_insert():
         assert "ON 1=1" not in sql.upper().replace("ON  1=1", "ON 1=1")
         assert sql.upper().count(" JOIN ") == 0          # no joins -> pure 1:1
         assert "FROM CCAL_REPL_OWNER.IMP_OTSND_AVY" in sql.upper()
-        assert "INSERT INTO IKOROSTELEV.IMP_OTSND_AVY_FACT" in sql.upper()
+        assert "INTO IKOROSTELEV.IMP_OTSND_AVY_FACT" in sql.upper()
         assert sql.rstrip().endswith(";")                 # terminator preserved
     finally:
         gc.collect()
@@ -508,9 +518,10 @@ def test_coerce_noop_without_resolver_or_kb():
 # --- V14: NVL-wrap the projection by target type (avoid ORA-01400 on NOT NULL) -----
 
 def test_nvl_wrap_expr_by_type():
-    assert _nvl_wrap_expr("X.A", "NUMBER") == "NVL(X.A, 0)"
-    assert _nvl_wrap_expr("X.A", "VARCHAR2") == "NVL(TO_CHAR(X.A), ' ')"   # TO_CHAR avoids NVL(number,' ')
-    assert _nvl_wrap_expr("X.A", "CHAR") == "NVL(TO_CHAR(X.A), ' ')"
+    # non-real sentinels: 0 / blank could be valid data, so NULLs -> -999 / '-999'
+    assert _nvl_wrap_expr("X.A", "NUMBER") == "NVL(X.A, -999)"
+    assert _nvl_wrap_expr("X.A", "VARCHAR2") == "NVL(TO_CHAR(X.A), '-999')"  # TO_CHAR avoids NVL(number,'-999')
+    assert _nvl_wrap_expr("X.A", "CHAR") == "NVL(TO_CHAR(X.A), '-999')"
     assert _nvl_wrap_expr("X.A", "DATE") == "NVL(X.A, DATE '1900-01-01')"
     assert _nvl_wrap_expr("X.A", "TIMESTAMP(6)") == "NVL(X.A, TIMESTAMP '1900-01-01 00:00:00')"
     assert _nvl_wrap_expr("X.A", None) is None
@@ -524,9 +535,9 @@ def test_wrap_projection_in_nvl_wraps_each_column_by_target_type():
     types = {"A": "NUMBER", "B": "NUMBER", "C": "VARCHAR2"}
     out, n = _wrap_projection_in_nvl(sql, "O", "T", lambda o, t, c: types.get(c))
     assert n == 3
-    assert "NVL(AR_DIM.AR_DIM_ID, 0) AS A" in out
-    assert "NVL(NULL, 0) AS B" in out
-    assert "NVL(TO_CHAR(X.NAME), ' ') AS C" in out
+    assert "NVL(AR_DIM.AR_DIM_ID, -999) AS A" in out
+    assert "NVL(NULL, -999) AS B" in out
+    assert "NVL(TO_CHAR(X.NAME), '-999') AS C" in out
     assert out.rstrip().endswith(";")            # terminator preserved
     # the join (not the projection) is untouched
     assert "ON AR_DIM.id = TXN.id" in out

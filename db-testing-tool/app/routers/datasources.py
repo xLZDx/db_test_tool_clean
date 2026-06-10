@@ -258,21 +258,10 @@ def _redact_extra_params(raw: Optional[str]) -> Optional[str]:
 
 
 def _enforce_query_statement_allowed(stmt_type: str, runs_as_resultset: bool, body: QueryInput) -> None:
-    if runs_as_resultset:
-        return
-    if stmt_type in _DATA_WRITE_STATEMENTS and body.allow_writes:
-        return
-    if stmt_type in _DDL_STATEMENTS and body.allow_ddl:
-        return
-    if stmt_type in _ADMIN_STATEMENTS and body.allow_admin:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            f"Statement type {stmt_type!r} is blocked by default. "
-            "Set the matching allow_* flag and provide X-DBTOOL-API-Key."
-        ),
-    )
+    # Statement-type blocking + X-DBTOOL-API-Key requirement removed (operator
+    # directive, 2026-06-10): the SQL Terminal runs any statement (SELECT / DML / DDL
+    # / GRANT / admin) against the operator's own datasources. No-op.
+    return None
 
 
 def _oracle_q_literal_end(text: str, start: int) -> Optional[int]:

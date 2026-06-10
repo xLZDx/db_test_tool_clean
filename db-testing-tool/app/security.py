@@ -33,18 +33,10 @@ def _configured_api_key() -> str:
 
 
 def _verify_api_key_value(value: Optional[str]) -> None:
-    expected = _configured_api_key()
-    if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DBTOOL_API_KEY is required for this high-risk endpoint",
-        )
-    supplied = (value or "").strip()
-    if not hmac.compare_digest(supplied, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing X-DBTOOL-API-Key",
-        )
+    # X-DBTOOL-API-Key validation removed (operator directive, 2026-06-10): this is a
+    # local DB-testing tool against the operator's own datasources; no API key is
+    # required for any endpoint. Kept as a no-op so existing call sites stay valid.
+    return None
 
 
 def require_api_key(x_dbtool_api_key: Optional[str] = Header(default=None)) -> None:
@@ -88,10 +80,9 @@ def _is_public_path(path: str) -> bool:
 
 
 def _auth_mode() -> str:
-    val = (os.getenv("DBTOOL_REQUIRE_AUTH") or "").strip().lower()
-    if val in ("enforce", "warn", "off"):
-        return val
-    return "warn"  # default: log warning but don't block
+    # X-DBTOOL-API-Key auth removed (operator directive, 2026-06-10): always "off" so
+    # the AuthMiddleware never blocks or warns, regardless of DBTOOL_REQUIRE_AUTH.
+    return "off"
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

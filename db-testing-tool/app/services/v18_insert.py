@@ -376,7 +376,12 @@ def _nvl_wrap_expr(val: str, dtype: Optional[str]) -> Optional[str]:
 
     For VARCHAR targets the value is run through ``TO_CHAR`` first so the NVL
     operands are always strings -- this is a no-op on strings but converts a NUMBER
-    expr (a DRD type mismatch), avoiding ``NVL(number, ' ')`` -> ORA-01722."""
+    expr (a DRD type mismatch), avoiding ``NVL(number, '-999')`` -> ORA-01722.
+
+    Defaults are deliberately NON-real sentinels (operator, 2026-06-10): a qty/amt of
+    0 or a blank string could be a VALID value, so a NULL must be replaced by an
+    out-of-domain marker (-999 / '-999' / a sentinel date) that is unambiguously
+    "was NULL", never mistaken for real data."""
     d = (dtype or "").strip().upper()
     if not d:
         return None
@@ -386,11 +391,11 @@ def _nvl_wrap_expr(val: str, dtype: Optional[str]) -> Optional[str]:
         return f"NVL({val}, DATE '1900-01-01')"
     if d in ("NUMBER", "FLOAT", "INTEGER", "INT", "DECIMAL", "NUMERIC",
              "BINARY_FLOAT", "BINARY_DOUBLE", "SMALLINT"):
-        return f"NVL({val}, 0)"
+        return f"NVL({val}, -999)"
     if d in ("VARCHAR2", "VARCHAR", "CHAR", "NVARCHAR2", "NCHAR"):
-        return f"NVL(TO_CHAR({val}), ' ')"
+        return f"NVL(TO_CHAR({val}), '-999')"
     if d in ("CLOB", "NCLOB"):
-        return f"NVL({val}, ' ')"
+        return f"NVL({val}, '-999')"
     return None
 
 
@@ -470,12 +475,29 @@ def _wrap_projection_in_nvl(sql: str, prod_owner: str, prod_table: str, type_res
         return sql, 0
 
 
+# Operator-specified parallel hints (2026-06-10): DML on INSERT/MERGE, QUERY on SELECT.
+_PAR_QUERY = "/*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_QUERY */"
+_PAR_DML = "/*+ PARALLEL(DEFAULT) ENABLE_PARALLEL_DML */"
+
+
+def _inject_insert_dml_hint(sql: str) -> str:
+    """Add the parallel-DML hint to the INSERT/MERGE keyword (operator convention).
+    Run AFTER the control-schema retarget so its `INSERT INTO` regex still matches.
+    No-op if already hinted or no INSERT/MERGE INTO is found."""
+    m = re.search(r"\b(INSERT|MERGE)\s+INTO\b", sql, re.I)
+    if not m:
+        return sql
+    kw_end = m.start() + len(m.group(1))
+    if sql[kw_end:kw_end + 24].lstrip().startswith("/*+"):  # already hinted
+        return sql
+    return sql[:kw_end] + " " + _PAR_DML + sql[kw_end:]
+
+
 def _inject_parallel_hint(sql: str, degree=None) -> str:
-    """Add a PARALLEL hint to the INSERT's SELECT so Oracle uses all CPU on the
-    scan/join (matches the tool's existing PARALLEL(DEFAULT) convention). No-op if
-    the SELECT is already hinted or no INSERT...SELECT is found. Affects EXECUTION
-    DOP, not parse time."""
-    hint = f"/*+ PARALLEL({degree}) */" if degree else "/*+ PARALLEL */"
+    """Add the parallel-QUERY hint to the INSERT's SELECT so Oracle parallelises the
+    scan/join. No-op if the SELECT is already hinted or no INSERT...SELECT is found.
+    Affects EXECUTION DOP, not parse time."""
+    hint = _PAR_QUERY
     m = re.search(r"\)\s*SELECT\b", sql, re.I)
     if not m:
         return sql
@@ -633,8 +655,9 @@ def _stage_projection_over_join(sql: str) -> tuple[str, Optional[int], Optional[
         proj = ",\n       ".join(f"{v} AS {oc}" for v, oc in rebased)
         staged = (
             f"INSERT INTO {target} (\n    " + ",\n    ".join(target_cols) + "\n)\n"
-            f"WITH stg AS (\n    SELECT /*+ MATERIALIZE PARALLEL */\n           {stg_cols}\n    {from_block}\n)\n"
-            f"SELECT /*+ PARALLEL */\n       {proj}\nFROM stg"
+            f"WITH stg AS (\n    SELECT /*+ MATERIALIZE PARALLEL(DEFAULT) ENABLE_PARALLEL_QUERY */"
+            f"\n           {stg_cols}\n    {from_block}\n)\n"
+            f"SELECT {_PAR_QUERY}\n       {proj}\nFROM stg"
         )
         return staged, len(refs), None
     except Exception as exc:  # noqa: BLE001 -- never break the build; fall back to monolith
@@ -817,8 +840,11 @@ def build_v18_insert_to_dir(
     if staged:
         sql = staged_sql
     elif parallel:
-        # Monolith path: PARALLEL hint on the single SELECT (execution DOP).
+        # Monolith path: parallel-QUERY hint on the single SELECT (execution DOP).
         sql = _inject_parallel_hint(sql)
+    # parallel-DML hint on the INSERT keyword (both staged + monolith).
+    if parallel:
+        sql = _inject_insert_dml_hint(sql)
 
     # re-append the terminator stripped above so the emitted SQL ends cleanly
     if _had_semi:

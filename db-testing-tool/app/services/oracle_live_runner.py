@@ -171,6 +171,9 @@ def _statement_allowed(
     allow_admin: bool = False,
     allow_plsql: bool = False,
 ) -> bool:
+    # Statement-type safety gate removed (operator directive, 2026-06-10): any
+    # statement type runs against the operator's own datasources. Always allowed.
+    return True
     if stmt_type == "SELECT" or stmt_type in _READ_ONLY:
         return allow_read
     if stmt_type in _DATA_WRITES:
