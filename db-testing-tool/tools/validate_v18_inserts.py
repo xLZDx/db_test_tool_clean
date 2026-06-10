@@ -62,7 +62,7 @@ _REAL_SQL_ORA = ("ORA-00942", "ORA-00904", "ORA-03048", "ORA-00911", "ORA-00936"
 def select_only(sql: str) -> str | None:
     """Strip ``INSERT INTO owner.table (cols)`` and return the trailing query
     (WITH.../SELECT...), which EXPLAIN-PLANs with only SELECT privilege."""
-    m = re.search(r"\bINSERT\s+INTO\s+[A-Z0-9_$#]+\.[A-Z0-9_$#]+\s*\(", sql, re.I)
+    m = re.search(r"\bINSERT\s+(?:/\*\+[^*]*\*/\s*)?INTO\s+[A-Z0-9_$#]+\.[A-Z0-9_$#]+\s*\(", sql, re.I)
     if not m:
         return None
     p = sql.find("(", m.end() - 1)

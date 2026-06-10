@@ -46,7 +46,8 @@ TARGETS = [
 
 
 def _select_only(sql: str) -> str | None:
-    m = re.search(r"\bINSERT\s+INTO\s+[A-Z0-9_$#]+\.[A-Z0-9_$#]+\s*\(", sql, re.I)
+    # allow an optional parallel-DML hint between INSERT and INTO (INSERT /*+ .. */ INTO)
+    m = re.search(r"\bINSERT\s+(?:/\*\+[^*]*\*/\s*)?INTO\s+[A-Z0-9_$#]+\.[A-Z0-9_$#]+\s*\(", sql, re.I)
     if not m:
         return None
     p = sql.find("(", m.end() - 1)
